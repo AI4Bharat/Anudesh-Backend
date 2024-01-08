@@ -168,7 +168,7 @@ class DatasetBase(models.Model):
     """
 
     # id = models.AutoField(verbose_name="id", primary_key=True)
-    parent_data = models.ForeignKey(
+    prompt_id = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True
     )
     instance_id = models.ForeignKey(DatasetInstance, on_delete=models.CASCADE)

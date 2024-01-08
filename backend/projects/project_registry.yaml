@@ -10,19 +10,17 @@ ModelOutputEvaluation:
           - output
           - model
           - language
-          - eval_output_likert_score
-          - eval_form_output_json
-          - eval_time_taken
+          - interaction_id
       output_dataset:
-        class: PromptAnswerEvaluation
-        save_type: new_record
+        class: PromptAnswer
+        save_type: in_place
         fields:
           copy_from_input:
             id: model_output_id
           annotations:
-            - form_output_json
-            - output_likert_score
-            - time_taken
+            - eval_form_output_json
+            - eval_output_likert_score
+            - eval_time_taken
     ModelInteractionEvaluation:
       input_dataset:
         class: Interaction
@@ -32,8 +30,6 @@ ModelOutputEvaluation:
           - no_of_turns
           - model
           - language
-          - datetime
-          - time_taken
       output_dataset:
         class: PromptAnswer
         save_type: new_record
