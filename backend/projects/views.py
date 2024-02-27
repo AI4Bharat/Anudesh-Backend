@@ -2157,6 +2157,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
         user_obj = User.objects.get(pk=user.id)
         project_id = pk
 
+        if "project_task_ids" in dict(request.query_params).keys():
+            task_ids = request.query_params["project_task_ids"]
+            task_ids = ast.literal_eval(task_ids)
+            tasks = Task.objects.filter(id__in=task_ids)
+
         if "annotation_status" in dict(request.query_params).keys():
             annotation_status = request.query_params["annotation_status"]
             annotation_status = ast.literal_eval(annotation_status)
@@ -2431,6 +2436,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
         else:
             user = request.user
         project_id = pk
+
+        if "project_task_ids" in dict(request.query_params).keys():
+            task_ids = request.query_params["project_task_ids"]
+            task_ids = ast.literal_eval(task_ids)
+            tasks = Task.objects.filter(id__in=task_ids)
 
         if "review_status" in dict(request.query_params).keys():
             review_status = request.query_params["review_status"]
