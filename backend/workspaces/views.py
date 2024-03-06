@@ -1,3 +1,5 @@
+import os
+
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action, permission_classes
@@ -18,6 +20,7 @@ from tasks.models import (
     REVIEWER_ANNOTATION,
     SUPER_CHECKER_ANNOTATION,
 )
+from anudesh_backend.locks import Lock
 from projects.utils import is_valid_date
 from datetime import datetime, timezone, timedelta
 import pandas as pd
@@ -166,6 +169,27 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             )
 
     @action(
+        detail=False,
+        methods=["GET"],
+        name="Unauthenticated Guest Wroskapce",
+        url_path="list_unauthenticated_guest_workspaces",
+    )
+    def list_unauthenticated_guest_workspaces(self, request):
+        try:
+            workspaces = Workspace.objects.filter(members__in=[request.user.pk])
+            this_user_workspace_ids = workspaces.values_list("id", flat=True)
+            guest_workspaces = Workspace.objects.filter(guest_workspace=True).exclude(
+                id__in=this_user_workspace_ids
+            )
+            serializer = WorkspaceSerializer(guest_workspaces, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"message": "Error Fetching guest workspace"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
         detail=True,
         methods=["PUT"],
         name="Guest Authentication",
@@ -178,12 +202,11 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         If the workspace is a guest-workspace, users are allowed to enter with authentication.
         """
         try:
-            workspace = self.get_object()
+            workspace = Workspace.objects.get(id=pk)
         except Workspace.DoesNotExist:
             return Response(
                 {"message": "Workspace not found"}, status=status.HTTP_404_NOT_FOUND
             )
-
         if not workspace.guest_workspace:
             return Response(
                 {"message": "You can enter the workspace."}, status=status.HTTP_200_OK
@@ -192,19 +215,25 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(
             data=request.data, context={"workspace": workspace}
         )
-        serializer.is_valid(raise_exception=True)
+        if not serializer.is_valid(raise_exception=True) or not serializer.validate(
+            request.data
+        ):
+            return Response(
+                {"message": "Authentication failed!"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         return Response(
-            {"message": "Authentication successful. You can enter the workspace."},
+            {"message": "Authentication successful!"},
             status=status.HTTP_200_OK,
         )
 
-    # @action(
-    #     detail=True,
-    #     methods=["PATCH"],
-    #     name="enter_workspace",
-    #     url_name="enter_workspace",
-    # )
+    @action(
+        detail=True,
+        methods=["PATCH"],
+        name="enter_workspace",
+        url_name="enter_workspace",
+    )
     def enter_workspace(self, request, pk=None):
         try:
             # guest user added as a member and an annotator to all projects in a workspace
@@ -224,7 +253,7 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             workspace.members.add(request.user)
             workspace.save()
 
-            projects = Project.objects.filter(workspace=workspace)
+            projects = Project.objects.filter(workspace_id=workspace.id)
             for project in projects:
                 project.annotators.add(request.user)
                 project.save()
@@ -241,6 +270,40 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
                 {"message": "Workspace not found."}, status=status.HTTP_404_NOT_FOUND
             )
 
+    @action(
+        detail=True,
+        methods=["PATCH"],
+        name="change_workspace_password",
+        url_name="change_workspace_password",
+    )
+    @is_particular_workspace_manager
+    def change_workspace_password(self, request, pk=None):
+        try:
+            try:
+                workspace = Workspace.objects.get(id=pk)
+            except Workspace.DoesNotExist:
+                return Response(
+                    {"message": "No such workspace found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if not workspace.guest_workspace:
+                return Response(
+                    {"message": "This is not a guest workspace."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            new_password = request.data.get(
+                "workspace_password", workspace.workspace_password
+            )
+            workspace.set_workspace_password(new_password)
+            workspace.save()
+            return Response(
+                {"message": f"Password changed for {workspace.workspace_name}"}
+            )
+        except Workspace.DoesNotExist:
+            return Response(
+                {"message": "Workspace not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+
     @is_particular_workspace_manager
     def retrieve(self, request, pk=None, *args, **kwargs):
         return super().retrieve(request, *args, **kwargs)
@@ -250,12 +313,22 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         # TODO: Make sure to add the user to the workspace and created_by
         # return super().create(request, *args, **kwargs)
         try:
+            is_guest_workspace = request.data.get("is_guest_workspace", False)
             data = self.serializer_class(data=request.data)
             if data.is_valid():
                 if request.user.organization == data.validated_data["organization"]:
+                    if is_guest_workspace == "True":
+                        Workspace.validate_workspace_password(
+                            request.data.get("workspace_password")
+                        )
                     obj = data.save()
                     obj.members.add(request.user)
                     obj.created_by = request.user
+                    if is_guest_workspace == "True":
+                        workspace_password = request.data.get("workspace_password")
+                        if workspace_password:
+                            obj.set_workspace_password(workspace_password)
+                        obj.guest_workspace = True
                     obj.save()
                     return Response(
                         {"message": "Workspace created!"},
@@ -521,17 +594,54 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
 
         # enable_task_reviews = request.data.get("enable_task_reviews")
         if send_mail == True:
-            send_project_analysis_reports_mail_ws.delay(
-                pk=pk,
-                user_id=user_id,
-                tgt_language=tgt_language,
-                project_type=project_type,
+            task_name = (
+                "send_project_analysis_reports_mail_ws"
+                + str(pk)
+                + str(tgt_language)
+                + str(project_type)
             )
+            celery_lock = Lock(user_id, task_name)
+            try:
+                lock_status = celery_lock.lockStatus()
+            except Exception as e:
+                print(
+                    f"Error while retrieving the status of the lock for {task_name} : {str(e)}"
+                )
+                lock_status = 0  # if lock status is not received successfully, it is assumed that the lock doesn't exist
+            if lock_status == 0:
+                celery_lock_timeout = int(os.getenv("DEFAULT_CELERY_LOCK_TIMEOUT"))
+                try:
+                    celery_lock.setLock(celery_lock_timeout)
+                except Exception as e:
+                    print(f"Error while setting the lock for {task_name}: {str(e)}")
+                send_project_analysis_reports_mail_ws.delay(
+                    pk=pk,
+                    user_id=user_id,
+                    tgt_language=tgt_language,
+                    project_type=project_type,
+                )
 
-            ret_status = status.HTTP_200_OK
-            return Response(
-                {"message": "Email scheduled successfully"}, status=ret_status
-            )
+                ret_status = status.HTTP_200_OK
+                return Response(
+                    {"message": "Email scheduled successfully"}, status=ret_status
+                )
+            else:
+                try:
+                    remaining_time = celery_lock.getRemainingTimeForLock()
+                except Exception as e:
+                    print(
+                        f"Error while retrieving the lock remaining time for {task_name}"
+                    )
+                    return Response(
+                        {"message": f"Your request is already being worked upon"},
+                        status=status.HTTP_200_OK,
+                    )
+                return Response(
+                    {
+                        "message": f"Your request is already being worked upon, you can try again after {remaining_time}"
+                    },
+                    status=status.HTTP_200_OK,
+                )
         else:
             try:
                 ws_owner = ws.created_by.get_username()
@@ -1028,21 +1138,64 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     }
                     return Response(final_response, status=status.HTTP_400_BAD_REQUEST)
 
-            send_user_analysis_reports_mail_ws.delay(
-                pk=pk,
-                user_id=user_id,
-                tgt_language=tgt_language,
-                project_type=project_type,
-                project_progress_stage=project_progress_stage,
-                start_date=start_date,
-                end_date=end_date,
-                is_translation_project=is_translation_project,
-                reports_type=reports_type,
+            task_name = (
+                "send_user_analysis_reports_mail_ws"
+                + str(pk)
+                + str(tgt_language)
+                + str(project_type)
+                + str(project_progress_stage)
+                + str(start_date)
+                + str(end_date)
+                + str(is_translation_project)
+                + str(reports_type)
             )
+            celery_lock = Lock(user_id, task_name)
+            try:
+                lock_status = celery_lock.lockStatus()
+            except Exception as e:
+                print(
+                    f"Error while retrieving the status of the lock for {task_name} : {str(e)}"
+                )
+                lock_status = 0  # if lock status is not received successfully, it is assumed that the lock doesn't exist
+            if lock_status == 0:
+                celery_lock_timeout = int(os.getenv("DEFAULT_CELERY_LOCK_TIMEOUT"))
+                try:
+                    celery_lock.setLock(celery_lock_timeout)
+                except Exception as e:
+                    print(f"Error while setting the lock for {task_name}: {str(e)}")
+                send_user_analysis_reports_mail_ws.delay(
+                    pk=pk,
+                    user_id=user_id,
+                    tgt_language=tgt_language,
+                    project_type=project_type,
+                    project_progress_stage=project_progress_stage,
+                    start_date=start_date,
+                    end_date=end_date,
+                    is_translation_project=is_translation_project,
+                    reports_type=reports_type,
+                )
 
-            return Response(
-                {"message": "Email scheduled successfully"}, status=status.HTTP_200_OK
-            )
+                return Response(
+                    {"message": "Email scheduled successfully"},
+                    status=status.HTTP_200_OK,
+                )
+            else:
+                try:
+                    remaining_time = celery_lock.getRemainingTimeForLock()
+                except Exception as e:
+                    print(
+                        f"Error while retrieving the lock remaining time for {task_name}"
+                    )
+                    return Response(
+                        {"message": f"Your request is already being worked upon"},
+                        status=status.HTTP_200_OK,
+                    )
+                return Response(
+                    {
+                        "message": f"Your request is already being worked upon, you can try again after {remaining_time}"
+                    },
+                    status=status.HTTP_200_OK,
+                )
 
         if reports_type == "review":
             proj_objs = Project.objects.filter(workspace_id=pk)
@@ -2657,18 +2810,56 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
 
         project_type = request.data.get("project_type")
 
-        send_user_reports_mail_ws.delay(
-            ws_id=workspace.id,
-            user_id=user_id,
-            project_type=project_type,
-            participation_types=participation_types,
-            start_date=from_date,
-            end_date=to_date,
+        task_name = (
+            "send_user_reports_mail_ws"
+            + str(workspace.id)
+            + str(project_type)
+            + str(participation_types)
+            + str(from_date)
+            + str(to_date)
         )
+        celery_lock = Lock(user_id, task_name)
+        try:
+            lock_status = celery_lock.lockStatus()
+        except Exception as e:
+            print(
+                f"Error while retrieving the status of the lock for {task_name} : {str(e)}"
+            )
+            lock_status = 0  # if lock status is not received successfully, it is assumed that the lock doesn't exist
+        if lock_status == 0:
+            celery_lock_timeout = int(os.getenv("DEFAULT_CELERY_LOCK_TIMEOUT"))
+            try:
+                celery_lock.setLock(celery_lock_timeout)
+            except Exception as e:
+                print(f"Error while setting the lock for {task_name}: {str(e)}")
 
-        return Response(
-            {"message": "Email scheduled successfully"}, status=status.HTTP_200_OK
-        )
+            send_user_reports_mail_ws.delay(
+                ws_id=workspace.id,
+                user_id=user_id,
+                project_type=project_type,
+                participation_types=participation_types,
+                start_date=from_date,
+                end_date=to_date,
+            )
+
+            return Response(
+                {"message": "Email scheduled successfully"}, status=status.HTTP_200_OK
+            )
+        else:
+            try:
+                remaining_time = celery_lock.getRemainingTimeForLock()
+            except Exception as e:
+                print(f"Error while retrieving the lock remaining time for {task_name}")
+                return Response(
+                    {"message": f"Your request is already being worked upon"},
+                    status=status.HTTP_200_OK,
+                )
+            return Response(
+                {
+                    "message": f"Your request is already being worked upon, you can try again after {remaining_time}"
+                },
+                status=status.HTTP_200_OK,
+            )
 
 
 class WorkspaceusersViewSet(viewsets.ViewSet):
