@@ -300,6 +300,9 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
                 new_password = request.data.get(
                     "workspace_password", workspace.workspace_password
                 )
+                if new_password == None:
+                    new_password ==None
+                
                 workspace.set_workspace_password(new_password)
                 p_flag = True
             if "guest_workspace" in request.data and request.data[
