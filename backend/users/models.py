@@ -9,7 +9,7 @@ import socket
 import jwt
 from datetime import datetime, timedelta
 
-from django.core.mail import send_mail
+from django.core.mail import send_mail, EmailMultiAlternatives
 from django.db import models
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
@@ -21,11 +21,12 @@ from django_celery_beat.models import PeriodicTask
 
 from organizations.models import Organization
 from workspaces.models import Workspace
-from shoonya_backend import settings
+from anudesh_backend import settings
 from dotenv import load_dotenv
 
 from .utils import hash_upload
 from .managers import UserManager
+from utils.email_template import send_email_template
 
 # List of Indic languages
 LANG_CHOICES = (
@@ -95,6 +96,12 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
 
     username = models.CharField(verbose_name="username", max_length=265)
+    password = models.CharField(
+        verbose_name="password",
+        max_length=128,
+        blank=True,
+        default=os.getenv("DEFAULT_PASSWORD"),
+    )
     email = models.EmailField(verbose_name="email_address", unique=True, blank=False)
 
     first_name = models.CharField(verbose_name="first_name", max_length=265, blank=True)
@@ -102,6 +109,70 @@ class User(AbstractBaseUser, PermissionsMixin):
     phone = models.CharField(verbose_name="phone", max_length=256, blank=True)
     profile_photo = models.CharField(
         verbose_name="profile_photo", max_length=256, blank=True
+    )
+    gender_choices = (
+        ("M", "Male"),
+        ("F", "Female"),
+        ("O", "Other"),
+    )
+
+    gender = models.CharField(
+        verbose_name="gender",
+        choices=gender_choices,
+        max_length=1,
+        blank=True,
+        help_text="User enters the Gender (Male/Female/Other)",
+    )
+
+    address = models.TextField(
+        verbose_name="address",
+        blank=True,
+        help_text="User enters the street name and house number",
+    )
+
+    city = models.CharField(
+        verbose_name="city",
+        max_length=255,
+        blank=True,
+        help_text="Indicates the city in which user resides",
+    )
+
+    state = models.CharField(
+        verbose_name="state",
+        max_length=255,
+        blank=True,
+        help_text="Indicates the state in which user resides",
+    )
+
+    pin_code = models.CharField(
+        verbose_name="Pin Code",
+        max_length=10,
+        blank=True,
+        help_text="Indicates the pincode of user",
+    )
+    age = models.CharField(
+        verbose_name="age",
+        max_length=3,
+        blank=True,
+        help_text="Indicates the age of user",
+    )
+
+    qualification = models.TextField(
+        verbose_name="qualification",
+        max_length=255,
+        blank=True,
+        help_text="Indicates the qualification /designation of user",
+    )
+    GUEST_USER_CHOICES = [
+        (True, "Yes"),
+        (False, "No"),
+    ]
+
+    guest_user = models.BooleanField(
+        verbose_name="guest_user",
+        default=True,
+        choices=GUEST_USER_CHOICES,
+        help_text="Indicates whether the user is a guest user.",
     )
 
     role = models.PositiveSmallIntegerField(
@@ -143,6 +214,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         null=True,
         default=list,
+        help_text=("Indicates the language of the user"),
     )
     # languages = models.ManyToManyField(Language, related_name="user_languages", blank=True, help_text=("Languages known by the user."))
 
@@ -193,7 +265,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     unverified_email = models.EmailField(blank=True)
     old_email_update_code = models.CharField(max_length=256, blank=True)
     new_email_verification_code = models.CharField(max_length=256, blank=True)
-
+    notification_limit = models.BigIntegerField(
+        null=True,
+        default=100,
+        help_text=(
+            "Indicates the number of maximum notifications a user will receive."
+        ),
+    )
     objects = UserManager()
 
     EMAIL_FIELD = "email"
@@ -206,6 +284,19 @@ class User(AbstractBaseUser, PermissionsMixin):
         help_text=(
             "Indicates whether user prefers Chitralekha UI for audio transcription tasks or not."
         ),
+    )
+    is_approved = models.BooleanField(
+        verbose_name="is_approved",
+        default=False,
+        help_text=("Indicates whether user is approved by the admin or not."),
+    )
+
+    invited_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=2,
     )
 
     class Meta:
@@ -255,28 +346,34 @@ class User(AbstractBaseUser, PermissionsMixin):
     def is_admin(self):
         return self.role == User.ADMIN
 
-    def send_mail_to_change_password(self, email, key):
-        sent_token = self.generate_reset_token(key)
-        prefix = os.getenv("FRONTEND_URL_FOR_RESET_PASSWORD")
-        link = f"{prefix}/#/forget-password/confirm/{key}/{sent_token}"
-        try:
-            send_mail(
-                "Reset password link for shoonya",
-                f"Hello! Please click on the following link to reset your password - {link}",
-                settings.DEFAULT_FROM_EMAIL,
-                [email],
-            )
-        except SMTPAuthenticationError:
-            raise Exception(
-                "Failed to authenticate with the SMTP server. Check your email settings."
-            )
-        except (
-            SMTPException,
-            socket.gaierror,
-            SMTPRecipientsRefused,
-            SMTPServerDisconnected,
-        ) as e:
-            raise Exception("Failed to send the email. Please try again later.")
+    # def send_mail_to_change_password(self, email, key):
+    #     sent_token = self.generate_reset_token(key)
+    #     prefix = os.getenv("FRONTEND_URL_FOR_RESET_PASSWORD")
+    #     link = f"{prefix}/#/forget-password/confirm/{key}/{sent_token}"
+    #     try:
+    #          subject = "Reset Password Link For Shoonya"
+    # message = f"<p> Hello! Please click on the following link to reset your password - {link} </p>"
+
+    # compiled_code = send_email_template(subject, message)
+    # msg = EmailMultiAlternatives(
+    #     subject,
+    #     compiled_code,
+    #     settings.DEFAULT_FROM_EMAIL,
+    #     [email],
+    # )
+    # msg.attach_alternative(compiled_code, "text/html")
+    # msg.send()
+    #     except SMTPAuthenticationError:
+    #         raise Exception(
+    #             "Failed to authenticate with the SMTP server. Check your email settings."
+    #         )
+    #     except (
+    #         SMTPException,
+    #         socket.gaierror,
+    #         SMTPRecipientsRefused,
+    #         SMTPServerDisconnected,
+    #     ) as e:
+    #         raise Exception("Failed to send the email. Please try again later.")
 
     def generate_reset_token(self, user_id):
         # Setting token expiration time (2 hours)

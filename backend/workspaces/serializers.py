@@ -1,6 +1,5 @@
 from typing_extensions import Required
 from rest_framework import serializers
-
 from .models import *
 from users.models import User
 from users.serializers import UserProfileSerializer
@@ -11,6 +10,7 @@ class WorkspaceSerializer(serializers.ModelSerializer):
     created_by = UserProfileSerializer(read_only=True)
     users = UserProfileSerializer(read_only=True, many=True)
     frozen_users = UserProfileSerializer(read_only=True, many=True)
+    guest_workspace_display = serializers.SerializerMethodField()
 
     class Meta:
         model = Workspace
@@ -23,9 +23,18 @@ class WorkspaceSerializer(serializers.ModelSerializer):
             "created_by",
             "id",
             "created_at",
+            "guest_workspace_display",
             "frozen_users",
             "public_analytics",
         ]
+
+    """Return 'Yes' if guest_workspace is True, otherwise 'No'."""
+
+    def get_guest_workspace_display(self, obj):
+        if obj.guest_workspace:
+            return "Yes"
+        else:
+            return "No"
 
 
 class WorkspaceManagerSerializer(serializers.ModelSerializer):
@@ -57,3 +66,15 @@ class WorkspaceNameSerializer(serializers.ModelSerializer):
     class Meta:
         model = Workspace
         fields = ["id", "workspace_name"]
+
+
+class WorkspacePasswordSerializer(serializers.Serializer):
+    workspace_password = serializers.CharField(write_only=True, required=False)
+
+    def validate(self, data):
+        Workspace_password = data.get("workspace_password")
+        workspace = self.context.get("workspace")
+        if workspace and workspace.guest_workspace:
+            if workspace.match_workspace_password(Workspace_password):
+                return True
+        return False

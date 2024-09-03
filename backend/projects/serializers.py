@@ -36,7 +36,6 @@ class ProjectSerializer(serializers.ModelSerializer):
             "dataset_id",
             "label_config",
             "variable_parameters",
-            "project_mode",
             "required_annotators_per_task",
             "tasks_pull_count_per_batch",
             "max_pending_tasks_per_user",
@@ -47,6 +46,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             "revision_loop_count",
             "k_value",
             "metadata_json",
+            "max_tasks_per_user",
         ]
 
 
@@ -92,7 +92,6 @@ class ProjectSerializerOptimized(serializers.ModelSerializer):
             "dataset_id",
             "label_config",
             "variable_parameters",
-            "project_mode",
             "required_annotators_per_task",
             "tasks_pull_count_per_batch",
             "max_pending_tasks_per_user",

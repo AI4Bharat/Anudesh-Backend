@@ -24,9 +24,9 @@ class BothHttpAndHttpsSchemaGenerator(OpenAPISchemaGenerator):
 
 SchemaView = get_schema_view(
     openapi.Info(
-        title="Shoonya API Docs",
+        title="Anudesh API Docs",
         default_version="v1",
-        description="API documentation for Shoonya Platform.",
+        description="API documentation for Anudesh Platform.",
         terms_of_service="https://www.google.com/policies/terms/",
         contact=openapi.Contact(email="contact@snippets.local"),
         license=openapi.License(name="BSD License"),
@@ -43,6 +43,8 @@ urlpatterns = [
     path("organizations/", include("organizations.urls")),
     path("workspaces/", include("workspaces.urls")),
     # path("/", include("tasks.urls")),
+    path("tasks/", include("tasks.urls")),
+    path("notifications/", include("notifications.urls")),
     path("projects/", include("projects.urls")),
     path("functions/", include("functions.urls")),
     path("data/", include("dataset.urls")),

@@ -19,12 +19,42 @@ class UserLoginSerializer(serializers.Serializer):
 class UserSignUpSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["username", "password", "email"]
+        fields = ["username", "email", "password"]
 
     def update(self, instance, validated_data):
         instance.username = validated_data.get("username")
         instance.has_accepted_invite = True
+        instance.guest_user = False
         instance.set_password(validated_data.get("password"))
+        instance.save()
+        return instance
+
+
+class UsersPendingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+            "email",
+            "role",
+            "invited_by",
+            "has_accepted_invite",
+        ]
+
+    def update(self, instance, validated_data):
+        instance.id = validated_data.get("id", instance.id)
+        instance.username = validated_data.get("username", instance.username)
+        instance.first_name(validated_data.get("first_name", instance.first_name))
+        instance.last_name(validated_data.get("last_name", instance.last_name))
+        instance.email(validated_data.get("email", instance.email))
+        instance.role(validated_data.get("role", instance.role))
+        instance.invited_by(validated_data.get("invited_by", instance.invited_by))
+        instance.has_accepted_invite(
+            validated_data.get("has_accepted_invite", instance.has_accepted_invite)
+        )
         instance.save()
         return instance
 
@@ -42,6 +72,14 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             "languages",
             "availability_status",
             "phone",
+            "gender",
+            "address",
+            "city",
+            "state",
+            "pin_code",
+            "age",
+            "qualification",
+            "guest_user",
             "enable_mail",
             "participation_type",
             "organization",
@@ -66,6 +104,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "phone",
+            "gender",
+            "address",
+            "city",
+            "state",
+            "pin_code",
+            "age",
+            "qualification",
+            "guest_user",
             "profile_photo",
             "role",
             "organization",

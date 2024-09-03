@@ -8,6 +8,7 @@ from .registry_helper import ProjectRegistry
 from django.utils.timezone import now
 from datetime import datetime, timedelta
 from users.models import LANG_CHOICES
+from django.contrib.auth.hashers import make_password, check_password
 
 # from dataset import LANG_CHOICES
 
@@ -30,11 +31,6 @@ SAMPLING_MODE_CHOICES = (
 
 PROJECT_TYPE_LIST = list(ProjectRegistry.get_instance().project_types.keys())
 PROJECT_TYPE_CHOICES = tuple(zip(PROJECT_TYPE_LIST, PROJECT_TYPE_LIST))
-
-Collection = "Collection"
-Annotation = "Annotation"
-
-PROJECT_MODE_CHOICES = ((Collection, "Collection"), (Annotation, "Annotation"))
 
 ANNOTATION_STAGE = 1
 REVIEW_STAGE = 2
@@ -207,12 +203,6 @@ class Project(models.Model):
         help_text=("Project Type indicating the annotation task"),
     )
 
-    project_mode = models.CharField(
-        choices=PROJECT_MODE_CHOICES,
-        max_length=100,
-        help_text=("Mode of the Project - Annotation or Collection"),
-    )
-
     variable_parameters = models.JSONField(
         verbose_name="variable parameters for project",
         null=True,
@@ -276,6 +266,14 @@ class Project(models.Model):
         ),
     )
 
+    max_tasks_per_user = models.IntegerField(
+        verbose_name="max pull count per user",
+        default=-1,
+        help_text=(
+            "Maximum number of tasks that can be assigned to a user. Default is -1, which means all tasks can be assigned"
+        ),
+    )
+
     def clear_expired_lock(self):
         self.lock.filter(expires_at__lt=now()).delete()
 
@@ -318,6 +316,20 @@ class Project(models.Model):
         help_text=("Target language of the project"),
         verbose_name="Target Language",
     )
+
+    project_password = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        help_text=("Password for the Project"),
+    )
+
+    def set_project_password(self, raw_password):
+        self.project_password = make_password(raw_password)
+        self.save()
+
+    def check_project_password(self, raw_password):
+        return check_password(raw_password, self.project_password)
 
     def __str__(self):
         return str(self.title)

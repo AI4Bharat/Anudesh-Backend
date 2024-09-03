@@ -2,12 +2,12 @@ from datetime import timezone
 from locale import normalize
 from urllib.parse import unquote
 import ast
-
+from django.http import JsonResponse
 from rest_framework import viewsets
 from rest_framework import mixins
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view
 from rest_framework.permissions import IsAuthenticated
 from django.core.paginator import Paginator
 
@@ -19,6 +19,11 @@ from tasks.serializers import (
     PredictionSerializer,
     TaskAnnotationSerializer,
 )
+from tasks.utils import compute_meta_stats_for_instruction_driven_chat, query_flower
+from tasks.utils import Queued_Task_name
+from utils.pagination import paginate_queryset
+from notifications.views import createNotification
+from notifications.utils import get_userids_from_project_id
 
 from users.models import User
 from projects.models import Project, REVIEW_STAGE, ANNOTATION_STAGE, SUPERCHECK_STAGE
@@ -26,6 +31,12 @@ from users.utils import generate_random_string
 from utils.convert_result_to_chitralekha_format import (
     convert_result_to_chitralekha_format,
 )
+from utils.llm_checks import (
+    evaluate_prompt_alignment,
+    prompt_lang_check,
+    duplicate_check,
+)
+from utils.llm_interactions import get_model_output
 
 from utils.search import process_search_query
 
@@ -36,6 +47,7 @@ from rapidfuzz.distance import Levenshtein
 import sacrebleu
 
 from utils.date_time_conversions import utc_to_ist
+
 
 # Create your views here.
 
@@ -143,6 +155,11 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                 )
 
         serializer = AnnotationSerializer(annotations, many=True)
+        for i in serializer.data:
+            if len(i["result"]) > 0:
+                if type(i["result"]) == type([]):
+                    if type(i["result"][0]["output"]) == type([]):
+                        i["result"][0]["output"] = i["result"][0]["output"][0]["value"]
         return Response(serializer.data)
 
     @action(detail=True, methods=["get"], url_path="predictions")
@@ -984,16 +1001,71 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
             )
 
     @swagger_auto_schema(
-        method="post",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                "user_id": openapi.Schema(type=openapi.TYPE_INTEGER),
-                "task_type": openapi.Schema(type=openapi.TYPE_STRING),
-            },
-            required=["user_id"],
-        ),
+        method="get",
         manual_parameters=[
+            openapi.Parameter(
+                "user_id",
+                openapi.IN_QUERY,
+                description=(
+                    "A integer refering to the user id for which tasks are to be fetched"
+                ),
+                type=openapi.TYPE_INTEGER,
+                required=False,
+            ),
+            openapi.Parameter(
+                "task_type",
+                openapi.IN_QUERY,
+                description=(
+                    "A string refering to the task type for which tasks are to be fetched"
+                ),
+                type=openapi.TYPE_STRING,
+                required=False,
+            ),
+            openapi.Parameter(
+                "search_Project ID",
+                openapi.IN_QUERY,
+                description=(
+                    "A integer refering to the project id for which tasks are to be fetched"
+                ),
+                type=openapi.TYPE_INTEGER,
+                required=False,
+            ),
+            openapi.Parameter(
+                "search_Task ID",
+                openapi.IN_QUERY,
+                description=(
+                    "A integer refering to the task id for which tasks are to be fetched"
+                ),
+                type=openapi.TYPE_INTEGER,
+                required=False,
+            ),
+            openapi.Parameter(
+                "search_Updated at",
+                openapi.IN_QUERY,
+                description=(
+                    "A integer refering to the updated at time for which tasks are to be fetched"
+                ),
+                type=openapi.TYPE_INTEGER,
+                required=False,
+            ),
+            openapi.Parameter(
+                "search_Annotated at",
+                openapi.IN_QUERY,
+                description=(
+                    "A integer refering to the annotated at time for which tasks are to be fetched"
+                ),
+                type=openapi.TYPE_INTEGER,
+                required=False,
+            ),
+            openapi.Parameter(
+                "search_Created at",
+                openapi.IN_QUERY,
+                description=(
+                    "A integer refering to the created at time for which tasks are to be fetched"
+                ),
+                type=openapi.TYPE_INTEGER,
+                required=False,
+            ),
             openapi.Parameter(
                 "page",
                 openapi.IN_QUERY,
@@ -1019,16 +1091,26 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
     )
     @action(
         detail=False,
-        methods=["POST"],
+        methods=["GET"],
         url_path="annotated_and_reviewed_tasks/get_users_recent_tasks",
         url_name="get_users_recent_tasks",
     )
     def get_users_recent_tasks(self, request):
         try:
-            user_id = request.data.get("user_id")
-            task_type = request.data.get("task_type", "annotation")
+            try:
+                user_id = request.query_params.get("user_id")
+                user = User.objects.filter(id=user_id)[0]
+            except Exception as e:
+                user = request.user
 
-            user = User.objects.get(pk=user_id)
+            task_type = request.query_params.get("task_type", "annotation")
+            project_id = request.query_params.get("search_Project ID", "")
+            task_id = request.query_params.get("search_Task ID", "")
+            updated_at = request.query_params.get("search_Updated at", "")
+            annotated_at = request.query_params.get("search_Annotated at", "")
+            created_at = request.query_params.get("search_Created at", "")
+
+            error_list = []
 
             annotations = Annotation.objects.filter(completed_by=user)
             if task_type == "review":
@@ -1040,6 +1122,44 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
             else:
                 annotations = annotations.filter(annotation_type=ANNOTATOR_ANNOTATION)
 
+            if project_id:
+                try:
+                    annotations = annotations.filter(task__project_id=project_id)
+                except Exception as e:
+                    error_list.append(f"Error filtering by Project ID")
+                    pass
+
+            if task_id:
+                try:
+                    annotations = annotations.filter(task__id=task_id)
+                except Exception as e:
+                    error_list.append(f"Error filtering by Task ID")
+                    pass
+
+            if updated_at:
+                try:
+                    date_obj = datetime.strptime(updated_at, "%d-%m-%Y")
+                    annotations = annotations.filter(updated_at__date=date_obj.date())
+                except Exception as e:
+                    error_list.append(f"Error filtering by updated at date")
+                    pass
+
+            if annotated_at:
+                try:
+                    date_obj = datetime.strptime(annotated_at, "%d-%m-%Y")
+                    annotations = annotations.filter(annotated_at__date=date_obj.date())
+                except Exception as e:
+                    error_list.append(f"Error filtering by annotated at date")
+                    pass
+
+            if created_at:
+                try:
+                    date_obj = datetime.strptime(created_at, "%d-%m-%Y")
+                    annotations = annotations.filter(created_at__date=date_obj.date())
+                except Exception as e:
+                    error_list.append(f"Error filtering by created at date")
+                    pass
+
             annotations = annotations.order_by("-updated_at")
             annotations = self.paginate_queryset(annotations)
 
@@ -1050,11 +1170,22 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     "Project ID": annotation.task.project_id.id,
                     "Task ID": annotation.task.id,
                     "Updated at": utc_to_ist(annotation.updated_at),
+                    "Annotated at": utc_to_ist(annotation.annotated_at)
+                    if annotation.annotated_at
+                    else None,
+                    "Created at": utc_to_ist(annotation.created_at)
+                    if annotation.created_at
+                    else None,
                 }
 
                 response.append(data)
+            if len(error_list) == 0:
+                return self.get_paginated_response({"results": response})
+            else:
+                return self.get_paginated_response(
+                    {"results": response, "errors": error_list}
+                )
 
-            return self.get_paginated_response(response)
         except:
             return Response(
                 {
@@ -1139,6 +1270,41 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                 {"message": "Invalid parameters in request body!"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+def update_notification(annotation_obj, task):
+    project_id = task.project_id.id
+    project_name = task.project_id
+    notification_type = "task_update"
+
+    if annotation_obj.annotation_status == TO_BE_REVISED:
+        title = f"{project_name} : {project_id} Some tasks annotated by you in this project have been sent back for revision"
+        try:
+            notification_ids = get_userids_from_project_id(
+                project_id=project_id,
+                reviewers_bool=True,
+                project_manager_bool=True,
+            )
+            notification_ids_set = list(set(notification_ids))
+            createNotification(
+                title, notification_type, notification_ids_set, project_id, task.id
+            )
+        except Exception as e:
+            print(f"Error in creating notification: {e}")
+
+    elif annotation_obj.annotation_status == REJECTED:
+        title = f"{project_name} : {project_id} Some tasks reviewed by you in this project have been rejected by superchecker"
+        try:
+            notification_ids = get_userids_from_project_id(
+                project_id=project_id,
+                reviewers_bool=True,
+                project_manager_bool=True,
+            )
+            notification_type = "rejected task"
+            notification_ids_set = list(set(notification_ids))
+            createNotification(title, notification_type, notification_ids_set)
+        except Exception as e:
+            print(f"Error in creating notification: {e}")
 
 
 class AnnotationViewSet(
@@ -1291,18 +1457,46 @@ class AnnotationViewSet(
             final_result = {"message": "annotation object does not exist!"}
             ret_status = status.HTTP_404_NOT_FOUND
             return Response(final_result, status=ret_status)
+        try:
+            if str(task.id) != str(request.data["task_id"]):
+                return Response(
+                    {"message": "Task Id does not match the annotation's task id."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except:
+            return Response(
+                {"message": "Missing parameter task_id."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            task = Task.objects.get(pk=request.data["task_id"])
+        except:
+            print("task not found")
 
         auto_save = False
         if "auto_save" in request.data:
-            auto_save = True
+            if request.data["auto_save"] == True:
+                auto_save = True
 
         if annotation_obj.annotation_type == REVIEWER_ANNOTATION:
             is_revised = False
             if annotation_obj.annotation_status == TO_BE_REVISED:
+                update_notification(annotation_obj, task)
                 is_revised = True
+                print(annotation_obj)
+                if "ids" in dict(request.data):
+                    pass
+
+                else:
+                    return Response(
+                        {"message": "key doesnot match"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
         elif annotation_obj.annotation_type == SUPER_CHECKER_ANNOTATION:
             is_rejected = False
             if annotation_obj.annotation_type == REJECTED:
+                update_notification(annotation_obj, task)
                 is_rejected = True
 
         is_acoustic_project_type = (
@@ -1311,7 +1505,6 @@ class AnnotationViewSet(
             == "AcousticNormalisedTranscriptionEditing"
             else False
         )
-
         # Base annotation update
         if annotation_obj.annotation_type == ANNOTATOR_ANNOTATION:
             if request.user not in task.annotation_users.all():
@@ -1319,20 +1512,43 @@ class AnnotationViewSet(
                 ret_status = status.HTTP_403_FORBIDDEN
                 return Response(ret_dict, status=ret_status)
             # need to add few filters here
-
+            is_IDC, output_result = False, ""
             if auto_save:
-                update_fields_list = ["result", "lead_time", "updated_at"]
-                if "cl_format" in request.query_params:
-                    annotation_obj.result = self.convert_chitralekha_format_to_LSF(
-                        request.data["result"],
-                        annotation_obj.task,
-                        is_acoustic_project_type,
-                        is_acoustic_project_type
-                        and annotation_obj.task.project_id.metadata_json[
-                            "acoustic_enabled_stage"
-                        ]
-                        == 1,
+                update_fields_list = ["result", "lead_time", "updated_at", "meta_stats"]
+
+                if (
+                    annotation_obj.task.project_id.project_type
+                    == "InstructionDrivenChat"
+                ):
+                    if isinstance(request.data["result"], str):
+                        output_result = get_llm_output(
+                            request.data["result"],
+                            annotation_obj.task,
+                            annotation_obj,
+                            annotation_obj.task.project_id.metadata_json,
+                        )
+                        if output_result == -1:
+                            ret_dict = {
+                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                            }
+                            ret_status = status.HTTP_403_FORBIDDEN
+                            return Response(ret_dict, status=ret_status)
+                        # store the result of all checks as well
+                        annotation_obj.result.append(
+                            {
+                                "prompt": request.data["result"],
+                                "output": output_result,
+                            }
+                        )
+                    # to handle the delete last chat case
+                    else:
+                        annotation_obj.result = request.data["result"]
+                    annotation_obj.meta_stats = (
+                        compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
+                        )
                     )
+                    is_IDC = True
                 else:
                     annotation_obj.result = request.data["result"]
                 if "annotation_notes" in dict(request.data):
@@ -1343,6 +1559,8 @@ class AnnotationViewSet(
                 annotation_response = Response(
                     AnnotationSerializer(annotation_obj).data
                 )
+                if is_IDC:
+                    annotation_response.data["output"] = output_result
                 response_message = "Success"
             else:
                 if "annotation_status" in dict(request.data) and request.data[
@@ -1375,18 +1593,36 @@ class AnnotationViewSet(
                 if update_annotated_at:
                     annotation_obj.annotated_at = datetime.now(timezone.utc)
                     annotation_obj.save(update_fields=["annotated_at"])
-                if "cl_format" in request.query_params:
-                    request.data["result"] = self.convert_chitralekha_format_to_LSF(
-                        request.data["result"],
-                        annotation_obj.task,
-                        is_acoustic_project_type,
-                        is_acoustic_project_type
-                        and annotation_obj.task.project_id.metadata_json[
-                            "acoustic_enabled_stage"
-                        ]
-                        == 1,
-                    )
+                if (
+                    annotation_obj.task.project_id.project_type
+                    == "InstructionDrivenChat"
+                ):
+                    if isinstance(request.data["result"], str):
+                        ret_dict = {
+                            "message": "Please send the result as list when you are not auto-saving."
+                        }
+                        ret_status = status.HTTP_400_BAD_REQUEST
+                        return Response(ret_dict, status=ret_status)
+                    if (
+                        isinstance(request.data["result"], list)
+                        and isinstance(annotation_obj.result, list)
+                        and len(annotation_obj.result) > len(request.data["result"])
+                    ):
+                        request.data["result"] = annotation_obj.result
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
+                        )
+                    else:
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            request.data["result"]
+                        )
                 annotation_response = super().partial_update(request)
+                if is_IDC:
+                    annotation_response.data["output"] = output_result
                 annotation_id = annotation_response.data["id"]
                 annotation = Annotation.objects.get(pk=annotation_id)
                 task = annotation.task
@@ -1427,20 +1663,42 @@ class AnnotationViewSet(
                 ret_dict = {"message": "You are trying to impersonate another user :("}
                 ret_status = status.HTTP_403_FORBIDDEN
                 return Response(ret_dict, status=ret_status)
-
+            is_IDC, output_result = False, ""
             if auto_save:
-                update_fields_list = ["result", "lead_time", "updated_at"]
-                if "cl_format" in request.query_params:
-                    annotation_obj.result = self.convert_chitralekha_format_to_LSF(
-                        request.data["result"],
-                        annotation_obj.task,
-                        is_acoustic_project_type,
-                        is_acoustic_project_type
-                        and annotation_obj.task.project_id.metadata_json[
-                            "acoustic_enabled_stage"
-                        ]
-                        <= 2,
+                update_fields_list = ["result", "lead_time", "updated_at", "meta_stats"]
+                if (
+                    annotation_obj.task.project_id.project_type
+                    == "InstructionDrivenChat"
+                ):
+                    if isinstance(request.data["result"], str):
+                        output_result = get_llm_output(
+                            request.data["result"],
+                            annotation_obj.task,
+                            annotation_obj,
+                            annotation_obj.task.project_id.metadata_json,
+                        )
+                        if output_result == -1:
+                            ret_dict = {
+                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                            }
+                            ret_status = status.HTTP_403_FORBIDDEN
+                            return Response(ret_dict, status=ret_status)
+                        # store the result of all checks as well
+                        annotation_obj.result.append(
+                            {
+                                "prompt": request.data["result"],
+                                "output": output_result,
+                            }
+                        )
+                    # to handle the delete last chat case
+                    else:
+                        annotation_obj.result = request.data["result"]
+                    annotation_obj.meta_stats = (
+                        compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
+                        )
                     )
+                    is_IDC = True
                 else:
                     annotation_obj.result = request.data["result"]
                 if "review_notes" in dict(request.data):
@@ -1451,6 +1709,8 @@ class AnnotationViewSet(
                 annotation_response = Response(
                     AnnotationSerializer(annotation_obj).data
                 )
+                if is_IDC:
+                    annotation_response.data["output"] = output_result
                 response_message = "Success"
 
             else:
@@ -1522,18 +1782,36 @@ class AnnotationViewSet(
                 if update_annotated_at:
                     annotation_obj.annotated_at = datetime.now(timezone.utc)
                     annotation_obj.save(update_fields=["annotated_at"])
-                if "cl_format" in request.query_params:
-                    request.data["result"] = self.convert_chitralekha_format_to_LSF(
-                        request.data["result"],
-                        annotation_obj.task,
-                        is_acoustic_project_type,
-                        is_acoustic_project_type
-                        and annotation_obj.task.project_id.metadata_json[
-                            "acoustic_enabled_stage"
-                        ]
-                        <= 2,
-                    )
+                if (
+                    annotation_obj.task.project_id.project_type
+                    == "InstructionDrivenChat"
+                ):
+                    if isinstance(request.data["result"], str):
+                        ret_dict = {
+                            "message": "Please send the result as list when you are not auto-saving."
+                        }
+                        ret_status = status.HTTP_400_BAD_REQUEST
+                        return Response(ret_dict, status=ret_status)
+                    if (
+                        isinstance(request.data["result"], list)
+                        and isinstance(annotation_obj.result, list)
+                        and len(annotation_obj.result) > len(request.data["result"])
+                    ):
+                        request.data["result"] = annotation_obj.result
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
+                        )
+                    else:
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            request.data["result"]
+                        )
                 annotation_response = super().partial_update(request)
+                if is_IDC:
+                    annotation_response.data["output"] = output_result
                 annotation_id = annotation_response.data["id"]
                 annotation = Annotation.objects.get(pk=annotation_id)
                 task = annotation.task
@@ -1601,20 +1879,42 @@ class AnnotationViewSet(
                 ret_dict = {"message": "You are trying to impersonate another user :("}
                 ret_status = status.HTTP_403_FORBIDDEN
                 return Response(ret_dict, status=ret_status)
-
+            is_IDC, output_result = False, ""
             if auto_save:
-                update_fields_list = ["result", "lead_time", "updated_at"]
-                if "cl_format" in request.query_params:
-                    annotation_obj.result = self.convert_chitralekha_format_to_LSF(
-                        request.data["result"],
-                        annotation_obj.task,
-                        is_acoustic_project_type,
-                        is_acoustic_project_type
-                        and annotation_obj.task.project_id.metadata_json[
-                            "acoustic_enabled_stage"
-                        ]
-                        <= 3,
+                update_fields_list = ["result", "lead_time", "updated_at", "meta_stats"]
+                if (
+                    annotation_obj.task.project_id.project_type
+                    == "InstructionDrivenChat"
+                ):
+                    if isinstance(request.data["result"], str):
+                        output_result = get_llm_output(
+                            request.data["result"],
+                            annotation_obj.task,
+                            annotation_obj,
+                            annotation_obj.task.project_id.metadata_json,
+                        )
+                        if output_result == -1:
+                            ret_dict = {
+                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                            }
+                            ret_status = status.HTTP_403_FORBIDDEN
+                            return Response(ret_dict, status=ret_status)
+                        # store the result of all checks as well
+                        annotation_obj.result.append(
+                            {
+                                "prompt": request.data["result"],
+                                "output": output_result,
+                            }
+                        )
+                    # to handle the delete last chat case
+                    else:
+                        annotation_obj.result = request.data["result"]
+                    annotation_obj.meta_stats = (
+                        compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
+                        )
                     )
+                    is_IDC = True
                 else:
                     annotation_obj.result = request.data["result"]
                 if "supercheck_notes" in dict(request.data):
@@ -1625,6 +1925,8 @@ class AnnotationViewSet(
                 annotation_response = Response(
                     AnnotationSerializer(annotation_obj).data
                 )
+                if is_IDC:
+                    annotation_response.data["output"] = output_result
                 response_message = "Success"
 
             else:
@@ -1687,18 +1989,36 @@ class AnnotationViewSet(
                 if update_annotated_at:
                     annotation_obj.annotated_at = datetime.now(timezone.utc)
                     annotation_obj.save(update_fields=["annotated_at"])
-                if "cl_format" in request.query_params:
-                    request.data["result"] = self.convert_chitralekha_format_to_LSF(
-                        request.data["result"],
-                        annotation_obj.task,
-                        is_acoustic_project_type,
-                        is_acoustic_project_type
-                        and annotation_obj.task.project_id.metadata_json[
-                            "acoustic_enabled_stage"
-                        ]
-                        <= 3,
-                    )
+                if (
+                    annotation_obj.task.project_id.project_type
+                    == "InstructionDrivenChat"
+                ):
+                    if isinstance(request.data["result"], str):
+                        ret_dict = {
+                            "message": "Please send the result as list when you are not auto-saving."
+                        }
+                        ret_status = status.HTTP_400_BAD_REQUEST
+                        return Response(ret_dict, status=ret_status)
+                    if (
+                        isinstance(request.data["result"], list)
+                        and isinstance(annotation_obj.result, list)
+                        and len(annotation_obj.result) > len(request.data["result"])
+                    ):
+                        request.data["result"] = annotation_obj.result
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
+                        )
+                    else:
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            request.data["result"]
+                        )
                 annotation_response = super().partial_update(request)
+                if is_IDC:
+                    annotation_response.data["output"] = output_result
                 annotation_id = annotation_response.data["id"]
                 annotation = Annotation.objects.get(pk=annotation_id)
 
@@ -2009,3 +2329,126 @@ class SentenceOperationViewSet(viewsets.ViewSet):
                 {"message": "Invalid parameters in request body!"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+
+def get_llm_output(prompt, task, annotation, project_metadata_json):
+    # CHECKS
+    intent = task.data["meta_info_intent"]
+    domain = task.data["meta_info_domain"]
+    lang_type = task.data["meta_info_language"]
+    ann_result = (
+        json.loads(annotation.result)
+        if isinstance(annotation.result, str)
+        else annotation.result
+    )
+    project_metadata = (
+        json.loads(project_metadata_json)
+        if isinstance(project_metadata_json, str)
+        else project_metadata_json
+    )
+    if prompt in [None, "Null", 0, "None", "", " "]:
+        return -1
+    intentDomain_test, lang_test, duplicate_test = False, False, False
+    if project_metadata:
+        if (
+            "intentDomain_test" in project_metadata
+            and project_metadata["intentDomain_test"] == "True"
+        ):
+            intentDomain_test = True
+        if (
+            "lang_check" in project_metadata
+            and project_metadata["lang_check"] == "True"
+        ):
+            lang_test = True
+        if (
+            "duplicate_check" in project_metadata
+            and project_metadata["duplicate_check"] == "True"
+        ):
+            duplicate_test = True
+
+    if len(ann_result) == 0 and intentDomain_test and intent and domain:
+        intent_check, domain_check, reason = evaluate_prompt_alignment(
+            prompt, domain, intent
+        )
+    # if lang_type and lang_test:
+    #     lang_check = prompt_lang_check(prompt, lang_type)
+    if len(ann_result) > 0 and duplicate_test:
+        dup_check = duplicate_check(ann_result, prompt)
+
+    # GET MODEL OUTPUT
+    history = ann_result
+    model = task.data["model"]
+    model_output = get_model_output(
+        "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text. wherever required.",
+        prompt,
+        history,
+        model,
+    )
+    res = format_model_output(model_output)
+    if res in [None, "Null", 0, "None", "", " "]:
+        return -1
+    return res
+
+
+def format_model_output(model_output):
+    result = ""
+    if isinstance(model_output, list):
+        for o in model_output:
+            try:
+                result += o["value"]
+            except KeyError as k:
+                continue
+        return result
+    else:
+        return model_output
+
+
+@swagger_auto_schema(
+    method="get",
+    operation_description="Get a list of Celery tasks with an optional filter by task state. use State = 'FAILURE' for retrieving failed tasks, State = 'SUCCESS' for retrieving successful tasks, State = 'STARTED' for retrieving active tasks and State = None for all retrieving tasks",
+    responses={
+        200: "Success",
+        400: "Bad Request",
+    },
+    manual_parameters=[
+        openapi.Parameter(
+            name="state",
+            in_=openapi.IN_QUERY,
+            type=openapi.TYPE_STRING,
+            description="Filter tasks by state",
+            required=False,
+        ),
+    ],
+)
+@api_view(["GET"])
+def get_celery_tasks(request):
+    filters = request.GET
+    filtered_tasks = query_flower(filters)
+    for i in filtered_tasks:
+        if filtered_tasks[i]["name"] in Queued_Task_name:
+            filtered_tasks[i]["name"] = Queued_Task_name[filtered_tasks[i]["name"]]
+    for i in filtered_tasks:
+        if filtered_tasks[i]["succeeded"] is not None:
+            filtered_tasks[i]["succeeded"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["succeeded"]
+            ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        if filtered_tasks[i]["failed"] is not None:
+            filtered_tasks[i]["failed"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["failed"]
+            ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        if filtered_tasks[i]["started"] is not None:
+            filtered_tasks[i]["started"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["started"]
+            ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        if filtered_tasks[i]["received"] is not None:
+            filtered_tasks[i]["received"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["received"]
+            ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+    if "error" in filtered_tasks:
+        return JsonResponse({"message": filtered_tasks["error"]}, status=503)
+    page_number = request.GET.get("page")
+    page_size = int(request.GET.get("page_size", 10))
+    data = paginate_queryset(filtered_tasks, page_number, page_size)
+    return JsonResponse(data["results"], safe=False)

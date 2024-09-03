@@ -15,6 +15,11 @@ DATASET_TYPE_CHOICES = [
     ("BlockText", "BlockText"),
     ("Conversation", "Conversation"),
     ("SpeechConversation", "SpeechConversation"),
+    ("PromptBase", "PromptBase"),
+    ("PromptAnswer", "PromptAnswer"),
+    ("PromptAnswerEvaluation", "PromptAnswerEvaluation"),
+    ("Interaction", "Interaction"),
+    ("Instruction", "Instruction"),
 ]
 
 GENDER_CHOICES = (("M", "Male"), ("F", "Female"), ("O", "Others"))
@@ -84,6 +89,42 @@ ALLOWED_CELERY_TASKS = [
     "projects.tasks.export_project_new_record",
     "projects.tasks.export_project_in_place",
 ]
+
+LANGUAGE_CHOICES = [
+    ("English", "English"),
+    ("Assamese", "Assamese"),
+    ("Bengali", "Bengali"),
+    ("Bodo", "Bodo"),
+    ("Dogri", "Dogri"),
+    ("Gujarati", "Gujarati"),
+    ("Hindi", "Hindi"),
+    ("Kannada", "Kannada"),
+    ("Kashmiri", "Kashmiri"),
+    ("Konkani", "Konkani"),
+    ("Maithili", "Maithili"),
+    ("Malayalam", "Malayalam"),
+    ("Manipuri", "Manipuri"),
+    ("Marathi", "Marathi"),
+    ("Nepali", "Nepali"),
+    ("Odia", "Odia"),
+    ("Punjabi", "Punjabi"),
+    ("Sanskrit", "Sanskrit"),
+    ("Santali", "Santali"),
+    ("Sindhi", "Sindhi"),
+    ("Sinhala", "Sinhala"),
+    ("Tamil", "Tamil"),
+    ("Telugu", "Telugu"),
+    ("Urdu", "Urdu"),
+]
+
+LANGUAGE_CHOICES_INSTRUCTIONS = (
+    ("1", "English(Any script)"),
+    ("2", "Indic(Indic script)"),
+    ("3", "Indic(Latin script)"),
+    ("4", "Indic/English(Latin script)"),
+)
+
+LLM_CHOICES = (("GPT3.5", "GPT3.5"), ("GPT4", "GPT4"), ("LLAMA2", "LLAMA2"))
 
 
 class DatasetInstance(models.Model):
@@ -607,3 +648,201 @@ D10 = TranslationPair
 #     sentence = models.TextField()
 #     gloss_sequence = models.TextField()
 #     duration = models.TimeField()
+
+
+class Instruction(DatasetBase):
+    """
+    Subclass model for Instructions
+    """
+
+    meta_info_model = models.CharField(
+        max_length=255,
+        verbose_name="Meta Info Model",
+        default="GPT3.5",
+        choices=LLM_CHOICES,
+        help_text="Model information for the instruction",
+    )
+    meta_info_auto_generated = models.BooleanField(
+        verbose_name="Meta Info Auto Generated",
+        null=True,
+        blank=True,
+        help_text="Whether the instruction has been auto-generated",
+    )
+    meta_info_intent = models.CharField(
+        max_length=255,
+        verbose_name="Meta Info Intent",
+        help_text="Intent information for the instruction",
+    )
+    meta_info_domain = models.CharField(
+        max_length=255,
+        verbose_name="Meta Info Domain",
+        help_text="Domain information for the instruction",
+    )
+    meta_info_structure = models.CharField(
+        max_length=255,
+        verbose_name="Meta Info Structure",
+        null=True,
+        blank=True,
+        help_text="Structure information for the instruction",
+    )
+    meta_info_language = models.CharField(
+        max_length=20,
+        choices=LANGUAGE_CHOICES_INSTRUCTIONS,
+        verbose_name="Meta Info Language",
+        help_text="Language of the instruction",
+    )
+    instruction_data = models.TextField(verbose_name="Instruction_data")
+    examples = models.TextField(verbose_name="Examples")
+    hint = models.TextField(verbose_name="Hint")
+
+    def __str__(self):
+        return f"{self.id} - {self.instruction_data}"
+
+
+class Interaction(DatasetBase):
+    """
+    Subclass model for Interactions
+    """
+
+    instruction_id = models.ForeignKey(
+        Instruction,
+        on_delete=models.CASCADE,
+        verbose_name="Instruction ID",
+        help_text="ID of the related instruction",
+    )
+    interactions_json = models.JSONField(verbose_name="Interactions JSON")
+    no_of_turns = models.IntegerField(
+        verbose_name="Number of Turns",
+        help_text="Number of turns in the interaction",
+        null=True,
+        blank=True,
+    )
+    language = models.CharField(
+        max_length=20,
+        choices=LANGUAGE_CHOICES,
+        verbose_name="Language",
+        help_text="Language of the interaction",
+    )
+    model = models.CharField(
+        max_length=255, verbose_name="Model", help_text="Model used for the interaction"
+    )
+    datetime = models.DateTimeField(
+        verbose_name="Datetime", help_text="Timestamp of the interaction"
+    )
+    time_taken = models.FloatField(
+        verbose_name="Time Taken", help_text="Time taken for the interaction"
+    )
+
+    def __str__(self):
+        return f"{self.id} - Interaction with Instruction {self.instruction_id_id}"
+
+
+class PromptBase(DatasetBase):
+    """
+    Dataset for storing prompt data
+    """
+
+    prompt = models.TextField(
+        verbose_name="prompt",
+        null=True,
+        blank=True,
+        help_text=("Prompt of the conversation"),
+    )
+    instruction_id = models.ForeignKey(
+        Instruction, on_delete=models.CASCADE, null=True, blank=True
+    )
+    language = models.CharField(
+        verbose_name="language", choices=LANG_CHOICES, max_length=15
+    )
+
+    def __str__(self):
+        return str(self.id)
+
+
+class PromptAnswer(DatasetBase):
+    """
+    Dataset for storing prompt response data
+    """
+
+    interaction_id = models.ForeignKey(
+        Interaction, on_delete=models.CASCADE, null=True, blank=True
+    )
+    prompt = models.TextField(
+        verbose_name="prompt",
+        null=True,
+        blank=True,
+        help_text=("Prompt of the conversation"),
+    )
+    output = models.TextField(
+        verbose_name="response",
+        null=True,
+        blank=True,
+        help_text=("Response of the conversation"),
+    )
+    model = models.CharField(
+        verbose_name="model",
+        max_length=16,
+        help_text=("Model of the response"),
+        choices=LLM_CHOICES,
+    )
+    language = models.CharField(
+        verbose_name="language", choices=LANG_CHOICES, max_length=15
+    )
+    eval_form_output_json = models.JSONField(
+        verbose_name="evaluation_form_output",
+        null=True,
+        blank=True,
+        help_text=("Form output of the prompt response (JSON)"),
+    )
+    eval_time_taken = models.FloatField(
+        verbose_name="evaluation_time_taken",
+        null=True,
+        blank=True,
+        help_text=("Time taken to complete the prompt response"),
+    )
+    prompt_output_pair_id = models.CharField(
+        verbose_name="prompt_output_pair_id",
+        max_length=16,
+        help_text=("prompt_output_pair_id"),
+        null=True,
+    )
+
+    def __str__(self):
+        return str(self.id)
+
+
+class PromptAnswerEvaluation(DatasetBase):
+    """
+    Dataset for storing prompt response evaluation data
+    """
+
+    model_output_id = models.ForeignKey(
+        PromptAnswer, on_delete=models.CASCADE, null=True, blank=True
+    )
+    output_likert_score = models.IntegerField(
+        verbose_name="prompt_response_rating",
+        null=True,
+        blank=True,
+        help_text=("Rating of the prompt response"),
+    )
+    form_output_json = models.JSONField(
+        verbose_name="form_output",
+        null=True,
+        blank=True,
+        help_text=("Form output of the prompt response (JSON)"),
+    )
+    datetime = models.DateTimeField(
+        verbose_name="datetime",
+        null=True,
+        blank=True,
+        help_text=("Date and time of the prompt response"),
+    )
+    time_taken = models.FloatField(
+        verbose_name="time_taken",
+        null=True,
+        blank=True,
+        help_text=("Time taken to complete the prompt response"),
+    )
+
+    def __str__(self):
+        return str(self.id)

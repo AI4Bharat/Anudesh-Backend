@@ -1,5 +1,10 @@
 import ast
 import json
+import os
+
+from azure.storage.blob import BlobServiceClient
+
+from anudesh_backend.locks import Lock
 from urllib import request
 
 from dataset import models as dataset_models
@@ -7,7 +12,8 @@ from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from projects.models import *
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from users.utils import (
     INDIC_TRANS_SUPPORTED_LANGUAGES,
@@ -16,6 +22,8 @@ from users.utils import (
 )
 
 from tasks.models import *
+from utils.blob_functions import test_container_connection
+from utils.llm_interactions import get_model_output
 
 from .tasks import (
     conversation_data_machine_translation,
@@ -696,25 +704,72 @@ def schedule_project_reports_email(request):
     except KeyError:
         language = "NULL"
 
-    schedule_mail_for_project_reports.delay(
-        project_type,
-        user_id,
-        anno_stats,
-        meta_stats,
-        complete_stats,
-        workspace_level_reports,
-        organization_level_reports,
-        dataset_level_reports,
-        wid,
-        oid,
-        did,
-        language,
+    # name of the task is the same as the name of the celery function + all the parameters that are passed to it
+    uid = request.user.id
+    task_name = (
+        "schedule_mail_for_project_reports"
+        + str(project_type)
+        + str(anno_stats)
+        + str(meta_stats)
+        + str(complete_stats)
+        + str(workspace_level_reports)
+        + str(organization_level_reports)
+        + str(dataset_level_reports)
+        + str(wid)
+        + str(oid)
+        + str(did)
+        + str(language)
     )
+    celery_lock = Lock(uid, task_name)
+    try:
+        lock_status = celery_lock.lockStatus()
+    except Exception as e:
+        print(
+            f"Error while retrieving the status of the lock for {task_name} : {str(e)}"
+        )
+        lock_status = 0  # if lock status is not received successfully, it is assumed that the lock doesn't exist
 
-    return Response(
-        {"message": "You will receive an email with the reports shortly"},
-        status=status.HTTP_200_OK,
-    )
+    if lock_status == 0:
+        celery_lock_timeout = int(os.getenv("DEFAULT_CELERY_LOCK_TIMEOUT"))
+        try:
+            celery_lock.setLock(celery_lock_timeout)
+        except Exception as e:
+            print(f"Error while setting the lock for {task_name}: {str(e)}")
+
+        schedule_mail_for_project_reports.delay(
+            project_type,
+            user_id,
+            anno_stats,
+            meta_stats,
+            complete_stats,
+            workspace_level_reports,
+            organization_level_reports,
+            dataset_level_reports,
+            wid,
+            oid,
+            did,
+            language,
+        )
+
+        return Response(
+            {"message": "You will receive an email with the reports shortly"},
+            status=status.HTTP_200_OK,
+        )
+    else:
+        try:
+            remaining_time = celery_lock.getRemainingTimeForLock()
+        except Exception as e:
+            print(f"Error while retrieving the lock remaining time for {task_name}")
+            return Response(
+                {"message": f"Your request is already being worked upon"},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {
+                "message": f"Your request is already being worked upon, you can try again after {remaining_time}"
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 @api_view(["POST"])
@@ -759,12 +814,110 @@ def download_all_projects(request):
         }
         return Response(final_response, status=status.HTTP_401_UNAUTHORIZED)
 
-    schedule_mail_to_download_all_projects.delay(
-        workspace_level_projects, dataset_level_projects, wid, did, user_id
+    # Checking lock status, name parameter of the lock is the name of the celery function + all of it's parameters in string form
+    task_name = (
+        "schedule_mail_to_download_all_projects"
+        + str(workspace_level_projects)
+        + str(dataset_level_projects)
+        + str(wid)
+        + str(did)
     )
 
+    celery_lock = Lock(user_id, task_name)
+    try:
+        lock_status = celery_lock.lockStatus()
+    except Exception as e:
+        print(
+            f"Error while retrieving the status of the lock for {task_name} : {str(e)}"
+        )
+        lock_status = 0  # if lock status is not received successfully, it is assumed that the lock doesn't exist
+
+    if lock_status == 0:
+        schedule_mail_to_download_all_projects.delay(
+            workspace_level_projects=workspace_level_projects,
+            dataset_level_projects=dataset_level_projects,
+            wid=wid,
+            did=did,
+            user_id=user_id,
+        )
+
+        return Response(
+            {"message": "You will receive an email with the download link shortly"},
+            status=status.HTTP_200_OK,
+        )
+        pass
+    else:
+        try:
+            remaining_time = celery_lock.getRemainingTimeForLock()
+        except Exception as e:
+            print(f"Error while retrieving the lock remaining time for {task_name}")
+            return Response(
+                {"message": f"Your request is already being worked upon"},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {
+                "message": f"Your request is already being worked upon, you can try again after {remaining_time}"
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@permission_classes([AllowAny])
+@api_view(["POST"])
+def chat_log(request):
+    try:
+        interaction_json = request.data.get("interaction_json")
+        now = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+        connection_string = os.getenv("CONNECTION_STRING_CHAT_LOG")
+        container_name = os.getenv("CONTAINER_CHAT_LOG")
+        if not test_container_connection(connection_string, container_name):
+            return Response(
+                {
+                    "message": "Failed to establish the connection with the blob container"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        blob_service_client = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+        container_client = blob_service_client.get_container_client(container_name)
+        name = f"{now} Anudesh interactions dump.log"
+        blob_client = container_client.get_blob_client(name)
+        if blob_client.exists():
+            existing_data = blob_client.download_blob()
+            existing_content = existing_data.readall().decode("utf-8")
+            existing_json_data = json.loads(existing_content)
+            existing_json_data += interaction_json
+        else:
+            existing_json_data = json.dumps(interaction_json, indent=2)
+        blob_client.upload_blob(existing_json_data, overwrite=True)
+        return Response(
+            {"message": "Data stored successfully"},
+            status=status.HTTP_201_CREATED,
+        )
+    except Exception as e:
+        return Response(
+            {"message": "Failed to store data", "error": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@permission_classes([AllowAny])
+@api_view(["POST"])
+def chat_output(request):
+    prompt = request.data.get("message")
+    history = request.data.get("history", "")
+    model = request.data.get("model", "GPT3.5")
     return Response(
-        {"message": "You will receive an email with the download link shortly"},
+        {
+            "message": get_model_output(
+                "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
+                "bullet or numberings etc. suitably for code or the text. wherever required.",
+                prompt,
+                history,
+                model,
+            )
+        },
         status=status.HTTP_200_OK,
     )
-    pass
