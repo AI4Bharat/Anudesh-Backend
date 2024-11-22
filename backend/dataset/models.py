@@ -109,7 +109,7 @@ LANGUAGE_CHOICES = [
     ("Sinhala", "Sinhala"),
     ("Tamil", "Tamil"),
     ("Telugu", "Telugu"),
-    ("Urdu", "Urdu"),
+    ("Thai", "Thao")("Urdu", "Urdu"),
 ]
 
 LANGUAGE_CHOICES_INSTRUCTIONS = (
