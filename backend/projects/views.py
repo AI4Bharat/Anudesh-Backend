@@ -2314,6 +2314,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     annotation_status="unreviewed",
                     parent_annotation=rec_ann[0],
                     annotation_type=REVIEWER_ANNOTATION,
+                    annotation_notes=rec_ann[0].annotation_notes,
                 )
                 try:
                     base_annotation_obj.save()
