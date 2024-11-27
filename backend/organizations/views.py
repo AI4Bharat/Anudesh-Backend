@@ -51,6 +51,7 @@ from .tasks import (
     send_project_analytics_mail_org,
     send_user_analytics_mail_org,
 )
+from projects.registry_helper import ProjectRegistry
 
 
 def get_task_count(proj_ids, status, annotator, return_count=True):
@@ -2138,6 +2139,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 )
 
         project_type = request.data.get("project_type")
+        pr = ProjectRegistry.get_instance()
+        if project_type not in pr.project_types.keys():
+            return Response(
+                {"message": "This project type does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         send_user_reports_mail_org.delay(
             org_id=organization.id,
