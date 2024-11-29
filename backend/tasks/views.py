@@ -1683,6 +1683,9 @@ class AnnotationViewSet(
                         )
                         if review_annotation.annotation_status == TO_BE_REVISED:
                             review_annotation.annotation_status = UNREVIEWED
+                            review_annotation.annotation_notes = (
+                                annotation.annotation_notes
+                            )
                             review_annotation.save()
                     except:
                         pass
