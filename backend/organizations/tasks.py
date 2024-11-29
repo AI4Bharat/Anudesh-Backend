@@ -70,10 +70,33 @@ def get_all_annotation_reports(
             completed_by=userid,
             updated_at__range=[start_date, end_date],
         )
-
+    total_rev_annos = Annotation.objects.filter(
+        parent_annotation__in=submitted_tasks,
+        annotation_status__in=[
+            "accepted",
+            "accepted_with_minor_changes",
+            "accepted_with_major_changes",
+        ],
+    )
     submitted_tasks_count = submitted_tasks.count()
 
-    project_type_lower = project_type.lower()
+    total_word_error_rate_ar_list = []
+    if project_type in "InstructionDrivenChat":
+        for anno in total_rev_annos:
+            try:
+                total_word_error_rate_ar_list.append(
+                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                        anno.result, anno.parent_annotation.result
+                    )
+                )
+            except:
+                pass
+    if len(total_word_error_rate_ar_list) > 0:
+        avg_word_error_rate_ar = sum(total_word_error_rate_ar_list) / len(
+            total_word_error_rate_ar_list
+        )
+    else:
+        avg_word_error_rate_ar = 0
 
     result = {
         "Name": userName,
@@ -84,6 +107,8 @@ def get_all_annotation_reports(
         "Submitted Tasks": submitted_tasks_count,
         "Language": user_lang,
     }
+    if project_type in "InstructionDrivenChat":
+        result["Average Word Error Rate A/R"] = round(avg_word_error_rate_ar, 2)
 
     return result
 
