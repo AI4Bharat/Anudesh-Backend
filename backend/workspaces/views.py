@@ -34,7 +34,7 @@ from projects.utils import (
     get_audio_project_types,
     get_audio_transcription_duration,
     get_audio_segments_count,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
     get_translation_dataset_project_types,
     convert_hours_to_seconds,
     ocr_word_count,
@@ -901,7 +901,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                                     )
                                 )
                                 total_word_error_rate_ar_list.append(
-                                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                    calculate_word_error_rate_between_two_llm_prompts(
                                         review_annotation.result,
                                         review_annotation.parent_annotation.result,
                                     )
@@ -935,7 +935,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                                     )
                                 )
                                 total_word_error_rate_rs_list.append(
-                                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                    calculate_word_error_rate_between_two_llm_prompts(
                                         supercheck_annotation.result,
                                         supercheck_annotation.parent_annotation.result,
                                     )

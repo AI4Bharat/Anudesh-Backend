@@ -74,7 +74,7 @@ from .utils import (
     get_audio_project_types,
     get_audio_transcription_duration,
     get_audio_segments_count,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
 )
 
 from workspaces.decorators import is_particular_workspace_manager
@@ -281,7 +281,7 @@ def get_review_reports(proj_id, userid, start_date, end_date):
         for anno in total_superchecked_annos:
             try:
                 total_word_error_rate_rs_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -290,7 +290,7 @@ def get_review_reports(proj_id, userid, start_date, end_date):
         for anno in total_reviewed_annos:
             try:
                 total_word_error_rate_ar_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -582,7 +582,7 @@ def get_supercheck_reports(proj_id, userid, start_date, end_date):
         for anno in total_superchecked_annos:
             try:
                 total_word_error_rate_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -3022,7 +3022,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 for anno in total_reviewed_annos:
                     try:
                         total_word_error_rate_ar_list.append(
-                            calculate_word_error_rate_between_two_audio_transcription_annotation(
+                            calculate_word_error_rate_between_two_llm_prompts(
                                 anno.result, anno.parent_annotation.result
                             )
                         )

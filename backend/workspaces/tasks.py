@@ -22,7 +22,7 @@ from projects.utils import (
     convert_seconds_to_hours,
     get_audio_project_types,
     get_audio_transcription_duration,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
     get_audio_segments_count,
     ocr_word_count,
 )
@@ -80,7 +80,7 @@ def get_all_annotation_reports(
         for anno in total_rev_annos:
             try:
                 total_word_error_rate_ar_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -184,7 +184,7 @@ def get_all_review_reports(
         for anno in total_rev_annos_accepted:
             try:
                 total_word_error_rate_ar_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -193,7 +193,7 @@ def get_all_review_reports(
         for anno in total_superchecked_annos:
             try:
                 total_word_error_rate_rs_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -276,7 +276,7 @@ def get_all_supercheck_reports(
         for anno in total_sup_annos:
             try:
                 total_word_error_rate_rs_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -285,7 +285,7 @@ def get_all_supercheck_reports(
         for anno in total_superchecked_annos:
             try:
                 total_word_error_rate_rs_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -707,7 +707,7 @@ def send_project_analysis_reports_mail_ws(
                             get_audio_transcription_duration(review_annotation.result)
                         )
                         total_word_error_rate_ar_list.append(
-                            calculate_word_error_rate_between_two_audio_transcription_annotation(
+                            calculate_word_error_rate_between_two_llm_prompts(
                                 review_annotation.result,
                                 review_annotation.parent_annotation.result,
                             )
@@ -741,7 +741,7 @@ def send_project_analysis_reports_mail_ws(
                             )
                         )
                         total_word_error_rate_rs_list.append(
-                            calculate_word_error_rate_between_two_audio_transcription_annotation(
+                            calculate_word_error_rate_between_two_llm_prompts(
                                 supercheck_annotation.result,
                                 supercheck_annotation.parent_annotation.result,
                             )
@@ -1002,7 +1002,7 @@ def get_supercheck_reports(proj_ids, userid, start_date, end_date, project_type=
             for anno in total_sup_annos:
                 try:
                     total_word_error_rate_rs_list.append(
-                        calculate_word_error_rate_between_two_audio_transcription_annotation(
+                        calculate_word_error_rate_between_two_llm_prompts(
                             anno.result, anno.parent_annotation.result
                         )
                     )
@@ -1011,7 +1011,7 @@ def get_supercheck_reports(proj_ids, userid, start_date, end_date, project_type=
             for anno in total_superchecked_annos:
                 try:
                     total_word_error_rate_rs_list.append(
-                        calculate_word_error_rate_between_two_audio_transcription_annotation(
+                        calculate_word_error_rate_between_two_llm_prompts(
                             anno.result, anno.parent_annotation.result
                         )
                     )
@@ -1225,7 +1225,7 @@ def get_review_reports(
             for anno in total_rev_annos_accepted:
                 try:
                     total_word_error_rate_ar_list.append(
-                        calculate_word_error_rate_between_two_audio_transcription_annotation(
+                        calculate_word_error_rate_between_two_llm_prompts(
                             anno.result, anno.parent_annotation.result
                         )
                     )
@@ -1234,7 +1234,7 @@ def get_review_reports(
             for anno in total_superchecked_annos:
                 try:
                     total_word_error_rate_rs_list.append(
-                        calculate_word_error_rate_between_two_audio_transcription_annotation(
+                        calculate_word_error_rate_between_two_llm_prompts(
                             anno.result, anno.parent_annotation.result
                         )
                     )
