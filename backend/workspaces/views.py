@@ -34,7 +34,7 @@ from projects.utils import (
     get_audio_project_types,
     get_audio_transcription_duration,
     get_audio_segments_count,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
     get_translation_dataset_project_types,
     convert_hours_to_seconds,
     ocr_word_count,
@@ -64,6 +64,7 @@ from .tasks import (
     get_review_reports,
     get_supercheck_reports,
 )
+from projects.registry_helper import ProjectRegistry
 
 
 # Create your views here.
@@ -900,7 +901,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                                     )
                                 )
                                 total_word_error_rate_ar_list.append(
-                                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                    calculate_word_error_rate_between_two_llm_prompts(
                                         review_annotation.result,
                                         review_annotation.parent_annotation.result,
                                     )
@@ -934,7 +935,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                                     )
                                 )
                                 total_word_error_rate_rs_list.append(
-                                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                    calculate_word_error_rate_between_two_llm_prompts(
                                         supercheck_annotation.result,
                                         supercheck_annotation.parent_annotation.result,
                                     )
@@ -2899,6 +2900,13 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             + str(from_date)
             + str(to_date)
         )
+        project_type = request.data.get("project_type")
+        pr = ProjectRegistry.get_instance()
+        if project_type not in pr.project_types.keys():
+            return Response(
+                {"message": "This project type does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         celery_lock = Lock(user_id, task_name)
         try:
             lock_status = celery_lock.lockStatus()

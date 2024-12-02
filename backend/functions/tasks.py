@@ -11,7 +11,7 @@ from projects.utils import (
     convert_seconds_to_hours,
     get_audio_project_types,
     get_audio_transcription_duration,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
     ocr_word_count,
     get_not_null_audio_transcription_duration,
 )
@@ -706,7 +706,7 @@ def calculate_ced_between_two_annotations(annotation1, annotation2):
 
 def calculate_wer_between_two_annotations(annotation1, annotation2):
     try:
-        return calculate_word_error_rate_between_two_audio_transcription_annotation(
+        return calculate_word_error_rate_between_two_llm_prompts(
             annotation1, annotation2
         )
     except Exception as e:

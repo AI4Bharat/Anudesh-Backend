@@ -186,7 +186,7 @@ def get_audio_segments_count(annotation_result):
     return count
 
 
-def calculate_word_error_rate_between_two_audio_transcription_annotation(
+def calculate_word_error_rate_between_two_llm_prompts(
     annotation_result1, annotation_result2
 ):
     annotation_result1_text = ""
