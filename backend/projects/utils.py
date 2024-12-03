@@ -499,10 +499,10 @@ def check_matching_values_greater(list1, list2, criteria):
                 integers_list1.append(int(item1))
     for item2 in list2:
         if isinstance(item2, int):
-            integers_list1.append(item2)
+            integers_list2.append(item2)
         elif isinstance(item2, str):
             if item2.isdigit():
-                integers_list1.append(int(item2))
+                integers_list2.append(int(item2))
 
     if criteria == "greater_than":
         for num1 in integers_list1:
