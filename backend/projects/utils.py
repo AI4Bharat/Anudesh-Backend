@@ -11,7 +11,12 @@ from tasks.models import Annotation as Annotation_model, LABELED, Task
 from users.models import User
 
 from dataset.models import Instruction, Interaction
-from tasks.models import Annotation, REVIEWER_ANNOTATION, SUPER_CHECKER_ANNOTATION
+from tasks.models import (
+    Annotation,
+    REVIEWER_ANNOTATION,
+    SUPER_CHECKER_ANNOTATION,
+    ANNOTATED,
+)
 from tasks.views import SentenceOperationViewSet
 import datetime
 import yaml
@@ -516,3 +521,48 @@ def check_matching_values_greater(list1, list2, criteria):
                 if num1 >= num2:
                     return True
         return False
+
+
+def add_extra_task_data(t, project):
+    similar_tasks = (
+        Task.objects.filter(input_data=t.input_data, project_id=project.id)
+        .filter(task_status=ANNOTATED)
+        .filter(review_user__isnull=True)
+    )
+    total_ratings, seen = [], {}
+    max_rating, curr_response = float("-inf"), ""
+    for st in similar_tasks:
+        ann = Annotation.objects.filter(task=st, annotation_status=LABELED)[0]
+        for r in ann.result:
+            if "model_responses_json" in r:
+                model_responses_json = r["model_responses_json"]
+                for mr in model_responses_json:
+                    if "questions_response" in mr:
+                        questions_response = mr["questions_response"]
+                        for qr in questions_response:
+                            if (
+                                "question" in qr
+                                and "question_type" in qr["question"]
+                                and qr["question"]["question_type"] == "rating"
+                                and "response" in qr
+                            ):
+                                curr_response = qr["response"][0]
+                                try:
+                                    curr_response = int(curr_response)
+                                except Exception as e:
+                                    pass
+                                break
+        if isinstance(curr_response, int):
+            seen[st.id] = curr_response
+            total_ratings.append(curr_response)
+            max_rating = max(max_rating, curr_response)
+    t.data["avg_rating"] = -1
+    t.data["curr_rating"] = -1
+    t.data["inter_annotator_difference"] = -1
+    if t.id in seen:
+        t.data["avg_rating"] = sum(total_ratings) / len(total_ratings)
+        t.data["curr_rating"] = seen[t.id]
+        t.data["inter_annotator_difference"] = (
+            max_rating - seen[t.id] if max_rating > float("-inf") else -1
+        )
+    t.save()
