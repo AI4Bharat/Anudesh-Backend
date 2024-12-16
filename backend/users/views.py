@@ -26,6 +26,7 @@ from .serializers import (
     UserUpdateSerializer,
     LanguageSerializer,
     ChangePasswordSerializer,
+    OrganizationSerializer,
     ChangePasswordWithoutOldPassword,
 )
 from organizations.models import Invite, Organization
@@ -968,7 +969,6 @@ class UserViewSet(viewsets.ViewSet):
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
-
         if existing_is_active == is_active_payload:
             pass
         else:
@@ -1041,6 +1041,18 @@ class UserViewSet(viewsets.ViewSet):
             elif get_role_name(old_role) == "Admin":
                 user.is_superuser = False
                 user.save()
+        organization_data = request.data.pop("organization", None)
+
+        if organization_data:
+            organization_id = organization_data
+            if organization_id:
+                try:
+                    organization = Organization.objects.get(id=organization_id)
+                    user.organization = organization
+                except Organization.DoesNotExist:
+                    return Response(
+                        {"message": "Organization not found"}, status=status.HTTP_404_NOT_FOUND
+                     )
 
         if serializer.is_valid():
             serializer.save()
