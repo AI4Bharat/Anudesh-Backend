@@ -452,15 +452,15 @@ def get_modified_stats_result(
         for key, value in result_rev_anno_stats.items():
             result[f"Reviewer - {key.replace('_', ' ').title()} Annotations"] = value
         for key, value in result_sup_anno_stats.items():
-            result[f"Superchecker - {key.replace('_', ' ').title()} Annotations"] = (
-                value
-            )
+            result[
+                f"Superchecker - {key.replace('_', ' ').title()} Annotations"
+            ] = value
     if meta_stats or complete_stats:
         for key, value in result_ann_meta_stats.items():
             for sub_key in value.keys():
-                result[f"Annotator - {key.replace('_', ' ').title()} {sub_key}"] = (
-                    value[sub_key]
-                )
+                result[
+                    f"Annotator - {key.replace('_', ' ').title()} {sub_key}"
+                ] = value[sub_key]
         for key, value in result_rev_meta_stats.items():
             for sub_key in value.keys():
                 result[f"Reviewer - {key.replace('_', ' ').title()} {sub_key}"] = value[
@@ -468,9 +468,9 @@ def get_modified_stats_result(
                 ]
         for key, value in result_sup_meta_stats.items():
             for sub_key in value.keys():
-                result[f"Superchecker - {key.replace('_', ' ').title()} {sub_key}"] = (
-                    value[sub_key]
-                )
+                result[
+                    f"Superchecker - {key.replace('_', ' ').title()} {sub_key}"
+                ] = value[sub_key]
 
     # adding unassigned tasks count
     result["Annotator - Unassigned Tasks"] = get_task_count_unassigned(proj_id, user)
@@ -770,9 +770,9 @@ def schedule_mail_to_download_all_projects(
             query_params = QueryDict(mutable=True)
             query_params["include_input_data_metadata_json"] = "true"
             query_params["export_type"] = "CSV"
-            query_params["task_status"] = (
-                "incomplete,annotated,reviewed,super_checked,exported"
-            )
+            query_params[
+                "task_status"
+            ] = "incomplete,annotated,reviewed,super_checked,exported"
             custom_request = Request(factory.get(url, data=query_params, timeout=15))
             custom_request.user = user
             try:

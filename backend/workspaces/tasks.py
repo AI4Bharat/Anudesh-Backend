@@ -43,7 +43,9 @@ def get_all_annotation_reports(
         else (
             "Part Time"
             if participation_type == 2
-            else "Contract Basis" if participation_type == 4 else "N/A"
+            else "Contract Basis"
+            if participation_type == 4
+            else "N/A"
         )
     )
     role = get_role_name(user.role)
@@ -124,7 +126,9 @@ def get_all_review_reports(
         else (
             "Part Time"
             if participation_type == 2
-            else "Contract Basis" if participation_type == 4 else "N/A"
+            else "Contract Basis"
+            if participation_type == 4
+            else "N/A"
         )
     )
     role = get_role_name(user.role)
@@ -239,7 +243,9 @@ def get_all_supercheck_reports(
         else (
             "Part Time"
             if user.participation_type == 2
-            else "Contract Basis" if user.participation_type == 4 else "N/A"
+            else "Contract Basis"
+            if user.participation_type == 4
+            else "N/A"
         )
     )
     role = get_role_name(user.role)
@@ -462,7 +468,9 @@ def send_user_reports_mail_ws(
             else (
                 "Part Time"
                 if participation_type == 2
-                else "Contract Basis" if participation_type == 4 else "N/A"
+                else "Contract Basis"
+                if participation_type == 4
+                else "N/A"
             )
         )
         for participation_type in participation_types
@@ -899,7 +907,9 @@ def get_supercheck_reports(proj_ids, userid, start_date, end_date, project_type=
         else (
             "Part Time"
             if participation_type == 2
-            else "Contract Basis" if participation_type == 4 else "N/A"
+            else "Contract Basis"
+            if participation_type == 4
+            else "N/A"
         )
     )
     role = get_role_name(user.role)
@@ -1066,7 +1076,9 @@ def get_review_reports(
         else (
             "Part Time"
             if participation_type == 2
-            else "Contract Basis" if participation_type == 4 else "N/A"
+            else "Contract Basis"
+            if participation_type == 4
+            else "N/A"
         )
     )
     role = get_role_name(user.role)

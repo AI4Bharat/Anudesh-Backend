@@ -1658,16 +1658,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data["meta_stats"] = (
-                            compute_meta_stats_for_instruction_driven_chat(
-                                annotation_obj.result
-                            )
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
                         )
                     else:
-                        request.data["meta_stats"] = (
-                            compute_meta_stats_for_instruction_driven_chat(
-                                request.data["result"]
-                            )
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            request.data["result"]
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -1844,16 +1844,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data["meta_stats"] = (
-                            compute_meta_stats_for_instruction_driven_chat(
-                                annotation_obj.result
-                            )
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
                         )
                     else:
-                        request.data["meta_stats"] = (
-                            compute_meta_stats_for_instruction_driven_chat(
-                                request.data["result"]
-                            )
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            request.data["result"]
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -2051,16 +2051,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data["meta_stats"] = (
-                            compute_meta_stats_for_instruction_driven_chat(
-                                annotation_obj.result
-                            )
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            annotation_obj.result
                         )
                     else:
-                        request.data["meta_stats"] = (
-                            compute_meta_stats_for_instruction_driven_chat(
-                                request.data["result"]
-                            )
+                        request.data[
+                            "meta_stats"
+                        ] = compute_meta_stats_for_instruction_driven_chat(
+                            request.data["result"]
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:

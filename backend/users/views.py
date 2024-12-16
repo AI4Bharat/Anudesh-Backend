@@ -1794,7 +1794,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
             schedule = (
                 "Daily"
                 if task.schedule == 1
-                else "Weekly" if task.schedule == 2 else "Monthly"
+                else "Weekly"
+                if task.schedule == 2
+                else "Monthly"
             )
             scheduled_day = (
                 calendar.day_name[int(task.celery_task.crontab.day_of_week) - 1]
