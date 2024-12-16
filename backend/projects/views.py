@@ -48,6 +48,7 @@ from .utils import (
     get_attributes_for_ModelInteractionEvaluation,
     filter_tasks_for_review_filter_criteria,
     add_extra_task_data,
+    validate_metadata_json_format,
 )
 
 from dataset.models import DatasetInstance
@@ -1733,6 +1734,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
         dataset_instance_ids = request.data.get("dataset_id")
         if type(dataset_instance_ids) != list:
             dataset_instance_ids = [dataset_instance_ids]
+        if (
+            project_type == "MultipleInteractionEvaluation"
+            and "metadata_json" in request.data
+        ):
+            res, mes = validate_metadata_json_format(request.data["metadata_json"])
+            if not res:
+                ret_dict = {"message": mes}
+                ret_status = status.HTTP_400_BAD_REQUEST
+                return Response(ret_dict, status=ret_status)
         project_response = super().create(request, *args, **kwargs)
         project_id = project_response.data["id"]
 

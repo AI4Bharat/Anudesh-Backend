@@ -545,6 +545,8 @@ def add_extra_task_data(t, project):
                                 and "question_type" in qr["question"]
                                 and qr["question"]["question_type"] == "rating"
                                 and "response" in qr
+                                and "ia_diff_check" in qr["question"]
+                                and qr["question"]["ia_diff_check"] == "true"
                             ):
                                 curr_response = qr["response"][0]
                                 try:
@@ -566,3 +568,49 @@ def add_extra_task_data(t, project):
             max_rating - seen[t.id] if max_rating > float("-inf") else -1
         )
     t.save()
+
+
+def validate_metadata_json_format(data):
+    if not isinstance(data, list):
+        return False, "The top-level structure must be a list."
+    rating_ia_diff_check_present = False
+    for item in data:
+        if not isinstance(item, dict):
+            return False, "Each item in the list must be a dictionary."
+
+        question_type = item.get("question_type")
+        input_question = item.get("input_question")
+
+        if not isinstance(input_question, str):
+            return False, "input_question must be a string."
+
+        if question_type == "rating":
+            ia_diff_check = item.get("ia_diff_check")
+            if ia_diff_check is not None:
+                if (
+                    not isinstance(ia_diff_check, str)
+                    or ia_diff_check.lower() != "true"
+                ):
+                    return False, "ia_diff_check must be a string with value 'true'."
+                if rating_ia_diff_check_present:
+                    return (
+                        False,
+                        "ia_diff_check should be present only once for rating questions.",
+                    )
+                rating_ia_diff_check_present = True
+
+        if question_type == "rating":
+            rating_scale_list = item.get("rating_scale_list")
+            if not isinstance(rating_scale_list, list) or not all(
+                isinstance(i, int) for i in rating_scale_list
+            ):
+                return False, "rating_scale_list must be a list of integers."
+
+        if question_type == "multi_select_options":
+            input_selections_list = item.get("input_selections_list")
+            if not isinstance(input_selections_list, list) or not all(
+                isinstance(i, str) for i in input_selections_list
+            ):
+                return False, "input_selections_list must be a list of strings."
+
+    return True, "JSON format is valid."
