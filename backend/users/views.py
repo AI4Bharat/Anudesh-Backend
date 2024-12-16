@@ -100,7 +100,8 @@ class InviteViewSet(viewsets.ViewSet):
             org = Organization.objects.get(id=organization_id)
         except Organization.DoesNotExist:
             return Response(
-                {"message": "Organization not found"}, status=status.HTTP_404_NOT_FOUND
+                {"message": "Organization not found"},
+                status=status.HTTP_404_NOT_FOUND
             )
         already_existing_emails = []
         valid_user_emails = []
@@ -420,7 +421,8 @@ class InviteViewSet(viewsets.ViewSet):
             org = Organization.objects.get(id=organization_id)
         except Organization.DoesNotExist:
             return Response(
-                {"message": "Organization not found"}, status=status.HTTP_404_NOT_FOUND
+                {"message": "Organization not found"},
+                status=status.HTTP_404_NOT_FOUND
             )
         already_existing_emails = []
         valid_user_emails = []
