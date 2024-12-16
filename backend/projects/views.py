@@ -8,7 +8,7 @@ import math
 
 from django.core.files import File
 from django.db import IntegrityError
-from django.db.models import Count, Q, F, Case, When
+from django.db.models import Count, Q, F, Case, When, OuterRef, Exists
 from django.forms.models import model_to_dict
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -16,7 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from users.models import LANG_CHOICES
 from users.serializers import UserEmailSerializer
-from dataset.serializers import TaskResultSerializer
+from dataset.serializers import TaskResultSerializer, DatasetInstanceSerializer
 from utils.search import process_search_query
 from django_celery_results.models import TaskResult
 from drf_yasg import openapi
@@ -46,14 +46,10 @@ from .utils import (
     get_user_from_query_params,
     ocr_word_count,
     get_attributes_for_ModelInteractionEvaluation,
+    filter_tasks_for_review_filter_criteria,
 )
 
-from dataset.models import (
-    DatasetInstance,
-    Conversation,
-    SpeechConversation,
-    OCRDocument,
-)
+from dataset.models import DatasetInstance
 
 # Import celery tasks
 from .tasks import (
@@ -78,7 +74,7 @@ from .utils import (
     get_audio_project_types,
     get_audio_transcription_duration,
     get_audio_segments_count,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
 )
 
 from workspaces.decorators import is_particular_workspace_manager
@@ -285,7 +281,7 @@ def get_review_reports(proj_id, userid, start_date, end_date):
         for anno in total_superchecked_annos:
             try:
                 total_word_error_rate_rs_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -294,7 +290,7 @@ def get_review_reports(proj_id, userid, start_date, end_date):
         for anno in total_reviewed_annos:
             try:
                 total_word_error_rate_ar_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -586,7 +582,7 @@ def get_supercheck_reports(proj_id, userid, start_date, end_date):
         for anno in total_superchecked_annos:
             try:
                 total_word_error_rate_list.append(
-                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                    calculate_word_error_rate_between_two_llm_prompts(
                         anno.result, anno.parent_annotation.result
                     )
                 )
@@ -816,275 +812,6 @@ def get_task_count_unassigned(pk, user):
     return len(proj_tasks_unassigned)
 
 
-def convert_prediction_json_to_annotation_result(pk, proj_type):
-    result = []
-    if (
-        proj_type == "AudioTranscriptionEditing"
-        or proj_type == "AcousticNormalisedTranscriptionEditing"
-    ):
-        data_item = SpeechConversation.objects.get(pk=pk)
-        prediction_json = (
-            json.loads(data_item.prediction_json)
-            if isinstance(data_item.prediction_json, str)
-            else data_item.prediction_json
-        )
-        speakers_json = data_item.speakers_json
-        audio_duration = data_item.audio_duration
-        # converting prediction_json to result (wherever it exists) for every task.
-        if prediction_json == None:
-            return result
-        for idx, val in enumerate(prediction_json):
-            label_dict = {
-                "origin": "manual",
-                "to_name": "audio_url",
-                "from_name": "labels",
-                "original_length": audio_duration,
-            }
-            text_dict = {
-                "origin": "manual",
-                "to_name": "audio_url",
-                "from_name": "transcribed_json",
-                "original_length": audio_duration,
-            }
-            if proj_type == "AcousticNormalisedTranscriptionEditing":
-                text_dict["from_name"] = "verbatim_transcribed_json"
-            id = f"anudesh_{idx}s{generate_random_string(13 - len(str(idx)))}"
-            label_dict["id"] = id
-            text_dict["id"] = id
-            label_dict["type"] = "labels"
-            text_dict["type"] = "textarea"
-
-            value_labels = {
-                "start": val["start"],
-                "end": val["end"],
-                "labels": [
-                    next(
-                        speaker
-                        for speaker in speakers_json
-                        if speaker["speaker_id"] == val["speaker_id"]
-                    )["name"]
-                ],
-            }
-            value_text = {
-                "start": val["start"],
-                "end": val["end"],
-                "text": [val["text"]],
-            }
-
-            label_dict["value"] = value_labels
-            text_dict["value"] = value_text
-            # mainly label_dict and text_dict are sent as result
-            result.append(label_dict)
-            result.append(text_dict)
-    elif proj_type == "OCRTranscriptionEditing":
-        data_item = OCRDocument.objects.get(pk=pk)
-        ocr_prediction_json = (
-            json.loads(data_item.ocr_prediction_json)
-            if isinstance(data_item.ocr_prediction_json, str)
-            else data_item.ocr_prediction_json
-        )
-        if ocr_prediction_json == None:
-            return result
-        for idx, val in enumerate(ocr_prediction_json):
-            image_rotation = (
-                ocr_prediction_json["image_rotation"]
-                if "image_rotation" in ocr_prediction_json
-                else 0
-            )
-            custom_id = f"anudesh_{idx}s{generate_random_string(13 - len(str(idx)))}"
-            # creating values
-            common_value = {
-                "x": val["x"],
-                "y": val["y"],
-                "width": val["width"],
-                "height": val["height"],
-                "rotation": val["rotation"],
-            }
-            # assigning common values to all
-            value_rectangle = common_value.copy()
-            value_labels = common_value.copy()
-            value_text = common_value.copy()
-            value_labels["labels"] = val["labels"]
-            value_text["text"] = [val["text"]]
-
-            rectangle_dict = {
-                "id": custom_id,
-                "origin": "manual",
-                "to_name": "image_url",
-                "from_name": "annotation_bboxes",
-                "type": "rectangle",
-                "image_rotation": image_rotation,
-                "original_width": val["original_width"],
-                "original_height": val["original_height"],
-                "value": value_rectangle,
-            }
-            label_dict = {
-                "id": custom_id,
-                "origin": "manual",
-                "to_name": "image_url",
-                "from_name": "annotation_labels",
-                "type": "labels",
-                "image_rotation": image_rotation,
-                "original_width": val["original_width"],
-                "original_height": val["original_height"],
-                "value": value_labels,
-            }
-            text_dict = {
-                "id": custom_id,
-                "origin": "manual",
-                "to_name": "image_url",
-                "from_name": "ocr_transcribed_json",
-                "type": "textarea",
-                "image_rotation": image_rotation,
-                "original_width": val["original_width"],
-                "original_height": val["original_height"],
-                "value": value_text,
-            }
-            result.append(rectangle_dict)
-            result.append(label_dict)
-            result.append(text_dict)
-
-    return result
-
-
-def convert_annotation_result_to_formatted_json(
-    annotation_result, speakers_json, dataset_type, is_acoustic=False
-):
-    transcribed_json = []
-    acoustic_transcribed_json = []
-    standardised_transcription = ""
-    transcribed_json_modified, acoustic_transcribed_json_modified = [], []
-    if dataset_type == "SpeechConversation":
-        ids_formatted = {}
-        for idx1 in range(len(annotation_result)):
-            formatted_result_dict = {}
-            labels_dict = {}
-            text_dict = {}
-            acoustic_text_dict = {}
-            if isinstance(annotation_result[idx1], str):
-                annotation_result[idx1] = json.loads(annotation_result[idx1])
-            if annotation_result[idx1]["from_name"] == "labels":
-                labels_dict = annotation_result[idx1]
-            elif (
-                annotation_result[idx1]["from_name"]
-                == "acoustic_normalised_transcribed_json"
-            ):
-                acoustic_text_dict = json.dumps(
-                    annotation_result[idx1], ensure_ascii=False
-                )
-            elif annotation_result[idx1]["from_name"] == "standardised_transcription":
-                standardised_transcription = annotation_result[idx1]["value"]["text"][0]
-                continue
-            else:
-                text_dict = json.dumps(annotation_result[idx1], ensure_ascii=False)
-            for idx2 in range(idx1 + 1, len(annotation_result)):
-                if annotation_result[idx1]["id"] == annotation_result[idx2]["id"]:
-                    if annotation_result[idx2]["from_name"] == "labels":
-                        labels_dict = annotation_result[idx2]
-                    elif (
-                        annotation_result[idx2]["from_name"]
-                        == "acoustic_normalised_transcribed_json"
-                    ):
-                        acoustic_text_dict = json.dumps(
-                            annotation_result[idx2], ensure_ascii=False
-                        )
-                    else:
-                        text_dict = json.dumps(
-                            annotation_result[idx2], ensure_ascii=False
-                        )
-                    if not is_acoustic or (
-                        labels_dict and acoustic_text_dict and text_dict
-                    ):
-                        break
-
-            if annotation_result[idx1]["id"] not in ids_formatted:
-                ids_formatted[annotation_result[idx1]["id"]] = "formatted"
-                if not labels_dict:
-                    formatted_result_dict["speaker_id"] = None
-                else:
-                    try:
-                        formatted_result_dict["speaker_id"] = next(
-                            speaker
-                            for speaker in speakers_json
-                            if speaker["name"] == labels_dict["value"]["labels"][0]
-                        )["speaker_id"]
-                    except (KeyError, StopIteration):
-                        formatted_result_dict["speaker_id"] = None
-                    formatted_result_dict["start"] = labels_dict["value"]["start"]
-                    formatted_result_dict["end"] = labels_dict["value"]["end"]
-
-                if not text_dict:
-                    formatted_result_dict["text"] = ""
-                else:
-                    text_dict_json = json.loads(text_dict)
-                    formatted_result_dict["text"] = text_dict_json["value"]["text"][0]
-                    formatted_result_dict["start"] = text_dict_json["value"]["start"]
-                    formatted_result_dict["end"] = text_dict_json["value"]["end"]
-
-                transcribed_json.append(formatted_result_dict)
-
-                if is_acoustic:
-                    acoustic_formatted_result_dict = deepcopy(formatted_result_dict)
-                    acoustic_dict_json = json.loads(acoustic_text_dict)
-                    acoustic_formatted_result_dict["text"] = (
-                        acoustic_dict_json["value"]["text"][0]
-                        if acoustic_dict_json
-                        else ""
-                    )
-                    acoustic_transcribed_json.append(acoustic_formatted_result_dict)
-        if acoustic_transcribed_json:
-            acoustic_transcribed_json_modified = json.dumps(
-                acoustic_transcribed_json, ensure_ascii=False
-            )
-    else:
-        for idx1 in range(0, len(annotation_result), 3):
-            rectangle_dict = {}
-            labels_dict = {}
-            text_dict = {}
-            if isinstance(annotation_result[idx1], str):
-                annotation_result[idx1] = json.loads(annotation_result[idx1])
-            for idx2 in range(idx1, idx1 + 3):
-                formatted_result_dict = {}
-                if idx2 >= len(annotation_result) or idx2 < 0:
-                    continue
-                if annotation_result[idx2]["type"] == "rectangle":
-                    rectangle_dict = annotation_result[idx1]
-                elif annotation_result[idx2]["type"] == "labels":
-                    labels_dict = annotation_result[idx2]
-                else:
-                    if isinstance(annotation_result[idx2], str):
-                        text_dict = annotation_result[idx2]
-                    else:
-                        text_dict = json.dumps(
-                            annotation_result[idx2], ensure_ascii=False
-                        )
-            if len(rectangle_dict) == 0 or len(labels_dict) == 0 or len(text_dict) == 0:
-                continue
-            formatted_result_dict = rectangle_dict["value"]
-            try:
-                formatted_result_dict["labels"] = labels_dict["value"]["labels"]
-                text_dict_json = json.loads(text_dict)
-                formatted_result_dict["text"] = (
-                    text_dict_json["value"]["text"][0]
-                    if type(text_dict_json["value"]["text"]) == list
-                    else text_dict_json["value"]["text"]
-                )
-            except Exception as e:
-                return Response(
-                    {"message": "Some data is missing in annotation result- " + f"{e}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            transcribed_json.append(formatted_result_dict)
-    transcribed_json_modified = json.dumps(transcribed_json, ensure_ascii=False)
-    if is_acoustic:
-        return {
-            "verbatim_transcribed_json": transcribed_json_modified,
-            "acoustic_normalised_transcribed_json": acoustic_transcribed_json_modified,
-            "standardised_transcription": standardised_transcription,
-        }
-    return transcribed_json_modified
-
-
 class ProjectViewSet(viewsets.ModelViewSet):
     """
     Project ViewSet
@@ -1138,15 +865,31 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project_response.data["unassigned_task_count"] = get_task_count_unassigned(
             pk, request.user
         )
+        project = Project.objects.get(id=pk)
+        if project.required_annotators_per_task > 1:
+            similar_task_incomplete = Task.objects.filter(
+                project_id=OuterRef("project_id"),
+                input_data=OuterRef("input_data"),
+                task_status=INCOMPLETE,
+            ).exclude(id=OuterRef("id"))
 
-        # Add a field to specify the no. of labeled tasks
-        project_response.data["labeled_task_count"] = (
-            Task.objects.filter(project_id=pk)
-            .filter(task_status=ANNOTATED)
-            .filter(review_user__isnull=True)
-            .exclude(annotation_users=request.user.id)
-            .count()
-        )
+            tasks = (
+                Task.objects.filter(
+                    project_id=pk, task_status=ANNOTATED, review_user__isnull=True
+                )
+                .exclude(annotation_users=request.user.id)
+                .exclude(Exists(similar_task_incomplete))
+                .count()
+            )
+            project_response.data["labeled_task_count"] = tasks
+        else:
+            project_response.data["labeled_task_count"] = (
+                Task.objects.filter(project_id=pk)
+                .filter(task_status=ANNOTATED)
+                .filter(review_user__isnull=True)
+                .exclude(annotation_users=request.user.id)
+                .count()
+            )
 
         # Add a field to specify the no. of reviewed tasks
         project_response.data["reviewed_task_count"] = (
@@ -1438,6 +1181,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     {"message": "Project does not exist"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            required_annotators_per_task = project.required_annotators_per_task
             for user_id in ids:
                 user = User.objects.get(pk=user_id)
                 if user in project.frozen_users.all():
@@ -1458,6 +1202,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 )
                 superchecker_annotation = Annotation_model.objects.filter(
                     parent_annotation__in=reviewer_annotation
+                )
+                annotator_annotation = (
+                    annotator_annotation.exclude(annotation_status=LABELED)
+                    if required_annotators_per_task > 1
+                    else annotator_annotation
                 )
                 superchecker_annotation.delete()
                 reviewer_annotation.delete()
@@ -1815,10 +1564,37 @@ class ProjectViewSet(viewsets.ModelViewSet):
             task_ids = [an.task_id for an in ann_filter1]
 
             queryset = Task.objects.filter(id__in=task_ids).order_by("id")
-
+            # required_annotators_per_task = project.required_annotators_per_task
+            # next_anno = ""
+            # if required_annotators_per_task > 1:
+            #     try:
+            #         curr_anno_id = int(request.data.get("current_annotation_id"))
+            #     except Exception as e:
+            #         ret_dict = {"message": "Please send the current_annotation_id"}
+            #         ret_status = status.HTTP_400_BAD_REQUEST
+            #         return Response(ret_dict, status=ret_status)
+            #     for task in queryset:
+            #         curr_task_anno = ann_filter1.filter(task=task).order_by("id")
+            #         ann_ids = [an.id for an in curr_task_anno]
+            #         if curr_anno_id != ann_ids[-1]:
+            #             for i, c in enumerate(ann_ids):
+            #                 if c == curr_anno_id:
+            #                     next_anno = ann_ids[i + 1]
+            # if next_anno:
+            #     queryset = queryset.filter(id=current_task_id)
+            # elif current_task_id != None:
             if current_task_id != None:
                 queryset = queryset.filter(id__gt=current_task_id)
             for task in queryset:
+                # if next_anno:
+                #     task_dict = TaskSerializer(task, many=False).data
+                #     task_dict["correct_annotation"] = next_anno
+                #     return Response(task_dict)
+                # elif required_annotators_per_task > 1:
+                #     next_anno = ann_filter1.filter(task=task).order_by("id")
+                #     task_dict = TaskSerializer(task, many=False).data
+                #     task_dict["correct_annotation"] = next_anno[0].id
+                #     return Response(task_dict)
                 task_dict = TaskSerializer(task, many=False).data
                 return Response(task_dict)
             ret_dict = {"message": "No more tasks available!"}
@@ -2190,34 +1966,48 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     project.max_tasks_per_user - tasks_assigned_to_user,
                     tasks_to_be_assigned,
                 )
+        proj_annotations_annotated = Annotation_model.objects.filter(
+            task__project_id=pk
+        ).filter(
+            annotation_status__in=[UNLABELED, SKIPPED, DRAFT, LABELED, TO_BE_REVISED],
+            completed_by=cur_user,
+            annotation_type=1,
+        )
+        (
+            data_items_of_unassigned_tasks,
+            data_items_of_assigned_tasks,
+            data_items_vs_tasks_map,
+        ) = (set(), set(), {})
+        for t in tasks:
+            if not t.annotation_users.all():
+                data_items_vs_tasks_map[t.input_data.id] = t
+                data_items_of_unassigned_tasks.add(t.input_data.id)
+        for anno in proj_annotations:
+            data_items_of_assigned_tasks.add(anno.task.input_data.id)
+        for anno_ann in proj_annotations_annotated:
+            data_items_of_assigned_tasks.add(anno_ann.task.input_data.id)
+        all_unassigned_data_items = (
+            data_items_of_unassigned_tasks - data_items_of_assigned_tasks
+        )
+        tasks = [data_items_vs_tasks_map[audt] for audt in all_unassigned_data_items]
         if max_task_that_can_be_assigned:
             tasks = tasks[:max_task_that_can_be_assigned]
         else:
             tasks = tasks[:tasks_to_be_assigned]
-        # tasks = tasks.order_by("id")
+        if not tasks:
+            project.release_lock(ANNOTATION_LOCK)
+            return Response(
+                {"message": "No tasks left for assignment in this project"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         for task in tasks:
             task.annotation_users.add(cur_user)
             task.save()
             result = []
-            if project.project_type in [
-                "AcousticNormalisedTranscriptionEditing",
-                "AudioTranscriptionEditing",
-                "OCRTranscriptionEditing",
-            ]:
-                try:
-                    result = convert_prediction_json_to_annotation_result(
-                        task.input_data.id, project.project_type
-                    )
-                except Exception as e:
-                    print(
-                        f"The prediction json of the data item-{task.input_data.id} is corrupt."
-                    )
-                    task.delete()
-                    continue
             annotator_anno_count = Annotation_model.objects.filter(
                 task_id=task, annotation_type=ANNOTATOR_ANNOTATION
             ).count()
-            if annotator_anno_count < project.required_annotators_per_task:
+            if annotator_anno_count == 0:
                 cur_user_anno_count = Annotation_model.objects.filter(
                     task_id=task,
                     annotation_type=ANNOTATOR_ANNOTATION,
@@ -2233,7 +2023,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                         base_annotation_obj.save()
                     except IntegrityError as e:
                         print(
-                            f"Task and completed_by fields are same while assigning new task "
+                            f"Task, completed_by and parent_annotation fields are same while assigning new review task "
                             f"for project id-{project.id}, user-{cur_user.email}"
                         )
             else:
@@ -2476,14 +2266,48 @@ class ProjectViewSet(viewsets.ModelViewSet):
         # tasks = tasks.order_by("id")
         task_ids = list(task_ids)
         task_ids = task_ids[:task_pull_count]
+        seen = set()
+        required_annotators_per_task = project.required_annotators_per_task
+        corrupted_tasks = set()
+        if required_annotators_per_task > 1:
+            seen_tasks = set(task_ids)
+            for i in range(len(task_ids)):
+                ti = task_ids[i]
+                t = Task.objects.get(id=ti)
+                similar_tasks = (
+                    Task.objects.filter(input_data=t.input_data, project_id=project.id)
+                    .filter(task_status=ANNOTATED)
+                    .filter(review_user__isnull=True)
+                    .exclude(id=t.id)
+                )
+                corrupt_tasks = (
+                    Task.objects.filter(input_data=t.input_data, project_id=project.id)
+                    .filter(task_status=INCOMPLETE)
+                    .filter(review_user__isnull=True)
+                    .exclude(id=t.id)
+                )
+                if corrupt_tasks:
+                    corrupted_tasks.add(task_ids[i])
+                    continue
+                for j in range(len(similar_tasks)):
+                    st = similar_tasks[j]
+                    if st.id not in seen_tasks:
+                        task_ids.append(st.id)
+        task_ids = [t for t in task_ids if t not in corrupted_tasks]
+        task_ids = task_ids[:task_pull_count]
+        if required_annotators_per_task > 1:
+            task_ids = filter_tasks_for_review_filter_criteria(task_ids)
         for task_id in task_ids:
+            if task_id in seen:
+                continue
+            seen.add(task_id)
             task = Task.objects.get(pk=task_id)
             task.review_user = cur_user
             task.save()
             rec_ann = (
                 Annotation_model.objects.filter(task_id=task_id)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
-                .order_by("-updated_at")
+                .order_by("updated_at")
             )
             reviewer_anno = Annotation_model.objects.filter(
                 task_id=task_id, annotation_type=REVIEWER_ANNOTATION
@@ -2499,16 +2323,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     annotation_status="unreviewed",
                     parent_annotation=rec_ann[0],
                     annotation_type=REVIEWER_ANNOTATION,
+                    annotation_notes=rec_ann[0].annotation_notes,
                 )
                 try:
                     base_annotation_obj.save()
                 except IntegrityError as e:
                     print(
-                        f"Task and completed_by fields are same while assigning new review task "
+                        f"Task, completed_by and parent_annotation fields are same while assigning new review task "
                         f"for project id-{project.id}, user-{cur_user.email}"
                     )
             else:
-                task.review_user = reviewer_anno[0].completed_by
+                task.review_user = reviewer_anno[i].completed_by
                 task.save()
         project.release_lock(REVIEW_LOCK)
         return Response(
@@ -2731,8 +2556,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     base_annotation_obj.save()
                 except IntegrityError as e:
                     print(
-                        f"Task and completed_by fields are same while assigning super-check task for "
-                        f"project id-{project.id}, user-{cur_user.email}"
+                        f"Task, completed_by and parent_annotation fields are same while assigning new review task "
+                        f"for project id-{project.id}, user-{cur_user.email}"
                     )
             else:
                 task.super_check_user = superchecker_anno[0].completed_by
@@ -3206,7 +3031,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 for anno in total_reviewed_annos:
                     try:
                         total_word_error_rate_ar_list.append(
-                            calculate_word_error_rate_between_two_audio_transcription_annotation(
+                            calculate_word_error_rate_between_two_llm_prompts(
                                 anno.result, anno.parent_annotation.result
                             )
                         )
@@ -3888,7 +3713,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 include_input_data_metadata_json = True
             else:
                 include_input_data_metadata_json = False
-
+            add_notes = request.query_params.get("add_notes", False)
             if "export_type" in dict(request.query_params):
                 export_type = request.query_params["export_type"]
             else:
@@ -3905,7 +3730,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 ret_status = status.HTTP_200_OK
                 return Response(ret_dict, status=ret_status)
             tasks_list = []
+            # required_annotators_per_task = project.required_annotators_per_task
             for task in tasks:
+                ann_list = []
                 task_dict = model_to_dict(task)
                 if export_type != "JSON":
                     task_dict["data"]["task_status"] = task.task_status
@@ -3927,21 +3754,20 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     )[0]
 
                 annotator_email = ""
+                # if correct_annotation is not None and required_annotators_per_task < 2:
                 if correct_annotation is not None:
                     try:
                         annotator_email = correct_annotation.completed_by.email
                     except:
                         pass
-                    annotation_dict = model_to_dict(correct_annotation)
-                    # annotation_dict['result'] = annotation_dict['result_json']
-
-                    # del annotation_dict['result_json']
-                    # print(annotation_dict)
-                    annotation_dict["created_at"] = str(correct_annotation.created_at)
-                    annotation_dict["updated_at"] = str(correct_annotation.updated_at)
-                    task_dict["annotations"] = [OrderedDict(annotation_dict)]
+                    task_dict["annotations"] = [correct_annotation]
+                # elif required_annotators_per_task >= 2:
+                #     all_ann = Annotation.objects.filter(task=task)
+                #     for a in all_ann:
+                #         ann_list.append(a)
+                #     task_dict["annotations"] = ann_list
                 else:
-                    task_dict["annotations"] = [OrderedDict({"result": {}})]
+                    task_dict["annotations"] = []
 
                 task_dict["data"]["annotator_email"] = annotator_email
 
@@ -3958,16 +3784,54 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 tasks_list.append(OrderedDict(task_dict))
 
             dataset_type = project.dataset_id.all()[0].dataset_type
-            if dataset_type == "Instruction":
-                for task in tasks_list:
-                    annotation_result = task["annotations"][0]["result"]
+            is_MultipleInteractionEvaluation = (
+                project_type == "MultipleInteractionEvaluation"
+            )
+            is_ModelOutputEvaluation = project_type == "ModelOutputEvaluation"
+            is_ModelInteractionEvaluation = project_type == "ModelInteractionEvaluation"
+            for task in tasks_list:
+                complete_result, notes = [], []
+                for i in range(len(task["annotations"])):
+                    a = task["annotations"][i]
+                    annotation_result = a.result
                     annotation_result = (
                         json.loads(annotation_result)
                         if isinstance(annotation_result, str)
                         else annotation_result
                     )
-                    task["data"]["interactions_json"] = annotation_result
-                    del task["annotations"]
+                    uid = a.completed_by.email
+                    try:
+                        p_ann = a.parent_annotation.id
+                    except Exception as e:
+                        p_ann = None
+                    single_dict = {
+                        "user_id": uid,
+                        "annotation_id": a.id,
+                        "annotation_result": annotation_result,
+                        "annotation_type": a.annotation_type,
+                        "annotation_status": a.annotation_status,
+                        "parent_annotation_id": p_ann,
+                    }
+                    complete_result.append(single_dict)
+                    if add_notes:
+                        notes.append(
+                            {
+                                "annotation_id": a.id,
+                                "annotation_notes": a.annotation_notes,
+                                "review_notes": a.review_notes,
+                                "supercheck_notes": a.supercheck_notes,
+                            }
+                        )
+                if is_MultipleInteractionEvaluation:
+                    task["data"]["eval_form_json"] = complete_result
+                elif is_ModelInteractionEvaluation:
+                    task["data"]["eval_form_output_json"] = complete_result
+                elif is_ModelOutputEvaluation:
+                    task["data"]["form_output_json"] = complete_result
+                else:
+                    task["data"]["interactions_json"] = complete_result
+                task["data"]["notes_json"] = notes
+                del task["annotations"]
             return DataExport.generate_export_file(project, tasks_list, export_type)
         except Project.DoesNotExist:
             ret_dict = {"message": "Project does not exist!"}

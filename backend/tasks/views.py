@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import datetime, timezone
 from locale import normalize
 from urllib.parse import unquote
 import ast
@@ -11,7 +11,7 @@ from rest_framework.decorators import action, api_view
 from rest_framework.permissions import IsAuthenticated
 from django.core.paginator import Paginator
 
-
+import requests
 from tasks.models import *
 from tasks.serializers import (
     TaskSerializer,
@@ -47,6 +47,7 @@ from rapidfuzz.distance import Levenshtein
 import sacrebleu
 
 from utils.date_time_conversions import utc_to_ist
+from rest_framework.views import APIView
 
 
 # Create your views here.
@@ -158,7 +159,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         for i in serializer.data:
             if len(i["result"]) > 0:
                 if type(i["result"]) == type([]):
-                    if type(i["result"][0]["output"]) == type([]):
+                    if "output" in i["result"][0] and type(
+                        i["result"][0]["output"]
+                    ) == type([]):
                         i["result"][0]["output"] = i["result"][0]["output"][0]["value"]
         return Response(serializer.data)
 
@@ -214,7 +217,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
             if exist_req_user:
                 user_id = int(req_user)
-
+            # required_annotators_per_task = proj_objs[0].required_annotators_per_task
             if "annotation_status" in dict(request.query_params):
                 ann_status = request.query_params["annotation_status"]
                 ann_status = ast.literal_eval(ann_status)
@@ -387,11 +390,32 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         task_objs.sort(key=lambda x: x["id"])
                         ordered_tasks = []
                         final_dict = {}
+                        # seen = set()
                         for task_obj in task_objs:
+                            # if task_obj["id"] in seen:
+                            #     continue
+                            # seen.add(task_obj["id"])
                             tas = Task.objects.filter(id=task_obj["id"])
                             tas = tas.values()[0]
                             tas["review_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            # if required_annotators_per_task > 1:
+                            #     review_ann = [
+                            #         a
+                            #         for a in Annotation.objects.filter(
+                            #             task_id=tas["id"]
+                            #         ).order_by("id")
+                            #         if a.annotation_type == REVIEWER_ANNOTATION
+                            #     ]
+                            #     if len(review_ann) > 1:
+                            #         for r in review_ann:
+                            #             tas_copy = deepcopy(tas)
+                            #             tas_copy["correct_annotation_id"] = r.id
+                            #             tas_copy[
+                            #                 "annotator_mail"
+                            #             ] = r.parent_annotation.completed_by.email
+                            #             ordered_tasks.append(tas_copy)
+                            #         continue
                             ordered_tasks.append(tas)
 
                         if page_number is not None:
@@ -484,7 +508,11 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                 task_objs.sort(key=lambda x: x["id"])
                 ordered_tasks = []
                 final_dict = {}
+                # seen = set()
                 for task_obj in task_objs:
+                    # if task_obj["id"] in seen:
+                    #     continue
+                    # seen.add(task_obj["id"])
                     tas = Task.objects.filter(id=task_obj["id"])
                     tas = tas.values()[0]
                     tas["review_status"] = task_obj["annotation_status"]
@@ -532,6 +560,23 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             else:
                                 tas["data"]["output_text"] = "-"
                         del tas["data"]["machine_translation"]
+                    # if required_annotators_per_task > 1:
+                    #     review_ann = [
+                    #         a
+                    #         for a in Annotation.objects.filter(
+                    #             task_id=tas["id"]
+                    #         ).order_by("id")
+                    #         if a.annotation_type == REVIEWER_ANNOTATION
+                    #     ]
+                    #     if len(review_ann) > 1:
+                    #         for r in review_ann:
+                    #             tas_copy = deepcopy(tas)
+                    #             tas_copy["correct_annotation_id"] = r.id
+                    #             tas_copy[
+                    #                 "annotator_mail"
+                    #             ] = r.parent_annotation.completed_by.email
+                    #             ordered_tasks.append(tas_copy)
+                    #         continue
                     ordered_tasks.append(tas)
                 if page_number is not None:
                     page_object = Paginator(ordered_tasks, records)
@@ -1638,24 +1683,21 @@ class AnnotationViewSet(
                         )
                         if review_annotation.annotation_status == TO_BE_REVISED:
                             review_annotation.annotation_status = UNREVIEWED
+                            review_annotation.annotation_notes = (
+                                annotation.annotation_notes
+                            )
                             review_annotation.save()
                     except:
                         pass
 
-                no_of_annotations = task.annotations.filter(
-                    annotation_type=ANNOTATOR_ANNOTATION, annotation_status="labeled"
-                ).count()
-                if task.project_id.required_annotators_per_task == no_of_annotations:
-                    # if True:
                     task.task_status = ANNOTATED
-                    if not (
-                        task.project_id.project_stage == REVIEW_STAGE
-                        or task.project_id.project_stage == SUPERCHECK_STAGE
-                    ):
-                        if no_of_annotations == 1:
-                            task.correct_annotation = annotation
 
-                    task.save()
+                if not (
+                    task.project_id.project_stage == REVIEW_STAGE
+                    or task.project_id.project_stage == SUPERCHECK_STAGE
+                ):
+                    task.correct_annotation = annotation
+                task.save()
 
         # Review annotation update
         elif annotation_obj.annotation_type == REVIEWER_ANNOTATION:
@@ -2430,20 +2472,20 @@ def get_celery_tasks(request):
             filtered_tasks[i]["name"] = Queued_Task_name[filtered_tasks[i]["name"]]
     for i in filtered_tasks:
         if filtered_tasks[i]["succeeded"] is not None:
-            filtered_tasks[i]["succeeded"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["succeeded"]
+            filtered_tasks[i]["succeeded"] = datetime.fromtimestamp(
+                filtered_tasks[i]["succeeded"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["failed"] is not None:
-            filtered_tasks[i]["failed"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["failed"]
+            filtered_tasks[i]["failed"] = datetime.fromtimestamp(
+                filtered_tasks[i]["failed"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["started"] is not None:
-            filtered_tasks[i]["started"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["started"]
+            filtered_tasks[i]["started"] = datetime.fromtimestamp(
+                filtered_tasks[i]["started"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["received"] is not None:
-            filtered_tasks[i]["received"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["received"]
+            filtered_tasks[i]["received"] = datetime.fromtimestamp(
+                filtered_tasks[i]["received"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     if "error" in filtered_tasks:
@@ -2452,3 +2494,16 @@ def get_celery_tasks(request):
     page_size = int(request.GET.get("page_size", 10))
     data = paginate_queryset(filtered_tasks, page_number, page_size)
     return JsonResponse(data["results"], safe=False)
+
+
+class TransliterationAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, target_language, data, *args, **kwargs):
+        response_transliteration = requests.get(
+            os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
+            headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
+        )
+
+        transliteration_output = response_transliteration.json()
+        return Response(transliteration_output, status=status.HTTP_200_OK)
