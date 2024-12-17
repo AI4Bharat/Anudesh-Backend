@@ -11,7 +11,12 @@ from tasks.models import Annotation as Annotation_model, LABELED, Task
 from users.models import User
 
 from dataset.models import Instruction, Interaction
-from tasks.models import Annotation, REVIEWER_ANNOTATION, SUPER_CHECKER_ANNOTATION
+from tasks.models import (
+    Annotation,
+    REVIEWER_ANNOTATION,
+    SUPER_CHECKER_ANNOTATION,
+    ANNOTATED,
+)
 from tasks.views import SentenceOperationViewSet
 import datetime
 import yaml
@@ -516,3 +521,96 @@ def check_matching_values_greater(list1, list2, criteria):
                 if num1 >= num2:
                     return True
         return False
+
+
+def add_extra_task_data(t, project):
+    similar_tasks = (
+        Task.objects.filter(input_data=t.input_data, project_id=project.id)
+        .filter(task_status=ANNOTATED)
+        .filter(review_user__isnull=True)
+    )
+    total_ratings, seen = [], {}
+    max_rating, curr_response = float("-inf"), ""
+    for st in similar_tasks:
+        ann = Annotation.objects.filter(task=st, annotation_status=LABELED)[0]
+        for r in ann.result:
+            if "model_responses_json" in r:
+                model_responses_json = r["model_responses_json"]
+                for mr in model_responses_json:
+                    if "questions_response" in mr:
+                        questions_response = mr["questions_response"]
+                        for qr in questions_response:
+                            if (
+                                "question" in qr
+                                and "question_type" in qr["question"]
+                                and qr["question"]["question_type"] == "rating"
+                                and "response" in qr
+                                and "ia_diff_check" in qr["question"]
+                                and qr["question"]["ia_diff_check"] == "true"
+                            ):
+                                curr_response = qr["response"][0]
+                                try:
+                                    curr_response = int(curr_response)
+                                except Exception as e:
+                                    pass
+                                break
+        if isinstance(curr_response, int):
+            seen[st.id] = curr_response
+            total_ratings.append(curr_response)
+            max_rating = max(max_rating, curr_response)
+    t.data["avg_rating"] = -1
+    t.data["curr_rating"] = -1
+    t.data["inter_annotator_difference"] = -1
+    if t.id in seen:
+        t.data["avg_rating"] = sum(total_ratings) / len(total_ratings)
+        t.data["curr_rating"] = seen[t.id]
+        t.data["inter_annotator_difference"] = (
+            max_rating - seen[t.id] if max_rating > float("-inf") else -1
+        )
+    t.save()
+
+
+def validate_metadata_json_format(data):
+    if not isinstance(data, list):
+        return False, "The top-level structure must be a list."
+    rating_ia_diff_check_present = False
+    for item in data:
+        if not isinstance(item, dict):
+            return False, "Each item in the list must be a dictionary."
+
+        question_type = item.get("question_type")
+        input_question = item.get("input_question")
+
+        if not isinstance(input_question, str):
+            return False, "input_question must be a string."
+
+        if question_type == "rating":
+            ia_diff_check = item.get("ia_diff_check")
+            if ia_diff_check is not None:
+                if (
+                    not isinstance(ia_diff_check, str)
+                    or ia_diff_check.lower() != "true"
+                ):
+                    return False, "ia_diff_check must be a string with value 'true'."
+                if rating_ia_diff_check_present:
+                    return (
+                        False,
+                        "ia_diff_check should be present only once for rating questions.",
+                    )
+                rating_ia_diff_check_present = True
+
+        if question_type == "rating":
+            rating_scale_list = item.get("rating_scale_list")
+            if not isinstance(rating_scale_list, list) or not all(
+                isinstance(i, int) for i in rating_scale_list
+            ):
+                return False, "rating_scale_list must be a list of integers."
+
+        if question_type == "multi_select_options":
+            input_selections_list = item.get("input_selections_list")
+            if not isinstance(input_selections_list, list) or not all(
+                isinstance(i, str) for i in input_selections_list
+            ):
+                return False, "input_selections_list must be a list of strings."
+
+    return True, "JSON format is valid."

@@ -1215,12 +1215,16 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     "Project ID": annotation.task.project_id.id,
                     "Task ID": annotation.task.id,
                     "Updated at": utc_to_ist(annotation.updated_at),
-                    "Annotated at": utc_to_ist(annotation.annotated_at)
-                    if annotation.annotated_at
-                    else None,
-                    "Created at": utc_to_ist(annotation.created_at)
-                    if annotation.created_at
-                    else None,
+                    "Annotated at": (
+                        utc_to_ist(annotation.annotated_at)
+                        if annotation.annotated_at
+                        else None
+                    ),
+                    "Created at": (
+                        utc_to_ist(annotation.created_at)
+                        if annotation.created_at
+                        else None
+                    ),
                 }
 
                 response.append(data)
@@ -2191,9 +2195,11 @@ class AnnotationViewSet(
             text_dict = {
                 "origin": "manual",
                 "to_name": "audio_url",
-                "from_name": "transcribed_json"
-                if not is_acoustic
-                else "verbatim_transcribed_json",
+                "from_name": (
+                    "transcribed_json"
+                    if not is_acoustic
+                    else "verbatim_transcribed_json"
+                ),
                 "original_length": audio_duration,
             }
 

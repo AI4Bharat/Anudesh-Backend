@@ -5,13 +5,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v1
-      - name: Set up Python 3.7
+      - name: Set up Python 3.9.20
         uses: actions/setup-python@v1
         with:
-          python-version: 3.7
+          python-version: 3.9.20
       - name: Debug Message - Check Github branch
         run: echo "Current Git branch is ${GITHUB_REF##*/}" 
       - name: Install Black
-        run: pip install black
+        run: pip install black==23.1.0
       - name: Run black --check . to check for code formatting.
         run: black --check .
