@@ -1977,6 +1977,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     project.max_tasks_per_user - tasks_assigned_to_user,
                     tasks_to_be_assigned,
                 )
+        proj_annotations_annotated = Annotation_model.objects.filter(
+            task__project_id=pk
+        ).filter(
+            annotation_status__in=[UNLABELED, SKIPPED, DRAFT, LABELED, TO_BE_REVISED],
+            completed_by=cur_user,
+            annotation_type=1,
+        )
         (
             data_items_of_unassigned_tasks,
             data_items_of_assigned_tasks,
@@ -1988,6 +1995,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 data_items_of_unassigned_tasks.add(t.input_data.id)
         for anno in proj_annotations:
             data_items_of_assigned_tasks.add(anno.task.input_data.id)
+        for anno_ann in proj_annotations_annotated:
+            data_items_of_assigned_tasks.add(anno_ann.task.input_data.id)
         all_unassigned_data_items = (
             data_items_of_unassigned_tasks - data_items_of_assigned_tasks
         )

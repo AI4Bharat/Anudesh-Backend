@@ -979,7 +979,6 @@ class UserViewSet(viewsets.ViewSet):
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
-
         if existing_is_active == is_active_payload:
             pass
         else:
