@@ -1061,8 +1061,9 @@ class UserViewSet(viewsets.ViewSet):
                     user.organization = organization
                 except Organization.DoesNotExist:
                     return Response(
-                        {"message": "Organization not found"}, status=status.HTTP_404_NOT_FOUND
-                     )
+                        {"message": "Organization not found"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
 
         if serializer.is_valid():
             serializer.save()

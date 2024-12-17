@@ -1578,6 +1578,8 @@ class AnnotationViewSet(
                             }
                             ret_status = status.HTTP_403_FORBIDDEN
                             return Response(ret_dict, status=ret_status)
+                        elif isinstance(output_result, Response):
+                            return output_result
                         # store the result of all checks as well
                         annotation_obj.result.append(
                             {
@@ -1725,6 +1727,8 @@ class AnnotationViewSet(
                             }
                             ret_status = status.HTTP_403_FORBIDDEN
                             return Response(ret_dict, status=ret_status)
+                        elif isinstance(output_result, Response):
+                            return output_result
                         # store the result of all checks as well
                         annotation_obj.result.append(
                             {
@@ -1941,6 +1945,8 @@ class AnnotationViewSet(
                             }
                             ret_status = status.HTTP_403_FORBIDDEN
                             return Response(ret_dict, status=ret_status)
+                        elif isinstance(output_result, Response):
+                            return output_result
                         # store the result of all checks as well
                         annotation_obj.result.append(
                             {
