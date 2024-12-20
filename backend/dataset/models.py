@@ -1,6 +1,7 @@
 """
 Model definitions for Dataset Management
 """
+
 from django.db import models
 from users.models import User, LANG_CHOICES
 from organizations.models import Organization
@@ -89,6 +90,7 @@ LANGUAGE_CHOICES = [
     ("English", "English"),
     ("Assamese", "Assamese"),
     ("Bengali", "Bengali"),
+    ("Burmese", "Burmese"),
     ("Bodo", "Bodo"),
     ("Dogri", "Dogri"),
     ("Gujarati", "Gujarati"),
@@ -109,6 +111,7 @@ LANGUAGE_CHOICES = [
     ("Sinhala", "Sinhala"),
     ("Tamil", "Tamil"),
     ("Telugu", "Telugu"),
+    ("Thai", "Thai"),
     ("Urdu", "Urdu"),
 ]
 

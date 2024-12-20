@@ -26,7 +26,7 @@ from datetime import datetime, timezone, timedelta
 import pandas as pd
 from dateutil import relativedelta
 import calendar
-from workspaces.views import (
+from workspaces.tasks import (
     get_review_reports,
     get_supercheck_reports,
 )
@@ -51,6 +51,7 @@ from .tasks import (
     send_project_analytics_mail_org,
     send_user_analytics_mail_org,
 )
+from projects.registry_helper import ProjectRegistry
 
 
 def get_task_count(proj_ids, status, annotator, return_count=True):
@@ -452,11 +453,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             participation_type = (
                 "Full Time"
                 if participation_type == 1
-                else "Part Time"
-                if participation_type == 2
-                else "Contract Basis"
-                if participation_type == 4
-                else "N/A"
+                else (
+                    "Part Time"
+                    if participation_type == 2
+                    else "Contract Basis"
+                    if participation_type == 4
+                    else "N/A"
+                )
             )
             role = get_role_name(annotator.role)
             user_id = annotator.id
@@ -770,11 +773,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 participation_type = (
                     "Full Time"
                     if participation_type == 1
-                    else "Part Time"
-                    if participation_type == 2
-                    else "Contract Basis"
-                    if participation_type == 4
-                    else "N/A"
+                    else (
+                        "Part Time"
+                        if participation_type == 2
+                        else "Contract Basis"
+                        if participation_type == 4
+                        else "N/A"
+                    )
                 )
                 role = get_role_name(annotator.role)
                 user_id = annotator.id
@@ -801,11 +806,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     total_draft_tasks_count,
                     no_of_projects,
                     no_of_workspaces_objs,
-                    total_word_count,
-                    total_duration,
-                    total_raw_duration,
-                    avg_segment_duration,
-                    avg_segments_per_task,
                 ) = get_counts(
                     pk,
                     annotator,
@@ -836,14 +836,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         "Unlabeled": total_unlabeled_tasks_count,
                         "Skipped": total_skipped_tasks_count,
                         "Draft": total_draft_tasks_count,
-                        "Word Count": total_word_count,
-                        "Total Segments Duration": total_duration,
-                        "Total Raw Audio Duration": total_raw_duration,
                         "Average Annotation Time (In Seconds)": round(avg_lead_time, 2),
                         "Participation Type": participation_type,
                         "User Role": role,
-                        "Avg Segment Duration": round(avg_segment_duration, 2),
-                        "Average Segments Per Task": round(avg_segments_per_task, 2),
                     }
                     if project_type != None and is_translation_project:
                         (
@@ -872,30 +867,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         "Unlabeled": total_unlabeled_tasks_count,
                         "Skipped": total_skipped_tasks_count,
                         "Draft": total_draft_tasks_count,
-                        "Word Count": total_word_count,
-                        "Total Segments Duration": total_duration,
                         "Average Annotation Time (In Seconds)": round(avg_lead_time, 2),
                         "Participation Type": participation_type,
                         "User Role": role,
-                        "Avg Segment Duration": round(avg_segment_duration, 2),
-                        "Average Segments Per Task": round(avg_segments_per_task, 2),
                     }
 
-                if project_type in get_audio_project_types():
-                    del temp_result["Word Count"]
-                elif is_translation_project or project_type in [
-                    "SemanticTextualSimilarity_Scale5",
-                    "OCRTranscriptionEditing",
-                    "OCRTranscription",
-                ]:
-                    del temp_result["Total Segments Duration"]
-                    del temp_result["Avg Segment Duration"]
-                    del temp_result["Average Segments Per Task"]
-                else:
-                    del temp_result["Word Count"]
-                    del temp_result["Total Segments Duration"]
-                    del temp_result["Avg Segment Duration"]
-                    del temp_result["Average Segments Per Task"]
                 result.append(temp_result)
             final_result = sorted(
                 result, key=lambda x: x[sort_by_column_name], reverse=descending_order
@@ -2167,6 +2143,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 )
 
         project_type = request.data.get("project_type")
+        pr = ProjectRegistry.get_instance()
+        if project_type not in pr.project_types.keys():
+            return Response(
+                {"message": "This project type does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         send_user_reports_mail_org.delay(
             org_id=organization.id,

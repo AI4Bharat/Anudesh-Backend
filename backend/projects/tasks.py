@@ -199,29 +199,9 @@ def create_tasks_from_dataitems(items, project):
         # Remove data id because it's not needed in task.data
         if "id" in item:
             del item["id"]
-        task = Task(data=item, project_id=project, input_data=data)
-        """
-        if is_translation_project or dataset_type1 == "TranslationPair":
-            if is_conversation_project:
-                field_name = (
-                    "source_conversation_json"
-                    if is_editing_project
-                    else "conversation_json"
-                )
-                task.data["word_count"] = conversation_wordcount(task.data[field_name])
-                task.data["sentence_count"] = conversation_sentence_count(
-                    task.data[field_name]
-                )
-            else:
-                task.data["word_count"] = no_of_words(task.data["input_text"])
-        if is_audio_project:
-            indx = 0
-            for speaker in task.data["speakers_json"]:
-                field_name = "speaker_" + str(indx) + "_details"
-                task.data[field_name] = stringify_json(task.data["speakers_json"][indx])
-                indx += 1
-        """
-        tasks.append(task)
+        for _ in range(project.required_annotators_per_task):
+            task = Task(data=item, project_id=project, input_data=data)
+            tasks.append(task)
     # Bulk create the tasks
     Task.objects.bulk_create(tasks)
 
@@ -380,7 +360,7 @@ def create_parameters_for_task_creation(
     create_tasks_from_dataitems(sampled_items, project)
 
 
-# @shared_task
+@shared_task
 def export_project_in_place(
     annotation_fields, project_id, project_type, get_request_data
 ) -> None:
@@ -424,11 +404,19 @@ def export_project_in_place(
     # List for storing the annotated tasks that have been accepted as correct annotation
     annotated_tasks = []
     export_excluded_task_ids = []
+    # required_annotators_per_task = project.required_annotators_per_task
     for task in tasks:
         task_dict = model_to_dict(task)
         # Rename keys to match label studio converter
         # task_dict['id'] = task_dict['task_id']
         # del task_dict['task_id']
+        ann_list = []
+        # if required_annotators_per_task >= 2:
+        #     all_ann = Annotation.objects.filter(task=task)
+        #     for a in all_ann:
+        #         ann_list.append(a)
+        #     task_dict["annotations"] = ann_list
+        # elif task.correct_annotation is not None:
         if task.correct_annotation is not None:
             annotated_tasks.append(task)
             annotation_dict = model_to_dict(task.correct_annotation)
@@ -442,14 +430,36 @@ def export_project_in_place(
         task.output_data = task.input_data
         task.save()
         data_item = dataset_model.objects.get(id__exact=task_dict["input_data"])
-        res = task_dict["annotations"][0]["result"]
+        complete_result = []
+        for i in range(len(task_dict["annotations"])):
+            a = task_dict["annotations"][i]
+            annotation_result = a.result
+            annotation_result = (
+                json.loads(annotation_result)
+                if isinstance(annotation_result, str)
+                else annotation_result
+            )
+            uid = a.completed_by.email
+            try:
+                p_ann = a.parent_annotation.id
+            except Exception as e:
+                p_ann = None
+            single_dict = {
+                "user_id": uid,
+                "annotation_id": a.id,
+                "annotation_result": annotation_result,
+                "annotation_type": a.annotation_type,
+                "annotation_status": a.annotation_status,
+                "parent_annotation": a.parent_annotation,
+                "parent_annotation_id": p_ann,
+            }
+            complete_result.append(single_dict)
         try:
             for field in annotation_fields:
-                setattr(data_item, field, res)
+                setattr(data_item, field, complete_result)
         except Exception as e:
             export_excluded_task_ids.append(task.id)
         data_items.append(data_item)
-    # Write json to dataset columns
     dataset_model.objects.bulk_update(data_items, annotation_fields)
 
     tasks = tasks.exclude(id__in=export_excluded_task_ids)
