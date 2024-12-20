@@ -161,7 +161,10 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         try:
             # Filter workspaces where guest_workspace is True
             guest_workspaces = Workspace.objects.filter(guest_workspace=True)
+            authenticated_workspaces = guest_workspaces.filter(members=request.user)
             serializer = WorkspaceSerializer(guest_workspaces, many=True)
+            for workspace in serializer.data:
+                workspace["is_autheticated"]= workspace["id"] in authenticated_workspaces.values_list("id",flat=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response(

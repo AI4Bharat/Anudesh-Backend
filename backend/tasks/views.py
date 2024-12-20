@@ -2479,19 +2479,19 @@ def get_celery_tasks(request):
     for i in filtered_tasks:
         if filtered_tasks[i]["succeeded"] is not None:
             filtered_tasks[i]["succeeded"] = datetime.fromtimestamp(
-                filtered_tasks[i]["succeeded"], tz=timezone.utc
+                filtered_tasks[i]["succeeded"],tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["failed"] is not None:
             filtered_tasks[i]["failed"] = datetime.fromtimestamp(
-                filtered_tasks[i]["failed"], tz=timezone.utc
+                filtered_tasks[i]["failed"],tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["started"] is not None:
             filtered_tasks[i]["started"] = datetime.fromtimestamp(
-                filtered_tasks[i]["started"], tz=timezone.utc
+                filtered_tasks[i]["started"],tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["received"] is not None:
             filtered_tasks[i]["received"] = datetime.fromtimestamp(
-                filtered_tasks[i]["received"], tz=timezone.utc
+                filtered_tasks[i]["received"],tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     if "error" in filtered_tasks:
