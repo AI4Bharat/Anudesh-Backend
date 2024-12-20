@@ -638,9 +638,9 @@ def get_supercheck_reports(proj_id, userid, start_date, end_date):
         result["Rejected Word Count"] = rejected_word_count
     elif proj_type in get_audio_project_types():
         result["Validated Segments Duration"] = validated_audio_duration
-        result[
-            "Validated With Changes Segments Duration"
-        ] = validated_with_changes_audio_duration
+        result["Validated With Changes Segments Duration"] = (
+            validated_with_changes_audio_duration
+        )
         result["Rejected Segments Duration"] = rejected_audio_duration
         result["Total Raw Audio Duration"] = total_raw_audio_duration
         result["Average Word Error Rate R/S"] = round(avg_word_error_rate, 2)
@@ -813,7 +813,14 @@ def get_task_count_unassigned(pk, user):
         proj_tasks.annotate(num_annotators=Count("annotation_users"))
     ).filter(num_annotators__lt=required_annotators_per_task)
 
-    return len(proj_tasks_unassigned)
+    proj_tasks_annotated = Task.objects.filter(project_id=pk, annotation_users=user)
+
+    unassigned_task_count = (
+        len(proj_tasks_unassigned) / required_annotators_per_task
+        - proj_tasks_annotated.count()
+    )
+
+    return unassigned_task_count
 
 
 def convert_prediction_json_to_annotation_result(pk, proj_type):
@@ -3948,11 +3955,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 if include_input_data_metadata_json:
                     dataset_type = project.dataset_id.all()[0].dataset_type
                     dataset_model = getattr(dataset_models, dataset_type)
-                    task_dict["data"][
-                        "input_data_metadata_json"
-                    ] = dataset_model.objects.get(
-                        pk=task_dict["input_data"]
-                    ).metadata_json
+                    task_dict["data"]["input_data_metadata_json"] = (
+                        dataset_model.objects.get(
+                            pk=task_dict["input_data"]
+                        ).metadata_json
+                    )
                 del task_dict["annotation_users"]
                 del task_dict["review_user"]
                 tasks_list.append(OrderedDict(task_dict))
