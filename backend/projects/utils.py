@@ -7,11 +7,16 @@ import nltk
 from projects.models import Project
 from rest_framework.response import Response
 from rest_framework import status
-from tasks.models import Annotation as Annotation_model
+from tasks.models import Annotation as Annotation_model, LABELED, Task
 from users.models import User
 
 from dataset.models import Instruction, Interaction
-from tasks.models import Annotation, REVIEWER_ANNOTATION, SUPER_CHECKER_ANNOTATION
+from tasks.models import (
+    Annotation,
+    REVIEWER_ANNOTATION,
+    SUPER_CHECKER_ANNOTATION,
+    ANNOTATED,
+)
 from tasks.views import SentenceOperationViewSet
 import datetime
 import yaml
@@ -186,30 +191,23 @@ def get_audio_segments_count(annotation_result):
     return count
 
 
-def calculate_word_error_rate_between_two_audio_transcription_annotation(
+def calculate_word_error_rate_between_two_llm_prompts(
     annotation_result1, annotation_result2
 ):
-    annotation_result1 = sorted(annotation_result1, key=lambda i: (i["value"]["end"]))
-    annotation_result2 = sorted(annotation_result2, key=lambda i: (i["value"]["end"]))
-
     annotation_result1_text = ""
     annotation_result2_text = ""
 
     for result in annotation_result1:
-        if result["from_name"] in ["transcribed_json", "verbatim_transcribed_json"]:
-            try:
-                for s in result["value"]["text"]:
-                    annotation_result1_text += s
-            except:
-                pass
+        try:
+            annotation_result1_text += result["prompt"]
+        except:
+            pass
 
     for result in annotation_result2:
-        if result["from_name"] in ["transcribed_json", "verbatim_transcribed_json"]:
-            try:
-                for s in result["value"]["text"]:
-                    annotation_result2_text += s
-            except:
-                pass
+        try:
+            annotation_result2_text += result["prompt"]
+        except:
+            pass
     if len(annotation_result1_text) == 0 or len(annotation_result2_text) == 0:
         return 0
     return wer(annotation_result1_text, annotation_result2_text)
@@ -384,3 +382,235 @@ def get_annotations_for_project(
     return None, Response(
         {"message": "Project id not provided"}, status=status.HTTP_400_BAD_REQUEST
     )
+
+
+def filter_tasks_for_review_filter_criteria(task_ids):
+    tasks_to_be_removed = set()
+    for task_id in task_ids:
+        task = Task.objects.filter(id=task_id)
+        try:
+            ann = Annotation.objects.filter(task=task[0], annotation_status=LABELED)
+        except Exception as e:
+            continue
+        try:
+            ann = ann[0]
+        except Exception as e:
+            pass
+        if not isinstance(ann.result, list):
+            continue
+        for r in ann.result:
+            if "model_responses_json" in r:
+                model_responses_json = r["model_responses_json"]
+                for mr in model_responses_json:
+                    if "questions_response" in mr:
+                        questions_response = mr["questions_response"]
+                        for qr in questions_response:
+                            if (
+                                "review_filter_criteria" in qr["question"]
+                                and "review_filter_values" in qr["question"]
+                                and "response" in qr
+                            ):
+                                response = qr["response"]
+                                if not isinstance(response, list) or not isinstance(
+                                    qr["question"]["review_filter_values"], list
+                                ):
+                                    tasks_to_be_removed.add(task_id)
+                                elif (
+                                    qr["question"]["review_filter_criteria"].lower()
+                                    == "equals"
+                                ):
+                                    if not check_matching_values_equal(
+                                        response, qr["question"]["review_filter_values"]
+                                    ):
+                                        tasks_to_be_removed.add(task_id)
+                                elif (
+                                    qr["question"]["review_filter_criteria"].lower()
+                                    == "not_equals"
+                                ):
+                                    if check_matching_values_equal(
+                                        response, qr["question"]["review_filter_values"]
+                                    ):
+                                        tasks_to_be_removed.add(task_id)
+                                elif (
+                                    qr["question"]["review_filter_criteria"].lower()
+                                    == "greater_than"
+                                ):
+                                    if not check_matching_values_greater(
+                                        response,
+                                        qr["question"]["review_filter_values"],
+                                        "greater_than",
+                                    ):
+                                        tasks_to_be_removed.add(task_id)
+                                elif (
+                                    qr["question"]["review_filter_criteria"].lower()
+                                    == "greater_than_equals"
+                                ):
+                                    if not check_matching_values_greater(
+                                        response,
+                                        qr["question"]["review_filter_values"],
+                                        "greater_than_equals",
+                                    ):
+                                        tasks_to_be_removed.add(task_id)
+                                elif (
+                                    qr["question"]["review_filter_criteria"].lower()
+                                    == "less_than"
+                                ):
+                                    if check_matching_values_greater(
+                                        response,
+                                        qr["question"]["review_filter_values"],
+                                        "greater_than_equals",
+                                    ):
+                                        tasks_to_be_removed.add(task_id)
+                                elif (
+                                    qr["question"]["review_filter_criteria"].lower()
+                                    == "less_than_equals"
+                                ):
+                                    if check_matching_values_greater(
+                                        response,
+                                        qr["question"]["review_filter_values"],
+                                        "greater_than",
+                                    ):
+                                        tasks_to_be_removed.add(task_id)
+    task_ids = [t for t in task_ids if t not in tasks_to_be_removed]
+    return task_ids
+
+
+def check_matching_values_equal(list1, list2):
+    processed_list1 = set()
+
+    for item in list1:
+        if isinstance(item, str):
+            processed_list1.add(item.lower())
+        elif isinstance(item, int):
+            processed_list1.add(float(item))
+
+    for item in list2:
+        if isinstance(item, str):
+            if item.lower() in processed_list1:
+                return True
+        elif isinstance(item, int):
+            if float(item) in processed_list1:
+                return True
+    return False
+
+
+def check_matching_values_greater(list1, list2, criteria):
+    integers_list1, integers_list2 = [], []
+    for item1 in list1:
+        if isinstance(item1, int):
+            integers_list1.append(item1)
+        elif isinstance(item1, str):
+            if item1.isdigit():
+                integers_list1.append(int(item1))
+    for item2 in list2:
+        if isinstance(item2, int):
+            integers_list2.append(item2)
+        elif isinstance(item2, str):
+            if item2.isdigit():
+                integers_list2.append(int(item2))
+
+    if criteria == "greater_than":
+        for num1 in integers_list1:
+            for num2 in integers_list2:
+                if num1 > num2:
+                    return True
+        return False
+    else:
+        for num1 in integers_list1:
+            for num2 in integers_list2:
+                if num1 >= num2:
+                    return True
+        return False
+
+
+def add_extra_task_data(t, project):
+    similar_tasks = (
+        Task.objects.filter(input_data=t.input_data, project_id=project.id)
+        .filter(task_status=ANNOTATED)
+        .filter(review_user__isnull=True)
+    )
+    total_ratings, seen = [], {}
+    max_rating, curr_response = float("-inf"), ""
+    for st in similar_tasks:
+        ann = Annotation.objects.filter(task=st, annotation_status=LABELED)[0]
+        for r in ann.result:
+            if "model_responses_json" in r:
+                model_responses_json = r["model_responses_json"]
+                for mr in model_responses_json:
+                    if "questions_response" in mr:
+                        questions_response = mr["questions_response"]
+                        for qr in questions_response:
+                            if (
+                                "question" in qr
+                                and "question_type" in qr["question"]
+                                and qr["question"]["question_type"] == "rating"
+                                and "response" in qr
+                                and "ia_diff_check" in qr["question"]
+                                and qr["question"]["ia_diff_check"] == "true"
+                            ):
+                                curr_response = qr["response"][0]
+                                try:
+                                    curr_response = int(curr_response)
+                                except Exception as e:
+                                    pass
+                                break
+        if isinstance(curr_response, int):
+            seen[st.id] = curr_response
+            total_ratings.append(curr_response)
+            max_rating = max(max_rating, curr_response)
+    t.data["avg_rating"] = -1
+    t.data["curr_rating"] = -1
+    t.data["inter_annotator_difference"] = -1
+    if t.id in seen:
+        t.data["avg_rating"] = sum(total_ratings) / len(total_ratings)
+        t.data["curr_rating"] = seen[t.id]
+        t.data["inter_annotator_difference"] = (
+            max_rating - seen[t.id] if max_rating > float("-inf") else -1
+        )
+    t.save()
+
+
+def validate_metadata_json_format(data):
+    if not isinstance(data, list):
+        return False, "The top-level structure must be a list."
+    rating_ia_diff_check_present = False
+    for item in data:
+        if not isinstance(item, dict):
+            return False, "Each item in the list must be a dictionary."
+
+        question_type = item.get("question_type")
+        input_question = item.get("input_question")
+
+        if not isinstance(input_question, str):
+            return False, "input_question must be a string."
+
+        if question_type == "rating":
+            ia_diff_check = item.get("ia_diff_check")
+            if ia_diff_check is not None:
+                if (
+                    not isinstance(ia_diff_check, str)
+                    or ia_diff_check.lower() != "true"
+                ):
+                    return False, "ia_diff_check must be a string with value 'true'."
+                if rating_ia_diff_check_present:
+                    return (
+                        False,
+                        "ia_diff_check should be present only once for rating questions.",
+                    )
+                rating_ia_diff_check_present = True
+
+        if question_type == "rating":
+            rating_scale_list = item.get("rating_scale_list")
+            if not isinstance(rating_scale_list, list) or not all(
+                isinstance(i, int) for i in rating_scale_list
+            ):
+                return False, "rating_scale_list must be a list of integers."
+
+        if question_type == "multi_select_options":
+            input_selections_list = item.get("input_selections_list")
+            if not isinstance(input_selections_list, list) or not all(
+                isinstance(i, str) for i in input_selections_list
+            ):
+                return False, "input_selections_list must be a list of strings."
+
+    return True, "JSON format is valid."

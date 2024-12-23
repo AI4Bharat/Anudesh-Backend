@@ -26,6 +26,7 @@ from .serializers import (
     UserUpdateSerializer,
     LanguageSerializer,
     ChangePasswordSerializer,
+    OrganizationSerializer,
     ChangePasswordWithoutOldPassword,
 )
 from organizations.models import Invite, Organization
@@ -712,13 +713,23 @@ class UserViewSet(viewsets.ViewSet):
         """
         Fetches profile for any user
         """
+        if not request.user.organization:
+            return Response(
+                {
+                    "message": "You do not have enough permissions to fetch other user's profile."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
         try:
             user = User.objects.get(id=pk)
         except User.DoesNotExist:
             return Response(
                 {"message": "User not found"}, status=status.HTTP_404_NOT_FOUND
             )
-        if user.organization_id is not request.user.organization_id:
+        if (
+            user.organization_id
+            and user.organization_id is not request.user.organization_id
+        ):
             return Response(
                 {"message": "Not Authorized"}, status=status.HTTP_403_FORBIDDEN
             )
@@ -968,7 +979,6 @@ class UserViewSet(viewsets.ViewSet):
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
-
         if existing_is_active == is_active_payload:
             pass
         else:
@@ -1041,6 +1051,19 @@ class UserViewSet(viewsets.ViewSet):
             elif get_role_name(old_role) == "Admin":
                 user.is_superuser = False
                 user.save()
+        organization_data = request.data.pop("organization", None)
+
+        if organization_data:
+            organization_id = organization_data
+            if organization_id:
+                try:
+                    organization = Organization.objects.get(id=organization_id)
+                    user.organization = organization
+                except Organization.DoesNotExist:
+                    return Response(
+                        {"message": "Organization not found"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
 
         if serializer.is_valid():
             serializer.save()
