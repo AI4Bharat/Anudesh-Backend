@@ -133,6 +133,12 @@ class Project(models.Model):
         default=False,
         help_text=("Indicates whether a project is archieved or not."),
     )
+    conceal = models.BooleanField(
+        verbose_name="conceal",
+        default=False,
+        help_text=("To hide annotator,reviewer and superchecker details."),
+    )
+
     is_published = models.BooleanField(
         verbose_name="project_is_published",
         default=False,
