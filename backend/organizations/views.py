@@ -2152,6 +2152,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        inactive_users = User.objects.filter(id=user_id, is_active=False)
+
+        for inactive_user in inactive_users:
+            inactive_user.username = "*" + inactive_user.username
+
         send_user_reports_mail_org.delay(
             org_id=organization.id,
             user_id=user_id,
