@@ -1,5 +1,6 @@
 from __future__ import absolute_import, unicode_literals
 from celery.schedules import crontab
+from celery.signals import worker_ready
 import os
 
 from celery import Celery
@@ -32,8 +33,18 @@ celery_app.conf.beat_schedule = {
         "task": "send_mail_task",
         "schedule": crontab(minute=0, hour=6),  # execute every day at 6 am
         #'args': (2,) you can pass arguments also if rquired
-    }
+    },
+
+    "fetchTaskCounts": {
+        "task": "fetchTaskCounts",
+        "schedule": crontab(minute=0),
+    },
 }
+
+@worker_ready.connect
+def at_start(sender, **k):
+    with sender.app.connection() as conn:
+        sender.app.send_task("fetchTaskCounts", connection=conn)
 
 # Celery Task related settings
 celery_app.autodiscover_tasks()

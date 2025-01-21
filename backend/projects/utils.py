@@ -27,6 +27,18 @@ from utils.convert_result_to_chitralekha_format import create_memory
 
 nltk.download("punkt")
 
+def get_analytics_project_tpes():
+    try:
+        with open("projects/project_registry.yaml") as f:
+            project_registry_details = yaml.load(f, Loader=SafeLoader)
+            analytics_project_types = set()
+        for category, details in project_registry_details.items():
+            if "project_types" in details:
+                analytics_project_types.update(details["project_types"].keys())
+        # print("Analytics project type: ", analytics_project_types)
+    except Exception as e:
+        return []
+    return list(analytics_project_types)
 
 def get_audio_project_types():
     try:
