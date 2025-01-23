@@ -2394,6 +2394,8 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         if isinstance(project_metadata_json, str)
         else project_metadata_json
     )
+    if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
+        return ""
     if prompt in [None, "Null", 0, "None", "", " "]:
         return -1
     intentDomain_test, lang_test, duplicate_test = False, False, False
