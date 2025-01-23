@@ -1529,14 +1529,14 @@ class AnnotationViewSet(
                 update_notification(annotation_obj, task)
                 is_revised = True
                 print(annotation_obj)
-                # if "ids" in dict(request.data):
-                #     pass
+                if "ids" in dict(request.data):
+                    pass
 
-                # else:
-                #     return Response(
-                #         {"message": "key doesnot match"},
-                #         status=status.HTTP_400_BAD_REQUEST,
-                #     )
+                else:
+                    return Response(
+                        {"message": "key doesnot match"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
         elif annotation_obj.annotation_type == SUPER_CHECKER_ANNOTATION:
             is_rejected = False
