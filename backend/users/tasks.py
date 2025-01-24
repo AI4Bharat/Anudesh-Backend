@@ -4,7 +4,7 @@ from django.core.mail import send_mail
 from celery.schedules import crontab
 from anudesh_backend.celery import celery_app
 from celery.utils.log import get_task_logger
-from user_reports import (calculate_reports, fetch_task_counts)
+from user_reports import (calculate_reports, fetch_task_counts, fetch_workspace_task_counts,)
 logger = get_task_logger(__name__)
 
 
@@ -16,3 +16,8 @@ def send_mail_task():
 def fetchTaskCounts():
     fetch_task_counts()
     logger.info("Completed Task Count Update")
+
+@shared_task(name="fetchWorkspaceTaskCounts")
+def fetchWorkspaceTaskCounts():
+    fetch_workspace_task_counts()
+    logger.info("Completed Workspace Task Count Update")

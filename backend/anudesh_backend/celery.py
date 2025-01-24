@@ -39,12 +39,19 @@ celery_app.conf.beat_schedule = {
         "task": "fetchTaskCounts",
         "schedule": crontab(minute=0),
     },
+
+    "fetchWorkspaceTaskCounts": {
+        "task": "fetchWorkspaceTaskCounts",
+        # "schedule": crontab(minute=0, hour="*/1"),
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 @worker_ready.connect
 def at_start(sender, **k):
     with sender.app.connection() as conn:
         sender.app.send_task("fetchTaskCounts", connection=conn)
+        sender.app.send_task("fetchWorkspaceTaskCounts", connection=conn)
 
 # Celery Task related settings
 celery_app.autodiscover_tasks()
