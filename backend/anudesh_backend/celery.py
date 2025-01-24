@@ -42,8 +42,8 @@ celery_app.conf.beat_schedule = {
 
     "fetchWorkspaceTaskCounts": {
         "task": "fetchWorkspaceTaskCounts",
-        # "schedule": crontab(minute=0, hour="*/1"),
-        "schedule": crontab(minute="*/5"),
+        "schedule": crontab(minute=0, hour="*/1"),
+        # "schedule": crontab(minute="*/5"),
     },
 }
 
