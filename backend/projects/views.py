@@ -812,7 +812,10 @@ def get_task_count_unassigned(pk, user):
         project_id=pk, annotation_users=user
     ).count()
 
-    return proj_tasks // required_annotators_per_task - annotated_proj_tasks
+    if user.role == User.ADMIN:
+        return proj_tasks
+    else:
+        return proj_tasks // required_annotators_per_task - annotated_proj_tasks
     # proj_tasks_unassigned = proj_tasks.annotate(
     #     num_annotators=Count("annotation_users")
     # ).filter(num_annotators__lt=required_annotators_per_task)
