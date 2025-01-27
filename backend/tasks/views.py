@@ -1215,12 +1215,16 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     "Project ID": annotation.task.project_id.id,
                     "Task ID": annotation.task.id,
                     "Updated at": utc_to_ist(annotation.updated_at),
-                    "Annotated at": utc_to_ist(annotation.annotated_at)
-                    if annotation.annotated_at
-                    else None,
-                    "Created at": utc_to_ist(annotation.created_at)
-                    if annotation.created_at
-                    else None,
+                    "Annotated at": (
+                        utc_to_ist(annotation.annotated_at)
+                        if annotation.annotated_at
+                        else None
+                    ),
+                    "Created at": (
+                        utc_to_ist(annotation.created_at)
+                        if annotation.created_at
+                        else None
+                    ),
                 }
 
                 response.append(data)
@@ -1656,16 +1660,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -1844,16 +1848,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -2053,16 +2057,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -2197,9 +2201,11 @@ class AnnotationViewSet(
             text_dict = {
                 "origin": "manual",
                 "to_name": "audio_url",
-                "from_name": "transcribed_json"
-                if not is_acoustic
-                else "verbatim_transcribed_json",
+                "from_name": (
+                    "transcribed_json"
+                    if not is_acoustic
+                    else "verbatim_transcribed_json"
+                ),
                 "original_length": audio_duration,
             }
 
@@ -2479,19 +2485,19 @@ def get_celery_tasks(request):
     for i in filtered_tasks:
         if filtered_tasks[i]["succeeded"] is not None:
             filtered_tasks[i]["succeeded"] = datetime.fromtimestamp(
-                filtered_tasks[i]["succeeded"],tz=timezone.utc
+                filtered_tasks[i]["succeeded"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["failed"] is not None:
             filtered_tasks[i]["failed"] = datetime.fromtimestamp(
-                filtered_tasks[i]["failed"],tz=timezone.utc
+                filtered_tasks[i]["failed"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["started"] is not None:
             filtered_tasks[i]["started"] = datetime.fromtimestamp(
-                filtered_tasks[i]["started"],tz=timezone.utc
+                filtered_tasks[i]["started"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["received"] is not None:
             filtered_tasks[i]["received"] = datetime.fromtimestamp(
-                filtered_tasks[i]["received"],tz=timezone.utc
+                filtered_tasks[i]["received"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     if "error" in filtered_tasks:

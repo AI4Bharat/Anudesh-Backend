@@ -567,7 +567,9 @@ def add_extra_task_data(t, project):
         t.data["total_rating"] = sum(total_ratings)
         t.data["curr_rating"] = seen[t.id]
         t.data["inter_annotator_difference"] = (
-            max_rating - min_rating if (max_rating > float("-inf") and min_rating < float("inf")) else -1
+            max_rating - min_rating
+            if (max_rating > float("-inf") and min_rating < float("inf"))
+            else -1
         )
     t.save()
 
