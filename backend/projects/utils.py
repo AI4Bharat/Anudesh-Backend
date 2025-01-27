@@ -563,7 +563,6 @@ def add_extra_task_data(t, project):
     t.data["curr_rating"] = -1
     t.data["inter_annotator_difference"] = -1
     if t.id in seen:
-        t.data["avg_rating"] = sum(total_ratings) / len(total_ratings)
         t.data["total_rating"] = sum(total_ratings)
         t.data["curr_rating"] = seen[t.id]
         t.data["inter_annotator_difference"] = (
