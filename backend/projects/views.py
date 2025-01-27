@@ -804,23 +804,47 @@ def get_project_creation_status(pk) -> str:
 
 def get_task_count_unassigned(pk, user):
     project = Project.objects.get(pk=pk)
+
     required_annotators_per_task = project.required_annotators_per_task
 
-    proj_tasks = Task.objects.filter(project_id=pk).count()
+    proj_tasks = Task.objects.filter(project_id=pk)
 
-    annotated_proj_tasks = Task.objects.filter(
-        project_id=pk, annotation_users=user
-    ).count()
+    if user.role == User.ANNOTATOR:
 
-    if user.role == User.ADMIN:
-        return proj_tasks
+        data_items = [task.input_data_id for task in proj_tasks]
+
+        unique_data_items_count = len(list(set(data_items)))
+
+        annotated_proj_tasks = Task.objects.filter(
+            project_id=pk, annotation_users=user
+        ).count()
+
+        return unique_data_items_count - annotated_proj_tasks
+
     else:
-        return proj_tasks // required_annotators_per_task - annotated_proj_tasks
-    # proj_tasks_unassigned = proj_tasks.annotate(
-    #     num_annotators=Count("annotation_users")
-    # ).filter(num_annotators__lt=required_annotators_per_task)
+        proj_tasks = Task.objects.filter(project_id=pk).exclude(annotation_users=user)
 
-    # return len(proj_tasks_unassigned)
+        proj_tasks_unassigned = (
+            proj_tasks.annotate(num_annotators=Count("annotation_users"))
+        ).filter(num_annotators__lt=required_annotators_per_task)
+
+        return len(proj_tasks_unassigned)
+
+
+# def get_task_count_unassigned(pk, user):
+#     project = Project.objects.get(pk=pk)
+#     required_annotators_per_task = project.required_annotators_per_task
+
+#     proj_tasks = Task.objects.filter(project_id=pk).count()
+
+#     annotated_proj_tasks = Task.objects.filter(
+#         project_id=pk, annotation_users=user
+#     ).count()
+
+#     if user.role == User.ADMIN:
+#         return proj_tasks
+#     else:
+#         return proj_tasks // required_annotators_per_task - annotated_proj_tasks
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
