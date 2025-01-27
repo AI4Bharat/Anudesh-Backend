@@ -530,7 +530,7 @@ def add_extra_task_data(t, project):
         .filter(review_user__isnull=True)
     )
     total_ratings, seen = [], {}
-    max_rating, curr_response = float("-inf"), ""
+    max_rating, curr_response, min_rating = float("-inf"), "", float("inf")
     for st in similar_tasks:
         ann = Annotation.objects.filter(task=st, annotation_status=LABELED)[0]
         for r in ann.result:
@@ -558,14 +558,16 @@ def add_extra_task_data(t, project):
             seen[st.id] = curr_response
             total_ratings.append(curr_response)
             max_rating = max(max_rating, curr_response)
+            min_rating = min(min_rating, curr_response)
     t.data["avg_rating"] = -1
     t.data["curr_rating"] = -1
     t.data["inter_annotator_difference"] = -1
     if t.id in seen:
         t.data["avg_rating"] = sum(total_ratings) / len(total_ratings)
+        t.data["total_rating"] = sum(total_ratings)
         t.data["curr_rating"] = seen[t.id]
         t.data["inter_annotator_difference"] = (
-            max_rating - seen[t.id] if max_rating > float("-inf") else -1
+            max_rating - min_rating if (max_rating > float("-inf") and min_rating < float("inf")) else -1
         )
     t.save()
 
