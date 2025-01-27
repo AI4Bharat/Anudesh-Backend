@@ -559,7 +559,7 @@ def add_extra_task_data(t, project):
             total_ratings.append(curr_response)
             max_rating = max(max_rating, curr_response)
             min_rating = min(min_rating, curr_response)
-    t.data["avg_rating"] = -1
+    t.data["total_rating"] = -1
     t.data["curr_rating"] = -1
     t.data["inter_annotator_difference"] = -1
     if t.id in seen:
