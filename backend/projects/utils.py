@@ -566,11 +566,14 @@ def add_extra_task_data(t, project):
     inter_annotator_difference = {
         key: max(values) - min(values) for key, values in key_values.items()
     }
-    curr_rating = {key: '1' for key in total_rating.keys()}
+    curr_rating = {key: 1 for key in total_rating.keys()}
 
-    t.data["total_rating"] = total_rating
-    t.data["inter_annotator_difference"] = inter_annotator_difference
-    t.data["curr_rating"] = curr_rating
+    def dict_to_string(d):
+        return "{" + ", ".join(f"{key}: {value}" for key, value in d.items()) + "}"
+    
+    t.data["total_rating"] = dict_to_string(total_rating)
+    t.data["inter_annotator_difference"] = dict_to_string(inter_annotator_difference)
+    t.data["curr_rating"] = dict_to_string(curr_rating)
     t.save()
 
 
