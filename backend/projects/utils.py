@@ -562,11 +562,10 @@ def add_extra_task_data(t, project):
                 key_values[key] = []
             key_values[key].append(int(value))
 
-    total_rating = {key: str(value) for key, value in total_rating.items()}
     inter_annotator_difference = {
         key: max(values) - min(values) for key, values in key_values.items()
     }
-    curr_rating = {key: '1' for key in total_rating.keys()}
+    curr_rating = {key: 1 for key in total_rating.keys()}
 
     t.data["total_rating"] = total_rating
     t.data["inter_annotator_difference"] = inter_annotator_difference
