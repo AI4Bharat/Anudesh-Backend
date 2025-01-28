@@ -527,14 +527,14 @@ def add_extra_task_data(t, project):
     similar_tasks = (
         Task.objects.filter(input_data=t.input_data, project_id=project.id)
         .filter(task_status=ANNOTATED)
-        .filter(review_user__isnull=True)
     )
-    curr_response, seen, total_rating, key_values = {}, [], {}, {}
+    seen, total_rating, key_values = [], {}, {}
     for st in similar_tasks:
         ann = Annotation.objects.filter(task=st, annotation_status=LABELED)[0]
         for r in ann.result:
             if "model_responses_json" in r:
                 model_responses_json = r["model_responses_json"]
+                curr_response = {}
                 for mr in model_responses_json:
                     if "questions_response" in mr:
                         questions_response = mr["questions_response"]
@@ -553,7 +553,7 @@ def add_extra_task_data(t, project):
                                 except Exception as e:
                                     pass
                                 break
-        seen.append(curr_response)
+                seen.append(curr_response)
 
     for item in seen:
         for key, value in item.items():
