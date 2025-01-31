@@ -5,7 +5,7 @@ from time import sleep
 import pandas as pd
 import ast
 import math
-
+import logging
 from django.core.files import File
 from django.db import IntegrityError
 from django.db.models import Count, Q, F, Case, When, OuterRef, Exists
@@ -52,6 +52,8 @@ from .utils import (
 )
 
 from dataset.models import DatasetInstance
+
+logger = logging.getLogger(__name__)
 
 # Import celery tasks
 from .tasks import (
@@ -1722,6 +1724,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         Authenticated only for organization owner or workspace manager
         """
         # Read project details from api request
+
         project_type = request.data.get("project_type")
         filter_string = request.data.get("filter_string")
         sampling_mode = request.data.get("sampling_mode")
@@ -1730,7 +1733,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         automatic_annotation_creation_mode = request.data.get(
             "automatic_annotation_creation_mode"
         )
-
+        user_id = request.data.get("created_by")
+        if(user_id):
+            user = User.objects.get(id=user_id)
+            request.data["created_by"] = user.id
         dataset_instance_ids = request.data.get("dataset_id")
         if type(dataset_instance_ids) != list:
             dataset_instance_ids = [dataset_instance_ids]
@@ -1747,6 +1753,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         project_id = project_response.data["id"]
 
         proj = Project.objects.get(id=project_id)
+        proj.created_by = user
         if proj.required_annotators_per_task > 1:
             proj.project_stage = REVIEW_STAGE
         proj.save()
