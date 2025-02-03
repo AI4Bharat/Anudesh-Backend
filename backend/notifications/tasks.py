@@ -38,9 +38,7 @@ def create_notification_handler(
             else (
                 f"/projects/{project_id}"
                 if project_id
-                else f"/task/{task_id}"
-                if task_id
-                else None
+                else f"/task/{task_id}" if task_id else None
             )
         )
         new_notif = Notification(
