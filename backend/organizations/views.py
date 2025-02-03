@@ -456,9 +456,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 else (
                     "Part Time"
                     if participation_type == 2
-                    else "Contract Basis"
-                    if participation_type == 4
-                    else "N/A"
+                    else "Contract Basis" if participation_type == 4 else "N/A"
                 )
             )
             role = get_role_name(annotator.role)
@@ -776,9 +774,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     else (
                         "Part Time"
                         if participation_type == 2
-                        else "Contract Basis"
-                        if participation_type == 4
-                        else "N/A"
+                        else "Contract Basis" if participation_type == 4 else "N/A"
                     )
                 )
                 role = get_role_name(annotator.role)
@@ -902,9 +898,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_200_OK,
                     content_type="text/csv",
                 )
-                response[
-                    "Content-Disposition"
-                ] = f'attachment; filename="{organization.title}_user_analytics.csv"'
+                response["Content-Disposition"] = (
+                    f'attachment; filename="{organization.title}_user_analytics.csv"'
+                )
                 return response
 
             return Response(data=final_result, status=status.HTTP_200_OK)
