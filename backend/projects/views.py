@@ -2325,6 +2325,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
                 .order_by("updated_at")
             )
+            curr_response = {}
+            def dict_to_string(d):
+                return "{" + ", ".join(f"{key}: {value}" for key, value in d.items()) + "}"
+            try:
+                for qa in rec_ann[0].result[0]["model_responses_json"]:
+                    curr_response[qa["model_name"]] = int(qa["questions_response"][0]["response"][0])
+                task.data["current_rating"] = dict_to_string(curr_response)
+                if task.data["curr_rating"]:
+                    del task.data["curr_rating"]
+                task.save()
+            except:
+                True
             reviewer_anno = Annotation_model.objects.filter(
                 task_id=task_id, annotation_type=REVIEWER_ANNOTATION
             )
