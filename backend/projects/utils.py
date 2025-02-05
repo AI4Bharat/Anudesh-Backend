@@ -573,7 +573,6 @@ def add_extra_task_data(t, project):
     
     t.data["total_rating"] = dict_to_string(total_rating)
     t.data["inter_annotator_difference"] = dict_to_string(inter_annotator_difference)
-    t.data["curr_rating"] = dict_to_string(curr_rating)
     t.save()
 
 
