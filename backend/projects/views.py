@@ -2332,7 +2332,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 for qa in rec_ann[0].result[0]["model_responses_json"]:
                     curr_response[qa["model_name"]] = int(qa["questions_response"][0]["response"][0])
                 task.data["current_rating"] = dict_to_string(curr_response)
-                if task.data["curr_rating"]:
+                if "curr_rating" in task.data:
                     del task.data["curr_rating"]
                 task.save()
             except:
