@@ -5,7 +5,7 @@ from base64 import b64encode
 from urllib.parse import parse_qsl
 
 from django.apps import apps
-from django.db.models import Q
+from django.db.models import Prefetch, Q, F
 from django.http import StreamingHttpResponse, JsonResponse, HttpResponse
 from django.forms.models import model_to_dict
 from django.shortcuts import get_object_or_404
@@ -295,6 +295,55 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
             dataset_instance["last_upload_result"] = dataset_instance_result
 
         return Response(serializer.data)
+    
+    # def get_queryset(self):
+    @action(detail=False, methods=["get"], url_path="optimized-list")
+    def list_optimized(self, request):
+        # Base queryset determination based on user role
+        queryset = DatasetInstance.objects.all()
+        if request.user.is_superuser:
+            queryset = queryset
+        elif request.user.role == User.ORGANIZATION_OWNER:
+            queryset = queryset.filter(
+                organisation_id=request.user.organization
+            )
+        else:
+            queryset = queryset.filter(
+                organisation_id=request.user.organization
+            ).filter(Q(public_to_managers=True) | Q(users__id=request.user.id))
+        # Apply filters using request query parameters
+        dataset_visibility = request.query_params.get("dataset_visibility")
+        if dataset_visibility == "all_public_datasets":
+            queryset = queryset.filter(public_to_managers=True)
+        elif dataset_visibility == "my_datasets":
+            queryset = queryset.filter(users__id=request.user.id)
+        dataset_type = request.query_params.get("dataset_type")
+        if dataset_type:
+            queryset = queryset.filter(dataset_type__exact=dataset_type)
+        archived_datasets = request.query_params.get("archived_datasets")
+        # Sort by criteria
+        sort_type = request.query_params.get("sort_type")
+        if sort_type == "recently_updated":
+            queryset = queryset.order_by(F("last_updated").desc(nulls_last=True))
+        else:
+            queryset = queryset.order_by("instance_id")
+        # Optimize related field loading
+        queryset = queryset.prefetch_related(
+            Prefetch("users"),  # Prefetch the related users
+        )
+        # Serialize the data
+        serializer = DatasetInstanceSerializerOptimized(queryset.distinct(), many=True)
+        # Batch process upload status for all datasets
+        # instance_ids = [instance["instance_id"] for instance in serializer.data]
+        # status_data = get_batch_dataset_upload_status(instance_ids)
+        # # Annotate upload status in the response
+        # for dataset_instance in serializer.data:
+        #     instance_id = dataset_instance["instance_id"]
+        #     if instance_id in status_data:
+        #         dataset_instance.update(status_data[instance_id])
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    
 
     @action(methods=["GET"], detail=True, name="Download Dataset in CSV format")
     def download(self, request, pk):

@@ -97,3 +97,32 @@ def mark_seen(request):
         notif.seen_json = s_json
         notif.save()
     return Response(NOTIFICATION_CHANGED_STATE, status=status.HTTP_200_OK)
+
+
+@swagger_auto_schema(
+    method="get",
+    manual_parameters=[],
+    responses={200: "Unread notifications fetched", 400: "Error while fetching unread notifications"},
+)
+@api_view(["GET"])
+def allunreadNotifications(request):
+    """Fetch all unseen notifications for the authenticated user and return the total count."""
+    try:
+        user = request.user  # Get the authenticated user
+
+        # Fetch notifications where seen_json is empty or does not contain the user's ID marked as seen
+        notifications = Notification.objects.filter(
+            reciever_user_id=user.id
+        ).exclude(Q(seen_json__contains={str(user.id): True})).order_by("-created_at")
+
+        # Get total count
+        total_count = notifications.count()
+
+        # Serialize the notifications
+        serialized_notifications = NotificationSerializer(notifications, many=True).data
+
+    except Exception as e:
+        print(f"Error fetching notifications: {str(e)}")  # Print error in terminal
+        return Response({"error": "Error fetching notifications", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({"notifications": serialized_notifications, "total_count": total_count}, status=status.HTTP_200_OK)

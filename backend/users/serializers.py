@@ -104,14 +104,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "first_name",
             "last_name",
             "phone",
-            "gender",
-            "address",
-            "city",
-            "state",
-            "pin_code",
-            "age",
-            "qualification",
-            "guest_user",
             "profile_photo",
             "role",
             "organization",
@@ -122,12 +114,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "is_active",
         ]
         read_only_fields = [
-            "id",
-            "email",
-            "role",
-            "organization",
-            "unverified_email",
-            "date_joined",
+            "id","organization",
         ]
 
 
