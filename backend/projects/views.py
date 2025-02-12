@@ -805,13 +805,20 @@ def get_project_creation_status(pk) -> str:
 def get_task_count_unassigned(pk, user):
     project = Project.objects.get(pk=pk)
     required_annotators_per_task = project.required_annotators_per_task
+    if required_annotators_per_task==1:
+        proj_tasks = Task.objects.filter(project_id=pk).exclude(annotation_users=user)
+        proj_tasks_unassigned = (
+            proj_tasks.annotate(num_annotators=Count("annotation_users"))
+        ).filter(num_annotators__lt=required_annotators_per_task)
+        return len(proj_tasks_unassigned)
+    else:
+        tasks_without_users = (
+        Task.objects.filter(project_id=pk)
+        .annotate(num_annotators=Count("annotation_users"))
+        .filter(num_annotators=0))
+        return len(tasks_without_users)
 
-    proj_tasks = Task.objects.filter(project_id=pk).exclude(annotation_users=user)
-    proj_tasks_unassigned = (
-        proj_tasks.annotate(num_annotators=Count("annotation_users"))
-    ).filter(num_annotators__lt=required_annotators_per_task)
 
-    return len(proj_tasks_unassigned)
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
