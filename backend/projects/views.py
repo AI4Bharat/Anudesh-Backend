@@ -811,12 +811,96 @@ def get_task_count_unassigned(pk, user):
             proj_tasks.annotate(num_annotators=Count("annotation_users"))
         ).filter(num_annotators__lt=required_annotators_per_task)
         return len(proj_tasks_unassigned)
+    
+    if user.role==User.ADMIN:
+        assigned_task_ids = Annotation_model.objects.filter(
+        task__project_id=pk
+        ).values_list("task_id", flat=True) 
+
+        tasks = Task.objects.filter(
+            project_id=pk,
+            task_status__in=[INCOMPLETE, UNLABELED]
+        ).annotate(
+            annotator_count=Count("annotation_users")
+        ).filter(
+            annotator_count__lt=project.required_annotators_per_task 
+        ).exclude(id__in=assigned_task_ids)
+        return tasks.count()
+
     else:
-        tasks_without_users = (
-        Task.objects.filter(project_id=pk)
-        .annotate(num_annotators=Count("annotation_users"))
-        .filter(num_annotators=0))
-        return len(tasks_without_users)
+        #Tasks that the user has already worked on but are incomplete and yje pending task count of the user
+        proj_annotations = Annotation_model.objects.filter(
+            task__project_id=pk, 
+            annotation_status=UNLABELED, 
+            completed_by=user
+        )
+        annotation_tasks = proj_annotations.values_list("task_id", flat=True)
+
+        pending_task_users = Task.objects.filter(
+            project_id=pk, 
+            annotation_users=user.id, 
+            task_status__in=[INCOMPLETE, UNLABELED], 
+            id__in=annotation_tasks
+        ).count()
+
+        # Max tasks that can be assigned to the user based on the project constraint
+        tasks_to_be_assigned = project.max_pending_tasks_per_user - pending_task_users
+
+        # Check if user exceeded max_tasks_per_user
+        if project.max_tasks_per_user != -1:
+            tasks_assigned_to_user = Task.objects.filter(
+                project_id=pk, annotation_users=user.id
+            ).count()
+            
+            if tasks_assigned_to_user >= project.max_tasks_per_user:
+                return Response(
+                    {"message": f"You are only allowed a total of {project.max_tasks_per_user} tasks"},
+                    status=status.HTTP_200_OK,
+                )
+
+            max_task_that_can_be_assigned = min(
+                project.max_tasks_per_user - tasks_assigned_to_user,
+                tasks_to_be_assigned,
+            )
+        else:
+            max_task_that_can_be_assigned = tasks_to_be_assigned
+
+        # Fetch all available tasks
+        tasks = Task.objects.filter(
+            project_id=pk,
+            task_status__in=[INCOMPLETE, UNLABELED]
+        ).exclude(
+            annotation_users=user.id 
+        ).annotate(
+            annotator_count=Count("annotation_users")
+        ).filter(
+            annotator_count__lt=project.required_annotators_per_task
+        ).order_by("id")  
+
+        # unique unassigned data items (as in the new design each annotator is given a seperate task of the same data item)
+        data_items_vs_tasks_map = {t.input_data.id: t for t in tasks}
+        data_items_of_unassigned_tasks = set(data_items_vs_tasks_map.keys())
+
+        #  Identify assigned data items
+        data_items_of_assigned_tasks = set(
+            proj_annotations.values_list("task__input_data_id", flat=True)
+        )
+        proj_annotations_annotated = Annotation_model.objects.filter(
+            task__project_id=pk, 
+            annotation_status__in=[UNLABELED, SKIPPED, DRAFT, LABELED, TO_BE_REVISED], 
+            completed_by=user, 
+            annotation_type=1
+        )
+        data_items_of_assigned_tasks.update(
+            proj_annotations_annotated.values_list("task__input_data_id", flat=True)
+        )
+
+        # Find unassigned data items that can still be assigned
+        all_unassigned_data_items = data_items_of_unassigned_tasks - data_items_of_assigned_tasks
+        tasks = [data_items_vs_tasks_map[task_id] for task_id in all_unassigned_data_items]
+        assignable_tasks = tasks[:max_task_that_can_be_assigned] if max_task_that_can_be_assigned else tasks[:tasks_to_be_assigned]
+        return len(assignable_tasks)
+
 
 
 
