@@ -819,7 +819,7 @@ def get_task_count_unassigned(pk, user):
 
         tasks = Task.objects.filter(
             project_id=pk,
-            task_status__in=[INCOMPLETE, UNLABELED]
+            task_status__in=[INCOMPLETE]
         ).annotate(
             annotator_count=Count("annotation_users")
         ).filter(
@@ -839,7 +839,7 @@ def get_task_count_unassigned(pk, user):
         pending_task_users = Task.objects.filter(
             project_id=pk, 
             annotation_users=user.id, 
-            task_status__in=[INCOMPLETE, UNLABELED], 
+            task_status__in=[INCOMPLETE], 
             id__in=annotation_tasks
         ).count()
 
@@ -868,7 +868,7 @@ def get_task_count_unassigned(pk, user):
         # Fetch all available tasks
         tasks = Task.objects.filter(
             project_id=pk,
-            task_status__in=[INCOMPLETE, UNLABELED]
+            task_status__in=[INCOMPLETE]
         ).exclude(
             annotation_users=user.id 
         ).annotate(
