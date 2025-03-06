@@ -456,9 +456,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 else (
                     "Part Time"
                     if participation_type == 2
-                    else "Contract Basis"
-                    if participation_type == 4
-                    else "N/A"
+                    else "Contract Basis" if participation_type == 4 else "N/A"
                 )
             )
             role = get_role_name(annotator.role)
@@ -570,6 +568,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
         final_reports = []
 
+        # for reports type review
         if reports_type == "review":
 
             proj_objs = Project.objects.filter(organization_id=pk)
@@ -589,7 +588,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             else:
                 return Response(
                     {"message": "Annotation stage projects don't have review reports."},
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             org_reviewer_list = []
@@ -649,20 +648,22 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 final_reports.append(result)
             else:
                 return Response(
-                    {"message": "You do not have enough permissions to access this view!"},
-                    status=status.HTTP_403_FORBIDDEN
+                    {
+                        "message": "You do not have enough permissions to access this view!"
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
                 )
 
             # If no review reports found
             if not final_reports:
                 return Response(
                     {"message": "No review reports found for this user"},
-                    status=status.HTTP_404_NOT_FOUND
+                    status=status.HTTP_404_NOT_FOUND,
                 )
-            
+
             # Return review reports if found
             return Response(data=final_reports, status=status.HTTP_200_OK)
-
+        # for reports type supercheck
         elif reports_type == "supercheck":
             proj_objs = Project.objects.filter(organization_id=pk)
             if project_type is not None:
@@ -697,7 +698,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     ]
 
                     result = get_supercheck_reports(
-                        superchecker_projs_ids, superchecker_id, start_date, end_date, project_type
+                        superchecker_projs_ids,
+                        superchecker_id,
+                        start_date,
+                        end_date,
+                        project_type,
                     )
                     final_reports.append(result)
             elif user_id in workspace_superchecker_list:
@@ -719,12 +724,12 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             if not final_reports:
                 return Response(
                     {"message": "No supercheck reports found for this user"},
-                    status=status.HTTP_404_NOT_FOUND
+                    status=status.HTTP_404_NOT_FOUND,
                 )
-            
+
             # Return supercheck reports if found
             return Response(data=final_reports, status=status.HTTP_200_OK)
-
+        # for reports type annotation
         else:
 
             if not (
@@ -757,13 +762,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     final_reports=final_reports,
                 )
                 return Response(
-                    {"message": "Email scheduled successfully"}, status=status.HTTP_200_OK
+                    {"message": "Email scheduled successfully"},
+                    status=status.HTTP_200_OK,
                 )
             else:
                 if tgt_language == None:
-                    annotators = User.objects.filter(organization=organization).order_by(
-                        "username"
-                    )
+                    annotators = User.objects.filter(
+                        organization=organization
+                    ).order_by("username")
                 else:
                     proj_objects = Project.objects.filter(
                         organization_id_id=pk,
@@ -792,9 +798,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         else (
                             "Part Time"
                             if participation_type == 2
-                            else "Contract Basis"
-                            if participation_type == 4
-                            else "N/A"
+                            else "Contract Basis" if participation_type == 4 else "N/A"
                         )
                     )
                     role = get_role_name(annotator.role)
@@ -852,7 +856,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                             "Unlabeled": total_unlabeled_tasks_count,
                             "Skipped": total_skipped_tasks_count,
                             "Draft": total_draft_tasks_count,
-                            "Average Annotation Time (In Seconds)": round(avg_lead_time, 2),
+                            "Average Annotation Time (In Seconds)": round(
+                                avg_lead_time, 2
+                            ),
                             "Participation Type": participation_type,
                             "User Role": role,
                         }
@@ -883,19 +889,24 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                             "Unlabeled": total_unlabeled_tasks_count,
                             "Skipped": total_skipped_tasks_count,
                             "Draft": total_draft_tasks_count,
-                            "Average Annotation Time (In Seconds)": round(avg_lead_time, 2),
+                            "Average Annotation Time (In Seconds)": round(
+                                avg_lead_time, 2
+                            ),
                             "Participation Type": participation_type,
                             "User Role": role,
                         }
 
                     result.append(temp_result)
                 final_result = sorted(
-                    result, key=lambda x: x[sort_by_column_name], reverse=descending_order
+                    result,
+                    key=lambda x: x[sort_by_column_name],
+                    reverse=descending_order,
                 )
 
                 download_csv = request.data.get("download_csv", False)
 
                 if download_csv:
+
                     class Echo(object):
                         def write(self, value):
                             return value
@@ -916,9 +927,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_200_OK,
                         content_type="text/csv",
                     )
-                    response[
-                        "Content-Disposition"
-                    ] = f'attachment; filename="{organization.title}_user_analytics.csv"'
+                    response["Content-Disposition"] = (
+                        f'attachment; filename="{organization.title}_user_analytics.csv"'
+                    )
                     return response
 
                 return Response(data=final_result, status=status.HTTP_200_OK)
