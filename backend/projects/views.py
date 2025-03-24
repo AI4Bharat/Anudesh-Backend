@@ -636,9 +636,9 @@ def get_supercheck_reports(proj_id, userid, start_date, end_date):
         result["Rejected Word Count"] = rejected_word_count
     elif proj_type in get_audio_project_types():
         result["Validated Segments Duration"] = validated_audio_duration
-        result[
-            "Validated With Changes Segments Duration"
-        ] = validated_with_changes_audio_duration
+        result["Validated With Changes Segments Duration"] = (
+            validated_with_changes_audio_duration
+        )
         result["Rejected Segments Duration"] = rejected_audio_duration
         result["Total Raw Audio Duration"] = total_raw_audio_duration
         result["Average Word Error Rate R/S"] = round(avg_word_error_rate, 2)
@@ -2416,6 +2416,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
                 .order_by("updated_at")
             )
+            curr_response = {}
+            def dict_to_string(d):
+                return "{" + ", ".join(f"{key}: {value}" for key, value in d.items()) + "}"
+            try:
+                for qa in rec_ann[0].result[0]["model_responses_json"]:
+                    curr_response[qa["model_name"]] = int(qa["questions_response"][0]["response"][0])
+                task.data["current_rating"] = dict_to_string(curr_response)
+                if "curr_rating" in task.data:
+                    del task.data["curr_rating"]
+                task.save()
+            except:
+                True
             reviewer_anno = Annotation_model.objects.filter(
                 task_id=task_id, annotation_type=REVIEWER_ANNOTATION
             )
@@ -3881,11 +3893,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 if include_input_data_metadata_json:
                     dataset_type = project.dataset_id.all()[0].dataset_type
                     dataset_model = getattr(dataset_models, dataset_type)
-                    task_dict["data"][
-                        "input_data_metadata_json"
-                    ] = dataset_model.objects.get(
-                        pk=task_dict["input_data"]
-                    ).metadata_json
+                    task_dict["data"]["input_data_metadata_json"] = (
+                        dataset_model.objects.get(
+                            pk=task_dict["input_data"]
+                        ).metadata_json
+                    )
                 del task_dict["annotation_users"]
                 del task_dict["review_user"]
                 tasks_list.append(OrderedDict(task_dict))
