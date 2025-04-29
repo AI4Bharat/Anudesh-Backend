@@ -2266,14 +2266,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
         task_pull_count = project.tasks_pull_count_per_batch
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
+
+        if project.required_annotators_per_task > 1:
+            task_ids = (
+                Annotation_model.objects
+                .filter(task__in=tasks)
+                .filter(annotation_type=ANNOTATOR_ANNOTATION)
+                .values("task")  # Group by task
+                .annotate(labeled_count=Count("id", filter=Q(annotation_status="labeled")))
+                .order_by("-labeled_count")  # Sort by count of labeled annotations
+                .values_list("task", flat=True)  # Return just the task IDs
+            )
+        else:
         # Sort by most recently updated annotation; temporary change
-        task_ids = (
-            Annotation_model.objects.filter(task__in=tasks)
-            .filter(annotation_type=ANNOTATOR_ANNOTATION)
-            .distinct()
-            .order_by("-updated_at")
-            .values_list("task", flat=True)
-        )
+            task_ids = (
+                Annotation_model.objects.filter(task__in=tasks)
+                .filter(annotation_type=ANNOTATOR_ANNOTATION)
+                .distinct()
+                .order_by("-updated_at")
+                .values_list("task", flat=True)
+            )
         # tasks = tasks.order_by("id")
         task_ids = list(task_ids)
         task_ids = task_ids[:task_pull_count]
