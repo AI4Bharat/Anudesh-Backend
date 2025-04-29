@@ -2311,6 +2311,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         is_MultipleInteractionEvaluation = (
             project.project_type == "MultipleInteractionEvaluation"
         )
+        print(task_ids)
         for task_id in task_ids:
             if task_id in seen:
                 continue
