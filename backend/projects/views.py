@@ -2298,6 +2298,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     .filter(review_user__isnull=True)
                     .exclude(id=t.id)
                 )
+                print(f"Task_id inside loop iteration {i}: ",ti)
+                print(f"Corrupted tasks inside loop iteration {i}: ",corrupted_tasks)
                 if corrupt_tasks:
                     corrupted_tasks.add(task_ids[i])
                     continue
@@ -2305,14 +2307,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     st = similar_tasks[j]
                     if st.id not in seen_tasks:
                         task_ids.append(st.id)
-                print(f"Task_id inside loop iteration {i}: ",ti)
-                print(f"Corrupted tasks inside loop iteration {i}: ",corrupted_tasks)
+                
+                
                 print(f"Similar tasks inside loop iteration {i}: ",similar_tasks)
         print("Corrupted tasks after loop: ",corrupted_tasks)
         print("Task_ids after loop: ",task_ids)
         task_ids = [t for t in task_ids if t not in corrupted_tasks]
         print("Task_ids after corrupted removal: ",task_ids)
-        #task_ids = task_ids[:task_pull_count]
+        # task_ids = task_ids[:task_pull_count]
         # if required_annotators_per_task > 1:
         #     task_ids = filter_tasks_for_review_filter_criteria(task_ids)
         is_MultipleInteractionEvaluation = (
