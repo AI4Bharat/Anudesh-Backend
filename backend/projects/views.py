@@ -2292,7 +2292,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
         seen = set()
         required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
-        print("Before loop: ",task_ids)
         if required_annotators_per_task > 1:
             seen_tasks = set(task_ids)
             for i in range(len(task_ids)):
@@ -2313,19 +2312,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 
                 if corrupt_tasks:
                     corrupted_tasks.add(task_ids[i])
-                    print(f"Corrupt tasks for task id {ti} inside loop iteration {i} is: ",corrupt_tasks)
                     continue
                 for j in range(len(similar_tasks)):
                     st = similar_tasks[j]
                     if st.id not in seen_tasks:
                         task_ids.append(st.id)
                 
-                
-                print(f"Similar tasks inside loop iteration {i}: ",similar_tasks)
-        print("Corrupted tasks after loop: ",corrupted_tasks)
-        print("Task_ids after loop: ",task_ids)
         task_ids = [t for t in task_ids if t not in corrupted_tasks]
-        print("Task_ids after corrupted removal: ",task_ids)
         # task_ids = task_ids[:task_pull_count]
         # if required_annotators_per_task > 1:
         #     task_ids = filter_tasks_for_review_filter_criteria(task_ids)
