@@ -2311,7 +2311,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
         print("Corrupted tasks after loop: ",corrupted_tasks)
         print("Task_ids after loop: ",task_ids)
         task_ids = [t for t in task_ids if t not in corrupted_tasks]
-        task_ids = task_ids[:task_pull_count]
+        print("Task_ids after corrupted removal: ",task_ids)
+        #task_ids = task_ids[:task_pull_count]
         # if required_annotators_per_task > 1:
         #     task_ids = filter_tasks_for_review_filter_criteria(task_ids)
         is_MultipleInteractionEvaluation = (
