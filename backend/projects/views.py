@@ -2298,10 +2298,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     .filter(review_user__isnull=True)
                     .exclude(id=t.id)
                 )
-                print(f"Task_id inside loop iteration {i}: ",ti)
-                print(f"Corrupted tasks inside loop iteration {i}: ",corrupted_tasks)
+                
                 if corrupt_tasks:
                     corrupted_tasks.add(task_ids[i])
+                    print(f"Corrupt tasks for task id {ti} inside loop iteration {i} is: ",corrupt_tasks)
                     continue
                 for j in range(len(similar_tasks)):
                     st = similar_tasks[j]
