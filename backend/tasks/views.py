@@ -20,7 +20,7 @@ from tasks.serializers import (
     TaskAnnotationSerializer,
 )
 from tasks.utils import compute_meta_stats_for_instruction_driven_chat, query_flower
-from tasks.utils import Queued_Task_name
+from tasks.utils import Queued_Task_name, convert_audio_base64_to_mp3
 from utils.pagination import paginate_queryset
 from notifications.views import createNotification
 from notifications.utils import get_userids_from_project_id
@@ -43,8 +43,8 @@ from utils.search import process_search_query
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 
-from rapidfuzz.distance import Levenshtein
-import sacrebleu
+# from rapidfuzz.distance import Levenshtein
+# import sacrebleu
 
 from utils.date_time_conversions import utc_to_ist
 from rest_framework.views import APIView
@@ -2273,110 +2273,110 @@ class PredictionViewSet(
 class SentenceOperationViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated,)
 
-    @swagger_auto_schema(
-        method="post",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                "sentence1": openapi.Schema(type=openapi.TYPE_STRING),
-                "sentence2": openapi.Schema(type=openapi.TYPE_STRING),
-            },
-            required=["sentence1", "sentence2"],
-        ),
-        responses={
-            200: "Character level edit distance calculated successfully.",
-            400: "Invalid parameters in the request body!",
-        },
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="calculate_normalized_character_level_edit_distance",
-        url_name="calculate_normalized_character_level_edit_distance",
-    )
-    def calculate_normalized_character_level_edit_distance(self, request):
-        try:
-            sentence1 = request.data.get("sentence1")
-            sentence2 = request.data.get("sentence2")
-        except:
-            try:
-                sentence1 = request["sentence1"]
-                sentence2 = request["sentence2"]
-            except:
-                return Response(
-                    {"message": "Invalid parameters in request body!"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        try:
-            character_level_edit_distance = Levenshtein.distance(sentence1, sentence2)
-            normalized_character_level_edit_distance = (
-                character_level_edit_distance / len(sentence1)
-            )
+    # @swagger_auto_schema(
+    #     method="post",
+    #     request_body=openapi.Schema(
+    #         type=openapi.TYPE_OBJECT,
+    #         properties={
+    #             "sentence1": openapi.Schema(type=openapi.TYPE_STRING),
+    #             "sentence2": openapi.Schema(type=openapi.TYPE_STRING),
+    #         },
+    #         required=["sentence1", "sentence2"],
+    #     ),
+    #     responses={
+    #         200: "Character level edit distance calculated successfully.",
+    #         400: "Invalid parameters in the request body!",
+    #     },
+    # )
+    # @action(
+    #     detail=False,
+    #     methods=["post"],
+    #     url_path="calculate_normalized_character_level_edit_distance",
+    #     url_name="calculate_normalized_character_level_edit_distance",
+    # )
+    # def calculate_normalized_character_level_edit_distance(self, request):
+    #     try:
+    #         sentence1 = request.data.get("sentence1")
+    #         sentence2 = request.data.get("sentence2")
+    #     except:
+    #         try:
+    #             sentence1 = request["sentence1"]
+    #             sentence2 = request["sentence2"]
+    #         except:
+    #             return Response(
+    #                 {"message": "Invalid parameters in request body!"},
+    #                 status=status.HTTP_400_BAD_REQUEST,
+    #             )
+    #     try:
+    #         character_level_edit_distance = Levenshtein.distance(sentence1, sentence2)
+    #         normalized_character_level_edit_distance = (
+    #             character_level_edit_distance / len(sentence1)
+    #         )
 
-            return Response(
-                {
-                    "normalized_character_level_edit_distance": normalized_character_level_edit_distance
-                },
-                status=status.HTTP_200_OK,
-            )
-        except:
-            return Response(
-                {"message": "Invalid parameters in request body!"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    #         return Response(
+    #             {
+    #                 "normalized_character_level_edit_distance": normalized_character_level_edit_distance
+    #             },
+    #             status=status.HTTP_200_OK,
+    #         )
+    #     except:
+    #         return Response(
+    #             {"message": "Invalid parameters in request body!"},
+    #             status=status.HTTP_400_BAD_REQUEST,
+    #         )
 
-    @swagger_auto_schema(
-        method="post",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                "sentence1": openapi.Schema(type=openapi.TYPE_STRING),
-                "sentence2": openapi.Schema(type=openapi.TYPE_STRING),
-            },
-            required=["sentence1", "sentence2"],
-        ),
-        responses={
-            200: "Bleu calculated successfully.",
-            400: "Invalid parameters in the request body!",
-        },
-    )
-    @action(
-        detail=False,
-        methods=["post"],
-        url_path="calculate_bleu_score",
-        url_name="calculate_bleu_score",
-    )
-    def calculate_bleu_score(self, request):
-        try:
-            sentence1 = request.data.get("sentence1")
-            sentence2 = request.data.get("sentence2")
-        except:
-            try:
-                sentence1 = request["sentence1"]
-                sentence2 = request["sentence2"]
-            except:
-                return Response(
-                    {"message": "Invalid parameters in request body!"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+    # @swagger_auto_schema(
+    #     method="post",
+    #     request_body=openapi.Schema(
+    #         type=openapi.TYPE_OBJECT,
+    #         properties={
+    #             "sentence1": openapi.Schema(type=openapi.TYPE_STRING),
+    #             "sentence2": openapi.Schema(type=openapi.TYPE_STRING),
+    #         },
+    #         required=["sentence1", "sentence2"],
+    #     ),
+    #     responses={
+    #         200: "Bleu calculated successfully.",
+    #         400: "Invalid parameters in the request body!",
+    #     },
+    # )
+    # @action(
+    #     detail=False,
+    #     methods=["post"],
+    #     url_path="calculate_bleu_score",
+    #     url_name="calculate_bleu_score",
+    # )
+    # # def calculate_bleu_score(self, request):
+    #     try:
+    #         sentence1 = request.data.get("sentence1")
+    #         sentence2 = request.data.get("sentence2")
+    #     except:
+    #         try:
+    #             sentence1 = request["sentence1"]
+    #             sentence2 = request["sentence2"]
+    #         except:
+    #             return Response(
+    #                 {"message": "Invalid parameters in request body!"},
+    #                 status=status.HTTP_400_BAD_REQUEST,
+    #             )
 
-        try:
-            sentence1 = [sentence1]
-            sentence2 = [[sentence2]]
+    #     try:
+    #         sentence1 = [sentence1]
+    #         sentence2 = [[sentence2]]
 
-            bleu = sacrebleu.corpus_bleu(sentence1, sentence2)
+    #         bleu = sacrebleu.corpus_bleu(sentence1, sentence2)
 
-            bleu_score = bleu.score
+    #         bleu_score = bleu.score
 
-            return Response(
-                {"bleu_score": str(bleu_score)},
-                status=status.HTTP_200_OK,
-            )
-        except:
-            return Response(
-                {"message": "Invalid parameters in request body!"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    #         return Response(
+    #             {"bleu_score": str(bleu_score)},
+    #             status=status.HTTP_200_OK,
+    #         )
+    #     except:
+    #         return Response(
+    #             {"message": "Invalid parameters in request body!"},
+    #             status=status.HTTP_400_BAD_REQUEST,
+    #         )
 
 
 def get_llm_output(prompt, task, annotation, project_metadata_json):
@@ -2515,3 +2515,34 @@ class TransliterationAPIView(APIView):
 
         transliteration_output = response_transliteration.json()
         return Response(transliteration_output, status=status.HTTP_200_OK)
+
+class TranscribeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, target_language, data, *args, **kwargs):
+        audio_base64 = data.get("audioBase64")
+        lang = data.get("lang", "hi")
+        mp3_base64 = convert_audio_base64_to_mp3(audio_base64)
+
+        chunk_data = {
+            "config": {
+                "serviceId": os.getenv("DHRUVA_SERVICE_ID"),
+                "language": {"sourceLanguage": lang},
+                "transcriptionFormat": {"value": "transcript"}
+                },
+            "audio": [
+                {
+                    "audioContent":mp3_base64
+                    }
+                ]
+            }
+        try:
+            response = requests.post(os.getenv("DHRUVA_API_URL"),
+            headers={"authorization": os.getenv("DHRUVA_KEY")},
+            json=chunk_data,
+            )
+            transcript = response.json()["output"][0]["source"]
+            return Response({"transcript": transcript+" " or ""}, status=status.HTTP_200_OK)
+        except Exception as e:
+            print("Error:", e)
+            return Response({"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST)
