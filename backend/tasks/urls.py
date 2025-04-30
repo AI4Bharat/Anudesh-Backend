@@ -23,8 +23,8 @@ urlpatterns = [
         name="transliteration-api",
     ),
     path(
-        "asr-api",
+        "asr-api/generic/transcribe",
         TranscribeAPIView.as_view(),
-        name="transcribe-api",
+        name="transcription-api",
     ),
 ] + router.urls

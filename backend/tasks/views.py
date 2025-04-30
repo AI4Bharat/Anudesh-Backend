@@ -2519,7 +2519,8 @@ class TransliterationAPIView(APIView):
 class TranscribeAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
-    def get(self, request, target_language, data, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
+        data = request.data
         audio_base64 = data.get("audioBase64")
         lang = data.get("lang", "hi")
         mp3_base64 = convert_audio_base64_to_mp3(audio_base64)
