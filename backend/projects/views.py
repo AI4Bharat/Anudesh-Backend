@@ -874,6 +874,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 input_data=OuterRef("input_data"),
                 task_status=INCOMPLETE,
             ).exclude(id=OuterRef("id"))
+            print("similar_task_incomplete", similar_task_incomplete)
 
             tasks = (
                 Task.objects.filter(
