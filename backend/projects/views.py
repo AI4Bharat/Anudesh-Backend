@@ -8,7 +8,7 @@ import math
 
 from django.core.files import File
 from django.db import IntegrityError
-from django.db.models import Count, Q, F, Case, When, OuterRef, Exists
+from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField
 from django.forms.models import model_to_dict
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -2034,9 +2034,30 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     continue
         # check if the project contains eligible tasks to pull
         tasks = Task.objects.filter(project_id=pk)
-        tasks = tasks.order_by("id")
+        if project.required_annotators_per_task > 1:
+            similar_task_count = (
+                Task.objects
+                .filter(
+                    project_id=OuterRef('project_id'),
+                    input_data=OuterRef('input_data'),
+                    task_status=ANNOTATED,
+                )
+                .exclude(id=OuterRef('id'))
+                .values('input_data')
+                .annotate(count=Count('id'))
+                .values('count')[:1]  # Get the count (or null if none)
+            )
+
+            tasks = (
+                Task.objects
+                .filter(project_id=pk)
+                .annotate(similar_annotated_count=Subquery(similar_task_count, output_field=IntegerField()))
+                .order_by('-similar_annotated_count')
+            )
+        else:
+            tasks = tasks.order_by("id")
         tasks = (
-            tasks.filter(task_status__in=[INCOMPLETE, UNLABELED])
+            tasks.filter(task_status__in=[INCOMPLETE])
             .exclude(annotation_users=cur_user.id)
             .annotate(annotator_count=Count("annotation_users"))
         )
@@ -2363,10 +2384,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 Annotation_model.objects
                 .filter(task__in=tasks)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
-                .values("task")  # Group by task
-                .annotate(labeled_count=Count("id", filter=Q(annotation_status="labeled")))
-                .order_by("-labeled_count")  # Sort by count of labeled annotations
-                .values_list("task", flat=True)  # Return just the task IDs
+                .filter(annotation_status="labeled")  # focus only on labeled ones
+                .values("task__input_data")  # group by input_data
+                .annotate(tasks_with_labeled_count=Count("task", distinct=True))  # count tasks sharing this input_data
+                .order_by("-tasks_with_labeled_count")  # order by that count
+                .values_list("task", flat=True)  # get task IDs back
             )
         else:
         # Sort by most recently updated annotation; temporary change
