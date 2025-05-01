@@ -2328,6 +2328,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
         # task_ids = task_ids[:task_pull_count]
         # if required_annotators_per_task > 1:
         #     task_ids = filter_tasks_for_review_filter_criteria(task_ids)
+        if len(task_ids) == 0:
+            project.release_lock(REVIEW_LOCK)
+            return Response(
+                {"message": "No tasks available for review in this project"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+            
         is_MultipleInteractionEvaluation = (
             project.project_type == "MultipleInteractionEvaluation"
         )
