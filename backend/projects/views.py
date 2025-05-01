@@ -2034,9 +2034,30 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     continue
         # check if the project contains eligible tasks to pull
         tasks = Task.objects.filter(project_id=pk)
-        tasks = tasks.order_by("id")
+        if project.required_annotators_per_task > 1:
+            similar_task_count = (
+                Task.objects
+                .filter(
+                    project_id=OuterRef('project_id'),
+                    input_data=OuterRef('input_data'),
+                    task_status=ANNOTATED,
+                )
+                .exclude(id=OuterRef('id'))
+                .values('input_data')
+                .annotate(count=Count('id'))
+                .values('count')[:1]  # Get the count (or null if none)
+            )
+
+            tasks = (
+                Task.objects
+                .filter(project_id=pk)
+                .annotate(similar_annotated_count=Subquery(similar_task_count, output_field=IntegerField()))
+                .order_by('-similar_annotated_count')
+            )
+        else:
+            tasks = tasks.order_by("id")
         tasks = (
-            tasks.filter(task_status__in=[INCOMPLETE, UNLABELED])
+            tasks.filter(task_status__in=[INCOMPLETE])
             .exclude(annotation_users=cur_user.id)
             .annotate(annotator_count=Count("annotation_users"))
         )
