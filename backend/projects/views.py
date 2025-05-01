@@ -2292,6 +2292,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         seen = set()
         required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
+        print("Before loop: ",task_ids)
         if required_annotators_per_task > 1:
             seen_tasks = set(task_ids)
             for i in range(len(task_ids)):
@@ -2317,7 +2318,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     st = similar_tasks[j]
                     if st.id not in seen_tasks:
                         task_ids.append(st.id)
-                
+                print(f"Task_id inside loop iteration {i}: ",ti)
+                print(f"Corrupted tasks inside loop iteration {i}: ",corrupted_tasks)
+                print(f"Similar tasks inside loop iteration {i}: ",similar_tasks)
+        print("Corrupted tasks after loop: ",corrupted_tasks)
+        print("Task_ids after loop: ",task_ids)
         task_ids = [t for t in task_ids if t not in corrupted_tasks]
         # task_ids = task_ids[:task_pull_count]
         # if required_annotators_per_task > 1:
