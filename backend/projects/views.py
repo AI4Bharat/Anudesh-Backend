@@ -2383,6 +2383,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         seen = set()
         required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
+        print("Before loop: ",task_ids)
         if required_annotators_per_task > 1:
             seen_tasks = set(task_ids)
             for i in range(len(task_ids)):
@@ -2403,16 +2404,28 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 
                 if corrupt_tasks:
                     corrupted_tasks.add(task_ids[i])
+                    print(f"Corrupt tasks related to {ti} inside loop iteration {i}: ",corrupt_tasks)
                     continue
                 for j in range(len(similar_tasks)):
                     st = similar_tasks[j]
                     if st.id not in seen_tasks:
                         task_ids.append(st.id)
+                print(f"Task_id inside loop iteration {i}: ",ti)
                 
+                print(f"Similar tasks inside loop iteration {i}: ",similar_tasks)
+        print("Corrupted tasks after loop: ",corrupted_tasks)
+        print("Task_ids after loop: ",task_ids)
         task_ids = [t for t in task_ids if t not in corrupted_tasks]
         # task_ids = task_ids[:task_pull_count]
         # if required_annotators_per_task > 1:
         #     task_ids = filter_tasks_for_review_filter_criteria(task_ids)
+        if len(task_ids) == 0:
+            project.release_lock(REVIEW_LOCK)
+            return Response(
+                {"message": "No tasks available for review in this project"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+            
         is_MultipleInteractionEvaluation = (
             project.project_type == "MultipleInteractionEvaluation"
         )
