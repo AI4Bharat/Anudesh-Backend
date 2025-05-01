@@ -2313,13 +2313,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 
                 if corrupt_tasks:
                     corrupted_tasks.add(task_ids[i])
+                    print(f"Corrupt tasks related to {ti} inside loop iteration {i}: ",corrupt_tasks)
                     continue
                 for j in range(len(similar_tasks)):
                     st = similar_tasks[j]
                     if st.id not in seen_tasks:
                         task_ids.append(st.id)
                 print(f"Task_id inside loop iteration {i}: ",ti)
-                print(f"Corrupted tasks inside loop iteration {i}: ",corrupted_tasks)
+                
                 print(f"Similar tasks inside loop iteration {i}: ",similar_tasks)
         print("Corrupted tasks after loop: ",corrupted_tasks)
         print("Task_ids after loop: ",task_ids)
