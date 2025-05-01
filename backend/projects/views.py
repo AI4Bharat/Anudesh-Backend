@@ -2363,10 +2363,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 Annotation_model.objects
                 .filter(task__in=tasks)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
-                .values("task")  # Group by task
-                .annotate(labeled_count=Count("id", filter=Q(annotation_status="labeled")))
-                .order_by("-labeled_count")  # Sort by count of labeled annotations
-                .values_list("task", flat=True)  # Return just the task IDs
+                .filter(annotation_status="labeled")  # focus only on labeled ones
+                .values("task__input_data")  # group by input_data
+                .annotate(tasks_with_labeled_count=Count("task", distinct=True))  # count tasks sharing this input_data
+                .order_by("-tasks_with_labeled_count")  # order by that count
+                .values_list("task", flat=True)  # get task IDs back
             )
         else:
         # Sort by most recently updated annotation; temporary change
