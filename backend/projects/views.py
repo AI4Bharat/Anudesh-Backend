@@ -874,17 +874,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 input_data=OuterRef("input_data"),
                 task_status=INCOMPLETE,
             ).exclude(id=OuterRef("id"))
-            print("similar_task_incomplete", similar_task_incomplete)
+            
 
-            tasks = (
-                Task.objects.filter(
+            tasks = Task.objects.filter(
                     project_id=pk, task_status=ANNOTATED, review_user__isnull=True
                 )
                 .exclude(annotation_users=request.user.id)
                 .exclude(Exists(similar_task_incomplete))
-                .count()
-            )
-            project_response.data["labeled_task_count"] = tasks
+            print(tasks)
+            project_response.data["labeled_task_count"] = (tasks.count())
         else:
             project_response.data["labeled_task_count"] = (
                 Task.objects.filter(project_id=pk)
