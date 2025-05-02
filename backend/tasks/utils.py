@@ -81,6 +81,28 @@ def compute_meta_stats_for_instruction_driven_chat(conversation_history):
     }
     return meta_stats
 
+def compute_meta_stats_for_multiple_llm_idc(conversation_history):
+    meta_stats = {}
+
+    for model_data in conversation_history:
+        model_name = model_data.get("model_name")
+        interactions = model_data.get("interactions", [])
+
+        num_turns = len(interactions)
+        total_prompt_len = sum(len(turn.get("prompt", "")) for turn in interactions)
+        total_output_len = sum(len(turn.get("output", "")) for turn in interactions)
+        average_prompt_len = total_prompt_len/num_turns if num_turns else 0
+        average_output_len = total_output_len/num_turns if num_turns else 0
+
+        meta_stats[model_name] = {
+            "num_turns": num_turns,
+            "total_prompt_length": total_prompt_len,
+            "total_output_length": total_output_len,
+            "average_prompt_length": round(average_prompt_len, 2),
+            "average_output_length": round(average_output_len, 2),
+        }
+
+    return meta_stats
 
 def query_flower(filters=None):
     try:
