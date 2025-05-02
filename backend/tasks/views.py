@@ -19,8 +19,8 @@ from tasks.serializers import (
     PredictionSerializer,
     TaskAnnotationSerializer,
 )
+from tasks.utils import Queued_Task_name, convert_audio_base64_to_mp3
 from tasks.utils import compute_meta_stats_for_instruction_driven_chat, compute_meta_stats_for_multiple_llm_idc, query_flower
-from tasks.utils import Queued_Task_name
 from utils.pagination import paginate_queryset
 from notifications.views import createNotification
 from notifications.utils import get_userids_from_project_id
@@ -1215,12 +1215,16 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     "Project ID": annotation.task.project_id.id,
                     "Task ID": annotation.task.id,
                     "Updated at": utc_to_ist(annotation.updated_at),
-                    "Annotated at": utc_to_ist(annotation.annotated_at)
-                    if annotation.annotated_at
-                    else None,
-                    "Created at": utc_to_ist(annotation.created_at)
-                    if annotation.created_at
-                    else None,
+                    "Annotated at": (
+                        utc_to_ist(annotation.annotated_at)
+                        if annotation.annotated_at
+                        else None
+                    ),
+                    "Created at": (
+                        utc_to_ist(annotation.created_at)
+                        if annotation.created_at
+                        else None
+                    ),
                 }
 
                 response.append(data)
@@ -1705,16 +1709,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 elif (
                     annotation_obj.task.project_id.project_type
@@ -1970,16 +1974,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 elif (
                     annotation_obj.task.project_id.project_type
@@ -2256,16 +2260,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 elif (
                     annotation_obj.task.project_id.project_type
@@ -2427,9 +2431,11 @@ class AnnotationViewSet(
             text_dict = {
                 "origin": "manual",
                 "to_name": "audio_url",
-                "from_name": "transcribed_json"
-                if not is_acoustic
-                else "verbatim_transcribed_json",
+                "from_name": (
+                    "transcribed_json"
+                    if not is_acoustic
+                    else "verbatim_transcribed_json"
+                ),
                 "original_length": audio_duration,
             }
 
@@ -2624,6 +2630,8 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         if isinstance(project_metadata_json, str)
         else project_metadata_json
     )
+    if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
+        return ""
     if prompt in [None, "Null", 0, "None", "", " "]:
         return -1
     intentDomain_test, lang_test, duplicate_test = False, False, False
@@ -2775,19 +2783,19 @@ def get_celery_tasks(request):
     for i in filtered_tasks:
         if filtered_tasks[i]["succeeded"] is not None:
             filtered_tasks[i]["succeeded"] = datetime.fromtimestamp(
-                filtered_tasks[i]["succeeded"],tz=timezone.utc
+                filtered_tasks[i]["succeeded"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["failed"] is not None:
             filtered_tasks[i]["failed"] = datetime.fromtimestamp(
-                filtered_tasks[i]["failed"],tz=timezone.utc
+                filtered_tasks[i]["failed"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["started"] is not None:
             filtered_tasks[i]["started"] = datetime.fromtimestamp(
-                filtered_tasks[i]["started"],tz=timezone.utc
+                filtered_tasks[i]["started"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["received"] is not None:
             filtered_tasks[i]["received"] = datetime.fromtimestamp(
-                filtered_tasks[i]["received"],tz=timezone.utc
+                filtered_tasks[i]["received"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     if "error" in filtered_tasks:
@@ -2809,3 +2817,35 @@ class TransliterationAPIView(APIView):
 
         transliteration_output = response_transliteration.json()
         return Response(transliteration_output, status=status.HTTP_200_OK)
+
+class TranscribeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        audio_base64 = data.get("audioBase64")
+        lang = data.get("lang", "hi")
+        mp3_base64 = convert_audio_base64_to_mp3(audio_base64)
+
+        chunk_data = {
+            "config": {
+                "serviceId": os.getenv("DHRUVA_SERVICE_ID"),
+                "language": {"sourceLanguage": lang},
+                "transcriptionFormat": {"value": "transcript"}
+                },
+            "audio": [
+                {
+                    "audioContent":mp3_base64
+                    }
+                ]
+            }
+        try:
+            response = requests.post(os.getenv("DHRUVA_API_URL"),
+            headers={"authorization": os.getenv("DHRUVA_KEY")},
+            json=chunk_data,
+            )
+            transcript = response.json()["output"][0]["source"]
+            return Response({"transcript": transcript+" " or ""}, status=status.HTTP_200_OK)
+        except Exception as e:
+            print("Error:", e)
+            return Response({"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST)
