@@ -756,7 +756,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         "Part Time"
                         if participation_type == 2
                         else "Contract Basis" if participation_type == 4 else "N/A"
-                    )
+                    ))
             if send_mail == True:
                 send_user_analytics_mail_org.delay(
                     org_id=organization.id,
