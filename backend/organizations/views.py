@@ -746,6 +746,17 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
             user = User.objects.get(id=user_id)
 
+            result = []
+            for annotator in annotators:
+                participation_type = annotator.participation_type
+                participation_type = (
+                    "Full Time"
+                    if participation_type == 1
+                    else (
+                        "Part Time"
+                        if participation_type == 2
+                        else "Contract Basis" if participation_type == 4 else "N/A"
+                    )
             if send_mail == True:
                 send_user_analytics_mail_org.delay(
                     org_id=organization.id,
@@ -927,11 +938,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         status=status.HTTP_200_OK,
                         content_type="text/csv",
                     )
+
                     response["Content-Disposition"] = (
                         f'attachment; filename="{organization.title}_user_analytics.csv"'
                     )
                     return response
-
                 return Response(data=final_result, status=status.HTTP_200_OK)
 
     @is_organization_owner
