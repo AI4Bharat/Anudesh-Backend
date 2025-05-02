@@ -20,7 +20,7 @@ from tasks.serializers import (
     TaskAnnotationSerializer,
 )
 from tasks.utils import compute_meta_stats_for_instruction_driven_chat, query_flower
-from tasks.utils import Queued_Task_name
+from tasks.utils import Queued_Task_name, convert_audio_base64_to_mp3
 from utils.pagination import paginate_queryset
 from notifications.views import createNotification
 from notifications.utils import get_userids_from_project_id
@@ -2515,3 +2515,35 @@ class TransliterationAPIView(APIView):
 
         transliteration_output = response_transliteration.json()
         return Response(transliteration_output, status=status.HTTP_200_OK)
+
+class TranscribeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        audio_base64 = data.get("audioBase64")
+        lang = data.get("lang", "hi")
+        mp3_base64 = convert_audio_base64_to_mp3(audio_base64)
+
+        chunk_data = {
+            "config": {
+                "serviceId": os.getenv("DHRUVA_SERVICE_ID"),
+                "language": {"sourceLanguage": lang},
+                "transcriptionFormat": {"value": "transcript"}
+                },
+            "audio": [
+                {
+                    "audioContent":mp3_base64
+                    }
+                ]
+            }
+        try:
+            response = requests.post(os.getenv("DHRUVA_API_URL"),
+            headers={"authorization": os.getenv("DHRUVA_KEY")},
+            json=chunk_data,
+            )
+            transcript = response.json()["output"][0]["source"]
+            return Response({"transcript": transcript+" " or ""}, status=status.HTTP_200_OK)
+        except Exception as e:
+            print("Error:", e)
+            return Response({"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST)
