@@ -177,12 +177,16 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
     results = {}
 
     for model in models_to_run:
+        model_history = next(
+            (entry["interaction_json"] for entry in history if entry.get("model_name") == model),
+            []
+        )
         if model == "GPT35":
-            results[model] = get_gpt3_output(system_prompt, user_prompt, history)
+            results[model] = get_gpt3_output(system_prompt, user_prompt, model_history)
         elif model in ["GPT4", "GPT4O", "GPT4OMini"]:
-            results[model] = get_gpt4_output(system_prompt, user_prompt, history, model)
+            results[model] = get_gpt4_output(system_prompt, user_prompt, model_history, model)
         elif model == "LLAMA2":
-            results[model] = get_llama2_output(system_prompt, history, user_prompt)
+            results[model] = get_llama2_output(system_prompt, model_history, user_prompt)
         else:
             print(f"Warning: Model {model} not recognized or not implemented.")
 
