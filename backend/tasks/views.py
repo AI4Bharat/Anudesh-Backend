@@ -1574,7 +1574,7 @@ class AnnotationViewSet(
                             annotation_obj.task,
                             annotation_obj,
                             annotation_obj.task.project_id.metadata_json,
-                            ["GPT4OMini", "GPT4"]
+                            ["GPT4OMini"]
                         )
                         if output_result == -1:
                             ret_dict = {
@@ -1800,7 +1800,7 @@ class AnnotationViewSet(
                             annotation_obj.task,
                             annotation_obj,
                             annotation_obj.task.project_id.metadata_json,
-                            ["GPT4OMini", "GPT4"]
+                            ["GPT4OMini"]
                         )
                         if output_result == -1:
                             ret_dict = {
@@ -2095,7 +2095,7 @@ class AnnotationViewSet(
                             annotation_obj.task,
                             annotation_obj,
                             annotation_obj.task.project_id.metadata_json,
-                            ["GPT4OMini", "GPT4"]
+                            ["GPT4OMini"]
                         )
                         if output_result == -1:
                             ret_dict = {
