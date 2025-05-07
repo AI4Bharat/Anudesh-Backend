@@ -86,7 +86,7 @@ def compute_meta_stats_for_multiple_llm_idc(conversation_history):
 
     for model_data in conversation_history:
         model_name = model_data.get("model_name")
-        interactions = model_data.get("interactions", [])
+        interactions = model_data.get("interaction_json", [])
 
         num_turns = len(interactions)
         total_prompt_len = sum(len(turn.get("prompt", "")) for turn in interactions)
