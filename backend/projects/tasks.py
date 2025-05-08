@@ -199,29 +199,9 @@ def create_tasks_from_dataitems(items, project):
         # Remove data id because it's not needed in task.data
         if "id" in item:
             del item["id"]
-        task = Task(data=item, project_id=project, input_data=data)
-        """
-        if is_translation_project or dataset_type1 == "TranslationPair":
-            if is_conversation_project:
-                field_name = (
-                    "source_conversation_json"
-                    if is_editing_project
-                    else "conversation_json"
-                )
-                task.data["word_count"] = conversation_wordcount(task.data[field_name])
-                task.data["sentence_count"] = conversation_sentence_count(
-                    task.data[field_name]
-                )
-            else:
-                task.data["word_count"] = no_of_words(task.data["input_text"])
-        if is_audio_project:
-            indx = 0
-            for speaker in task.data["speakers_json"]:
-                field_name = "speaker_" + str(indx) + "_details"
-                task.data[field_name] = stringify_json(task.data["speakers_json"][indx])
-                indx += 1
-        """
-        tasks.append(task)
+        for _ in range(project.required_annotators_per_task):
+            task = Task(data=item, project_id=project, input_data=data)
+            tasks.append(task)
     # Bulk create the tasks
     Task.objects.bulk_create(tasks)
 
@@ -423,11 +403,20 @@ def export_project_in_place(
 
     # List for storing the annotated tasks that have been accepted as correct annotation
     annotated_tasks = []
+    export_excluded_task_ids = []
+    # required_annotators_per_task = project.required_annotators_per_task
     for task in tasks:
         task_dict = model_to_dict(task)
         # Rename keys to match label studio converter
         # task_dict['id'] = task_dict['task_id']
         # del task_dict['task_id']
+        ann_list = []
+        # if required_annotators_per_task >= 2:
+        #     all_ann = Annotation.objects.filter(task=task)
+        #     for a in all_ann:
+        #         ann_list.append(a)
+        #     task_dict["annotations"] = ann_list
+        # elif task.correct_annotation is not None:
         if task.correct_annotation is not None:
             annotated_tasks.append(task)
             annotation_dict = model_to_dict(task.correct_annotation)
@@ -438,161 +427,39 @@ def export_project_in_place(
         del task_dict["annotation_users"]
         del task_dict["review_user"]
         tasks_list.append(OrderedDict(task_dict))
-    if output_dataset_info["dataset_type"] == "Conversation":
-        tasks_annotations = tasks_list
-    else:
-        download_resources = True
-        tasks_df = DataExport.export_csv_file(
-            project, tasks_list, download_resources, get_request_data
-        )
-        tasks_annotations = json.loads(tasks_df.to_json(orient="records"))
-
-    export_excluded_task_ids = []
-
-    for ta, tl, task in zip(tasks_annotations, tasks_list, annotated_tasks):
-        if output_dataset_info["dataset_type"] == "SpeechConversation":
-            try:
-                ta_labels = json.loads(ta["labels"])
-            except Exception as error:
-                print(task.id)
-                print(error)
-                export_excluded_task_ids.append(task.id)
-                continue
-            if project_type == "AcousticNormalisedTranscriptionEditing":
-                try:
-                    ta_transcribed_json = json.loads(ta["verbatim_transcribed_json"])
-                except json.JSONDecodeError:
-                    ta_transcribed_json = [ta["verbatim_transcribed_json"]]
-                except KeyError:
-                    ta_transcribed_json = len(ta_labels) * [""]
-                if len(ta_labels) != len(ta_transcribed_json):
-                    export_excluded_task_ids.append(task.id)
-                    continue
-                try:
-                    ta_acoustic_transcribed_json = json.loads(
-                        ta["acoustic_normalised_transcribed_json"]
-                    )
-                except json.JSONDecodeError:
-                    ta_acoustic_transcribed_json = [
-                        ta["acoustic_normalised_transcribed_json"]
-                    ]
-                except KeyError:
-                    ta_acoustic_transcribed_json = len(ta_labels) * [""]
-                if len(ta_labels) != len(ta_acoustic_transcribed_json):
-                    export_excluded_task_ids.append(task.id)
-                    continue
-            else:
-                try:
-                    ta_transcribed_json = json.loads(ta["transcribed_json"])
-                except json.JSONDecodeError:
-                    ta_transcribed_json = [ta["transcribed_json"]]
-                except KeyError:
-                    ta_transcribed_json = len(ta_labels) * [""]
-                if len(ta_labels) != len(ta_transcribed_json):
-                    export_excluded_task_ids.append(task.id)
-                    continue
-
         task.output_data = task.input_data
         task.save()
-        data_item = dataset_model.objects.get(id__exact=tl["input_data"])
+        data_item = dataset_model.objects.get(id__exact=task_dict["input_data"])
+        complete_result = []
+        for i in range(len(task_dict["annotations"])):
+            a = task_dict["annotations"][i]
+            annotation_result = a.result
+            annotation_result = (
+                json.loads(annotation_result)
+                if isinstance(annotation_result, str)
+                else annotation_result
+            )
+            uid = a.completed_by.email
+            try:
+                p_ann = a.parent_annotation.id
+            except Exception as e:
+                p_ann = None
+            single_dict = {
+                "user_id": uid,
+                "annotation_id": a.id,
+                "annotation_result": annotation_result,
+                "annotation_type": a.annotation_type,
+                "annotation_status": a.annotation_status,
+                "parent_annotation": a.parent_annotation,
+                "parent_annotation_id": p_ann,
+            }
+            complete_result.append(single_dict)
         try:
             for field in annotation_fields:
-                # Check being done for rating as Label studio stores all the data in string format
-                # We need to store the rating in integer format
-                if field == "rating":
-                    setattr(data_item, field, int(ta[field]))
-                elif field == "transcribed_json" or field == "prediction_json":
-                    speakers_details = data_item.speakers_json
-                    for idx in range(len(ta_transcribed_json)):
-                        ta_labels[idx]["text"] = ta_transcribed_json[idx]
-                        speaker_id = next(
-                            speaker
-                            for speaker in speakers_details
-                            if speaker["name"] == ta_labels[idx]["labels"][0]
-                        )["speaker_id"]
-                        ta_labels[idx]["speaker_id"] = speaker_id
-                        del ta_labels[idx]["labels"]
-                        if project_type == "AcousticNormalisedTranscriptionEditing":
-                            temp = deepcopy(ta_labels[idx])
-                            temp["text"] = ta_acoustic_transcribed_json[idx]
-                            ta_acoustic_transcribed_json[idx] = temp
-                    if project_type == "AcousticNormalisedTranscriptionEditing":
-                        try:
-                            standardised_transcription = json.loads(
-                                ta["standardised_transcription"]
-                            )
-                        except json.JSONDecodeError:
-                            standardised_transcription = ta[
-                                "standardised_transcription"
-                            ]
-                        except KeyError:
-                            standardised_transcription = ""
-                        ta_transcribed_json = {
-                            "verbatim_transcribed_json": ta_labels,
-                            "acoustic_normalised_transcribed_json": ta_acoustic_transcribed_json,
-                            "standardised_transcription": standardised_transcription,
-                        }
-                        setattr(data_item, field, ta_transcribed_json)
-                    else:
-                        setattr(data_item, field, ta_labels)
-                elif field == "conversation_json":
-                    if project.project_type == "ConversationVerification":
-                        conversation_json = data_item.unverified_conversation_json
-                    else:
-                        conversation_json = (
-                            data_item.machine_translated_conversation_json
-                        )
-                    for idx1 in range(len(conversation_json)):
-                        for idx2 in range(len(conversation_json[idx1]["sentences"])):
-                            conversation_json[idx1]["sentences"][idx2] = ""
-                    for result in tl["annotations"][0]["result"]:
-                        if result["to_name"] != "quality_status":
-                            to_name_list = result["to_name"].split("_")
-                            idx1 = int(to_name_list[1])
-                            idx2 = int(to_name_list[2])
-                            conversation_json[idx1]["sentences"][idx2] = ".".join(
-                                map(str, result["value"]["text"])
-                            )
-                    setattr(data_item, field, conversation_json)
-                elif field == "domain":
-                    setattr(
-                        data_item,
-                        field,
-                        ",".join(json.loads(ta[field])[0]["taxonomy"][0]),
-                    )
-                elif field == "conversation_quality_status":
-                    conversation_quality_status = ""
-                    for result in tl["annotations"][0]["result"]:
-                        if result["to_name"] == "quality_status":
-                            conversation_quality_status = result["value"]["choices"][0]
-                            break
-                    setattr(data_item, field, conversation_quality_status)
-                elif field == "ocr_transcribed_json":
-                    ta_ocr_transcribed_json = []
-                    for idx in range(len(json.loads(ta["annotation_bboxes"]))):
-                        ta_ocr_transcribed_json.append(
-                            json.loads(ta["annotation_labels"])[idx]
-                        )
-                        # QUICKFIX for adjusting tasks_annotations
-                        ta["annotation_transcripts"] = ta["ocr_transcribed_json"]
-                        if (
-                            len(json.loads(ta["annotation_bboxes"])) > 1
-                            and type(json.loads(ta["annotation_transcripts"])) == list
-                        ):
-                            ta_ocr_transcribed_json[-1]["text"] = json.loads(
-                                ta["annotation_transcripts"]
-                            )[idx]
-                        else:
-                            ta_ocr_transcribed_json[-1]["text"] = ta[
-                                "annotation_transcripts"
-                            ]
-                    setattr(data_item, field, ta_ocr_transcribed_json)
-                else:
-                    setattr(data_item, field, ta[field])
-            data_items.append(data_item)
+                setattr(data_item, field, complete_result)
         except Exception as e:
             export_excluded_task_ids.append(task.id)
-    # Write json to dataset columns
+        data_items.append(data_item)
     dataset_model.objects.bulk_update(data_items, annotation_fields)
 
     tasks = tasks.exclude(id__in=export_excluded_task_ids)
@@ -685,7 +552,7 @@ def export_project_new_record(
             )
 
         elif project_type == "ModelInteractionEvaluation":
-            item_data_list = get_attributes_for_ModelInteractionEvaluation(task, True)
+            item_data_list = get_attributes_for_ModelInteractionEvaluation(task)
             for item in range(len(item_data_list)):
                 data_item = dataset_model()
                 data_item.instance_id = export_dataset_instance

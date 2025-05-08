@@ -1,4 +1,4 @@
-from datetime import timezone
+from datetime import datetime, timezone
 from locale import normalize
 from urllib.parse import unquote
 import ast
@@ -11,7 +11,7 @@ from rest_framework.decorators import action, api_view
 from rest_framework.permissions import IsAuthenticated
 from django.core.paginator import Paginator
 
-
+import requests
 from tasks.models import *
 from tasks.serializers import (
     TaskSerializer,
@@ -20,7 +20,7 @@ from tasks.serializers import (
     TaskAnnotationSerializer,
 )
 from tasks.utils import compute_meta_stats_for_instruction_driven_chat, query_flower
-from tasks.utils import Queued_Task_name
+from tasks.utils import Queued_Task_name, convert_audio_base64_to_mp3
 from utils.pagination import paginate_queryset
 from notifications.views import createNotification
 from notifications.utils import get_userids_from_project_id
@@ -47,6 +47,7 @@ from rapidfuzz.distance import Levenshtein
 import sacrebleu
 
 from utils.date_time_conversions import utc_to_ist
+from rest_framework.views import APIView
 
 
 # Create your views here.
@@ -158,7 +159,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         for i in serializer.data:
             if len(i["result"]) > 0:
                 if type(i["result"]) == type([]):
-                    if type(i["result"][0]["output"]) == type([]):
+                    if "output" in i["result"][0] and type(
+                        i["result"][0]["output"]
+                    ) == type([]):
                         i["result"][0]["output"] = i["result"][0]["output"][0]["value"]
         return Response(serializer.data)
 
@@ -214,7 +217,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
             if exist_req_user:
                 user_id = int(req_user)
-
+            # required_annotators_per_task = proj_objs[0].required_annotators_per_task
             if "annotation_status" in dict(request.query_params):
                 ann_status = request.query_params["annotation_status"]
                 ann_status = ast.literal_eval(ann_status)
@@ -387,11 +390,32 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         task_objs.sort(key=lambda x: x["id"])
                         ordered_tasks = []
                         final_dict = {}
+                        # seen = set()
                         for task_obj in task_objs:
+                            # if task_obj["id"] in seen:
+                            #     continue
+                            # seen.add(task_obj["id"])
                             tas = Task.objects.filter(id=task_obj["id"])
                             tas = tas.values()[0]
                             tas["review_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            # if required_annotators_per_task > 1:
+                            #     review_ann = [
+                            #         a
+                            #         for a in Annotation.objects.filter(
+                            #             task_id=tas["id"]
+                            #         ).order_by("id")
+                            #         if a.annotation_type == REVIEWER_ANNOTATION
+                            #     ]
+                            #     if len(review_ann) > 1:
+                            #         for r in review_ann:
+                            #             tas_copy = deepcopy(tas)
+                            #             tas_copy["correct_annotation_id"] = r.id
+                            #             tas_copy[
+                            #                 "annotator_mail"
+                            #             ] = r.parent_annotation.completed_by.email
+                            #             ordered_tasks.append(tas_copy)
+                            #         continue
                             ordered_tasks.append(tas)
 
                         if page_number is not None:
@@ -484,7 +508,11 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                 task_objs.sort(key=lambda x: x["id"])
                 ordered_tasks = []
                 final_dict = {}
+                # seen = set()
                 for task_obj in task_objs:
+                    # if task_obj["id"] in seen:
+                    #     continue
+                    # seen.add(task_obj["id"])
                     tas = Task.objects.filter(id=task_obj["id"])
                     tas = tas.values()[0]
                     tas["review_status"] = task_obj["annotation_status"]
@@ -532,6 +560,23 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             else:
                                 tas["data"]["output_text"] = "-"
                         del tas["data"]["machine_translation"]
+                    # if required_annotators_per_task > 1:
+                    #     review_ann = [
+                    #         a
+                    #         for a in Annotation.objects.filter(
+                    #             task_id=tas["id"]
+                    #         ).order_by("id")
+                    #         if a.annotation_type == REVIEWER_ANNOTATION
+                    #     ]
+                    #     if len(review_ann) > 1:
+                    #         for r in review_ann:
+                    #             tas_copy = deepcopy(tas)
+                    #             tas_copy["correct_annotation_id"] = r.id
+                    #             tas_copy[
+                    #                 "annotator_mail"
+                    #             ] = r.parent_annotation.completed_by.email
+                    #             ordered_tasks.append(tas_copy)
+                    #         continue
                     ordered_tasks.append(tas)
                 if page_number is not None:
                     page_object = Paginator(ordered_tasks, records)
@@ -1170,12 +1215,16 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     "Project ID": annotation.task.project_id.id,
                     "Task ID": annotation.task.id,
                     "Updated at": utc_to_ist(annotation.updated_at),
-                    "Annotated at": utc_to_ist(annotation.annotated_at)
-                    if annotation.annotated_at
-                    else None,
-                    "Created at": utc_to_ist(annotation.created_at)
-                    if annotation.created_at
-                    else None,
+                    "Annotated at": (
+                        utc_to_ist(annotation.annotated_at)
+                        if annotation.annotated_at
+                        else None
+                    ),
+                    "Created at": (
+                        utc_to_ist(annotation.created_at)
+                        if annotation.created_at
+                        else None
+                    ),
                 }
 
                 response.append(data)
@@ -1527,6 +1576,14 @@ class AnnotationViewSet(
                             annotation_obj,
                             annotation_obj.task.project_id.metadata_json,
                         )
+                        if output_result == -1:
+                            ret_dict = {
+                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                            }
+                            ret_status = status.HTTP_403_FORBIDDEN
+                            return Response(ret_dict, status=ret_status)
+                        elif isinstance(output_result, Response):
+                            return output_result
                         # store the result of all checks as well
                         annotation_obj.result.append(
                             {
@@ -1603,16 +1660,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -1632,24 +1689,21 @@ class AnnotationViewSet(
                         )
                         if review_annotation.annotation_status == TO_BE_REVISED:
                             review_annotation.annotation_status = UNREVIEWED
+                            review_annotation.annotation_notes = (
+                                annotation.annotation_notes
+                            )
                             review_annotation.save()
                     except:
                         pass
 
-                no_of_annotations = task.annotations.filter(
-                    annotation_type=ANNOTATOR_ANNOTATION, annotation_status="labeled"
-                ).count()
-                if task.project_id.required_annotators_per_task == no_of_annotations:
-                    # if True:
                     task.task_status = ANNOTATED
-                    if not (
-                        task.project_id.project_stage == REVIEW_STAGE
-                        or task.project_id.project_stage == SUPERCHECK_STAGE
-                    ):
-                        if no_of_annotations == 1:
-                            task.correct_annotation = annotation
 
-                    task.save()
+                if not (
+                    task.project_id.project_stage == REVIEW_STAGE
+                    or task.project_id.project_stage == SUPERCHECK_STAGE
+                ):
+                    task.correct_annotation = annotation
+                task.save()
 
         # Review annotation update
         elif annotation_obj.annotation_type == REVIEWER_ANNOTATION:
@@ -1671,6 +1725,14 @@ class AnnotationViewSet(
                             annotation_obj,
                             annotation_obj.task.project_id.metadata_json,
                         )
+                        if output_result == -1:
+                            ret_dict = {
+                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                            }
+                            ret_status = status.HTTP_403_FORBIDDEN
+                            return Response(ret_dict, status=ret_status)
+                        elif isinstance(output_result, Response):
+                            return output_result
                         # store the result of all checks as well
                         annotation_obj.result.append(
                             {
@@ -1786,16 +1848,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -1881,6 +1943,14 @@ class AnnotationViewSet(
                             annotation_obj,
                             annotation_obj.task.project_id.metadata_json,
                         )
+                        if output_result == -1:
+                            ret_dict = {
+                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                            }
+                            ret_status = status.HTTP_403_FORBIDDEN
+                            return Response(ret_dict, status=ret_status)
+                        elif isinstance(output_result, Response):
+                            return output_result
                         # store the result of all checks as well
                         annotation_obj.result.append(
                             {
@@ -1987,16 +2057,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_instruction_driven_chat(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -2131,9 +2201,11 @@ class AnnotationViewSet(
             text_dict = {
                 "origin": "manual",
                 "to_name": "audio_url",
-                "from_name": "transcribed_json"
-                if not is_acoustic
-                else "verbatim_transcribed_json",
+                "from_name": (
+                    "transcribed_json"
+                    if not is_acoustic
+                    else "verbatim_transcribed_json"
+                ),
                 "original_length": audio_duration,
             }
 
@@ -2328,6 +2400,10 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         if isinstance(project_metadata_json, str)
         else project_metadata_json
     )
+    if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
+        return ""
+    if prompt in [None, "Null", 0, "None", "", " "]:
+        return -1
     intentDomain_test, lang_test, duplicate_test = False, False, False
     if project_metadata:
         if (
@@ -2365,7 +2441,10 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         history,
         model,
     )
-    return format_model_output(model_output)
+    res = format_model_output(model_output)
+    if res in [None, "Null", 0, "None", "", " "]:
+        return -1
+    return res
 
 
 def format_model_output(model_output):
@@ -2407,20 +2486,20 @@ def get_celery_tasks(request):
             filtered_tasks[i]["name"] = Queued_Task_name[filtered_tasks[i]["name"]]
     for i in filtered_tasks:
         if filtered_tasks[i]["succeeded"] is not None:
-            filtered_tasks[i]["succeeded"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["succeeded"]
+            filtered_tasks[i]["succeeded"] = datetime.fromtimestamp(
+                filtered_tasks[i]["succeeded"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["failed"] is not None:
-            filtered_tasks[i]["failed"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["failed"]
+            filtered_tasks[i]["failed"] = datetime.fromtimestamp(
+                filtered_tasks[i]["failed"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["started"] is not None:
-            filtered_tasks[i]["started"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["started"]
+            filtered_tasks[i]["started"] = datetime.fromtimestamp(
+                filtered_tasks[i]["started"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["received"] is not None:
-            filtered_tasks[i]["received"] = timezone.datetime.utcfromtimestamp(
-                filtered_tasks[i]["received"]
+            filtered_tasks[i]["received"] = datetime.fromtimestamp(
+                filtered_tasks[i]["received"], tz=timezone.utc
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     if "error" in filtered_tasks:
@@ -2429,3 +2508,48 @@ def get_celery_tasks(request):
     page_size = int(request.GET.get("page_size", 10))
     data = paginate_queryset(filtered_tasks, page_number, page_size)
     return JsonResponse(data["results"], safe=False)
+
+
+class TransliterationAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, target_language, data, *args, **kwargs):
+        response_transliteration = requests.get(
+            os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
+            headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
+        )
+
+        transliteration_output = response_transliteration.json()
+        return Response(transliteration_output, status=status.HTTP_200_OK)
+
+class TranscribeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        data = request.data
+        audio_base64 = data.get("audioBase64")
+        lang = data.get("lang", "hi")
+        mp3_base64 = convert_audio_base64_to_mp3(audio_base64)
+
+        chunk_data = {
+            "config": {
+                "serviceId": os.getenv("DHRUVA_SERVICE_ID"),
+                "language": {"sourceLanguage": lang},
+                "transcriptionFormat": {"value": "transcript"}
+                },
+            "audio": [
+                {
+                    "audioContent":mp3_base64
+                    }
+                ]
+            }
+        try:
+            response = requests.post(os.getenv("DHRUVA_API_URL"),
+            headers={"authorization": os.getenv("DHRUVA_KEY")},
+            json=chunk_data,
+            )
+            transcript = response.json()["output"][0]["source"]
+            return Response({"transcript": transcript+" " or ""}, status=status.HTTP_200_OK)
+        except Exception as e:
+            print("Error:", e)
+            return Response({"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST)

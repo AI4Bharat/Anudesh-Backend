@@ -1,5 +1,8 @@
+import base64
+import io
 import json
 import os
+import subprocess
 from requests import RequestException
 import requests
 from dotenv import load_dotenv
@@ -30,39 +33,52 @@ Queued_Task_name = {
     "workspaces.tasks.send_user_reports_mail_ws": "Send User Payment Reports Mail At Workspace Level",
 }
 
+import json
+
 
 def compute_meta_stats_for_instruction_driven_chat(conversation_history):
     """
     Calculate meta stats for instruction-driven chat.
 
     Args:
-        conversation_history (list): List of dicts, each containing 'prompt' and 'output'.
+        conversation_history (list or str): List of dicts or JSON string, each containing 'prompt' and 'output'.
 
     Returns:
-        dict: Meta statistics JSON with 'prompts_word_count' and 'number_of_turns'.
+        dict: Meta statistics JSON with 'prompts_word_count', 'number_of_turns',
+              'avg_word_count_per_prompt', and 'avg_word_count_per_output'.
     """
-    conversation_history = (
-        json.loads(conversation_history)
-        if isinstance(conversation_history, str)
-        else conversation_history
-    )
-    try:
-        number_of_words = sum(
-            len(entry["prompt"].split())
-            for entry in conversation_history
-            if "prompt" in entry
-        )
-    except Exception as e:
-        number_of_words = 0
-    try:
-        number_of_turns = len(conversation_history)
-    except Exception as e:
-        number_of_turns = 0
-    meta_stats = {
-        "prompts_word_count": number_of_words,
-        "number_of_turns": number_of_turns,
-    }
+    # Parse conversation history
+    if isinstance(conversation_history, str):
+        try:
+            conversation_history = json.loads(conversation_history)
+        except json.JSONDecodeError:
+            return {"error": "Invalid JSON format"}
+    elif not isinstance(conversation_history, list):
+        return {"error": "Invalid input format"}
 
+    total_prompt_words = 0
+    total_output_words = 0
+    number_of_turns = len(conversation_history)
+
+    for entry in conversation_history:
+        if "prompt" in entry:
+            total_prompt_words += len(entry["prompt"].split())
+        if "output" in entry:
+            total_output_words += len(entry["output"].split())
+
+    avg_word_count_per_prompt = (
+        total_prompt_words / number_of_turns if number_of_turns else 0
+    )
+    avg_word_count_per_output = (
+        total_output_words / number_of_turns if number_of_turns else 0
+    )
+
+    meta_stats = {
+        "prompts_word_count": total_prompt_words,
+        "number_of_turns": number_of_turns,
+        "avg_word_count_per_prompt": avg_word_count_per_prompt,
+        "avg_word_count_per_output": avg_word_count_per_output,
+    }
     return meta_stats
 
 
@@ -96,3 +112,33 @@ def query_flower(filters=None):
             return {"error": "Failed to retrieve tasks from Flower"}
     except RequestException as e:
         return {"error": f" failed to connect to flower API, {str(e)}"}
+
+def convert_audio_base64_to_mp3(input_base64):
+        input_audio_bytes = base64.b64decode(input_base64)
+        input_buffer = io.BytesIO(input_audio_bytes)
+
+        ffmpeg_command = [
+            'ffmpeg', '-i', 'pipe:0',
+            '-f', 'mp3',
+            'pipe:1'
+        ]
+
+        try:
+            process = subprocess.Popen(
+                ffmpeg_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            output_mp3_bytes, error = process.communicate(input=input_buffer.read())
+
+            if process.returncode != 0:
+                raise Exception(f"FFmpeg error: {error.decode()}")
+
+            output_base64_mp3 = base64.b64encode(output_mp3_bytes).decode('utf-8')
+            return output_base64_mp3
+
+        except Exception as e:
+            print(f"Audio conversion error: {e}")
+            return None

@@ -1,6 +1,7 @@
 """
 Model definitions for Dataset Management
 """
+
 from django.db import models
 from users.models import User, LANG_CHOICES
 from organizations.models import Organization
@@ -9,17 +10,12 @@ from workspaces.models import Workspace
 
 # List of all dataset types
 DATASET_TYPE_CHOICES = [
-    ("SentenceText", "SentenceText"),
-    ("TranslationPair", "TranslationPair"),
-    ("OCRDocument", "OCRDocument"),
-    ("BlockText", "BlockText"),
-    ("Conversation", "Conversation"),
-    ("SpeechConversation", "SpeechConversation"),
     ("PromptBase", "PromptBase"),
     ("PromptAnswer", "PromptAnswer"),
     ("PromptAnswerEvaluation", "PromptAnswerEvaluation"),
     ("Interaction", "Interaction"),
     ("Instruction", "Instruction"),
+    ("MultiModelInteraction", "MultiModelInteraction"),
 ]
 
 GENDER_CHOICES = (("M", "Male"), ("F", "Female"), ("O", "Others"))
@@ -94,6 +90,7 @@ LANGUAGE_CHOICES = [
     ("English", "English"),
     ("Assamese", "Assamese"),
     ("Bengali", "Bengali"),
+    ("Burmese", "Burmese"),
     ("Bodo", "Bodo"),
     ("Dogri", "Dogri"),
     ("Gujarati", "Gujarati"),
@@ -114,6 +111,7 @@ LANGUAGE_CHOICES = [
     ("Sinhala", "Sinhala"),
     ("Tamil", "Tamil"),
     ("Telugu", "Telugu"),
+    ("Thai", "Thai"),
     ("Urdu", "Urdu"),
 ]
 
@@ -124,7 +122,21 @@ LANGUAGE_CHOICES_INSTRUCTIONS = (
     ("4", "Indic/English(Latin script)"),
 )
 
-LLM_CHOICES = (("GPT3.5", "GPT3.5"), ("GPT4", "GPT4"), ("LLAMA2", "LLAMA2"))
+GPT35 = "GPT3.5"
+GPT4 = "GPT4"
+LLAMA2 = "LLAMA2"
+GPT4OMini = "GPT4OMini"
+GPT4O = "GPT4O"
+GEMMA = "GEMMA"
+
+LLM_CHOICES = (
+    (GPT35, GPT35),
+    (GPT4, GPT4),
+    (LLAMA2, LLAMA2),
+    (GPT4OMini, GPT4OMini),
+    (GPT4O, GPT4O),
+    (GEMMA, GEMMA),
+)
 
 
 class DatasetInstance(models.Model):
@@ -202,315 +214,6 @@ class DatasetBase(models.Model):
     #     """Django definition of abstract model"""
     #     abstract = True
 
-
-class SentenceText(DatasetBase):
-    """
-    Dataset for storing monolingual sentences.
-    """
-
-    language = models.CharField(
-        verbose_name="language", choices=LANG_CHOICES, max_length=15
-    )
-    text = models.TextField(verbose_name="text", help_text=("Sentence Text"))
-    context = models.TextField(
-        verbose_name="context", help_text=("Context Text"), null=True, blank=True
-    )
-    corrected_text = models.TextField(
-        verbose_name="corrected_text",
-        help_text=("Corrected Sentence Text"),
-        null=True,
-        blank=True,
-    )
-    domain = models.CharField(
-        verbose_name="domain",
-        default="None",
-        max_length=1024,
-        choices=SENTENCE_TEXT_DOMAIN_CHOICES,
-        help_text=("Domain of the Sentence"),
-    )
-    quality_status = models.CharField(
-        verbose_name="quality_status",
-        default="Unchecked",
-        max_length=32,
-        choices=QUALITY_CHOICES,
-        help_text=("Quality of the Sentence"),
-    )
-
-    def __str__(self):
-        return str(self.id)
-
-
-class TranslationPair(DatasetBase):
-    """
-    Dataset for storing translation pairs.
-    """
-
-    input_language = models.CharField(
-        verbose_name="input_language", choices=LANG_CHOICES, max_length=15
-    )
-    output_language = models.CharField(
-        verbose_name="output_language", choices=LANG_CHOICES, max_length=15
-    )
-    input_text = models.TextField(
-        verbose_name="input_text", help_text=("The text to be translated")
-    )
-    output_text = models.TextField(
-        verbose_name="output_text",
-        null=True,
-        blank=True,
-        help_text=("The translation of the sentence"),
-    )
-    machine_translation = models.TextField(
-        verbose_name="machine_translation",
-        null=True,
-        blank=True,
-        help_text=("Machine translation of the sentence"),
-    )
-    context = models.TextField(
-        verbose_name="context",
-        null=True,
-        blank=True,
-        help_text=("Context of the sentence to be translated"),
-    )
-    labse_score = models.DecimalField(
-        max_digits=4,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text=("Labse Score of the Translation"),
-    )
-    rating = models.IntegerField(
-        verbose_name="translation_rating",
-        null=True,
-        blank=True,
-        help_text=("Rating of the translation"),
-    )
-    domain = models.CharField(
-        verbose_name="domain",
-        default="None",
-        max_length=1024,
-        choices=SENTENCE_TEXT_DOMAIN_CHOICES,
-        help_text=("Domain of the Sentence"),
-    )
-
-    def __str__(self):
-        return str(self.id)
-
-
-class OCRDocument(DatasetBase):
-    """
-    Dataset for storing OCR file urls and their annotations.
-    """
-
-    file_type = models.CharField(
-        verbose_name="file_type", choices=OCR_FILE_CHOICES, max_length=4
-    )
-    file_url = models.URLField(
-        verbose_name="bucket_url_for_file", max_length=500, null=True, blank=True
-    )
-    image_url = models.URLField(verbose_name="bucket_url_for_image", max_length=500)
-    page_number = models.IntegerField(verbose_name="page_number", default=1)
-    language = models.CharField(
-        verbose_name="language", choices=LANG_CHOICES, max_length=15
-    )
-    ocr_type = models.CharField(
-        verbose_name="ocr_type", choices=OCR_TYPE_CHOICES, max_length=3
-    )
-    ocr_domain = models.CharField(
-        verbose_name="ocr_domain", choices=OCR_DOMAIN_CHOICES, max_length=3
-    )
-    # annotation_json = models.JSONField(
-    #     verbose_name="annotation_json", null=True, blank=True
-    # )
-
-    ocr_transcribed_json = models.JSONField(
-        verbose_name="ocr_transcribed_json", null=True, blank=True
-    )
-
-    ocr_prediction_json = models.JSONField(
-        verbose_name="ocr_prediction_json", null=True, blank=True
-    )
-
-    image_details_json = models.JSONField(
-        verbose_name="image_details_json", null=True, blank=True
-    )
-
-    def __str__(self):
-        return str(self.id)
-
-
-class BlockText(DatasetBase):
-    """
-    Dataset for storing monolingual data.
-    """
-
-    language = models.CharField(
-        verbose_name="language", choices=LANG_CHOICES, max_length=15
-    )
-    text = models.TextField(
-        verbose_name="text", help_text=("A block of text having many sentences")
-    )
-    splitted_text_prediction = models.JSONField(
-        verbose_name="splitted_text_prediction",
-        null=True,
-        blank=True,
-        help_text=("Prediction showing the block text split into sentences"),
-    )
-    splitted_text = models.TextField(
-        verbose_name="splitted_text",
-        null=True,
-        blank=True,
-        help_text=("Sentences Split from the Block Text"),
-    )
-    domain = models.CharField(
-        verbose_name="domain", max_length=1024, help_text=("Domain of the block text")
-    )
-
-    def __str__(self):
-        return str(self.id)
-
-
-class Conversation(DatasetBase):
-    """
-    Dataset for storing Conversation data
-    """
-
-    domain = models.CharField(
-        verbose_name="domain",
-        max_length=1024,
-        help_text=("Domain of the conversation translation"),
-        null=True,
-        blank=True,
-    )
-    topic = models.TextField(
-        verbose_name="topic",
-        null=True,
-        blank=True,
-        help_text=("Topic of the conversation"),
-    )
-    scenario = models.TextField(
-        verbose_name="scenario",
-        null=True,
-        blank=True,
-        help_text=("Scenario of the conversation"),
-    )
-    prompt = models.TextField(
-        verbose_name="prompt",
-        null=True,
-        blank=True,
-        help_text=("Prompt of the conversation"),
-    )
-    speaker_count = models.IntegerField(
-        verbose_name="speaker_count",
-        help_text=("Number of speakers involved in conversation"),
-    )
-    speakers_json = models.JSONField(
-        verbose_name="speakers_details",
-        null=True,
-        blank=True,
-        help_text=("Details of the speakers involved in the conversation"),
-    )
-    language = models.CharField(
-        verbose_name="language", choices=LANG_CHOICES, max_length=15
-    )
-    conversation_json = models.JSONField(
-        verbose_name="conversation_details",
-        help_text=("Details of the conversation"),
-        null=True,
-        blank=True,
-    )
-    machine_translated_conversation_json = models.JSONField(
-        verbose_name="machine_translated_conversation",
-        help_text=("Machine Translated Conversation"),
-        null=True,
-        blank=True,
-    )
-    unverified_conversation_json = models.JSONField(
-        verbose_name="unverified_conversation_details",
-        help_text=("Details of the unverified conversation"),
-        null=True,
-        blank=True,
-    )
-    conversation_quality_status = models.CharField(
-        verbose_name="quality_status",
-        default="Unchecked",
-        max_length=32,
-        choices=QUALITY_CHOICES,
-        help_text=("Quality of the Sentence"),
-    )
-
-    def __str__(self):
-        return str(self.id)
-
-
-class SpeechConversation(DatasetBase):
-    domain = models.CharField(
-        verbose_name="domain",
-        max_length=1024,
-        help_text=("Domain of the speech conversation"),
-        null=True,
-        blank=True,
-    )
-    scenario = models.TextField(
-        verbose_name="scenario",
-        null=True,
-        blank=True,
-        help_text=("Scenario of the conversation"),
-    )
-    speaker_count = models.IntegerField(
-        verbose_name="speaker_count",
-        help_text=("Number of speakers involved in conversation"),
-    )
-    speakers_json = models.JSONField(
-        verbose_name="speakers_details",
-        help_text=("Details of the speakers involved in the conversation"),
-    )
-    language = models.CharField(
-        verbose_name="language", choices=LANG_CHOICES, max_length=15
-    )
-    transcribed_json = models.JSONField(
-        verbose_name="transcribed_json",
-        null=True,
-        blank=True,
-        help_text=("Conversation data comprising speaker_id and sentence/sentences"),
-    )
-    machine_transcribed_json = models.JSONField(
-        verbose_name="machine_transcribed_json",
-        null=True,
-        blank=True,
-        help_text=(
-            "Machine Transcribed output of conversation data, in same format as of transcribed_json"
-        ),
-    )
-    audio_url = models.URLField(
-        verbose_name="audio_url",
-        help_text=("Link to the audio-file"),
-    )
-    audio_duration = models.FloatField(
-        verbose_name="audio_play_duration",
-        help_text=("Length of the audio in seconds (float)"),
-    )
-    reference_raw_transcript = models.TextField(
-        verbose_name="reference_raw_transcript",
-        null=True,
-        blank=True,
-        help_text=(
-            "Optional field to store the plaintext transcription which was used by the speaker to read out"
-        ),
-    )
-    prediction_json = models.JSONField(
-        verbose_name="prediction_json",
-        null=True,
-        blank=True,
-        help_text=("Prepopulated prediction for the implemented models"),
-    )
-
-    def __str__(self):
-        return str(self.id)
-
-
-D1 = SentenceText
-D10 = TranslationPair
 
 # class CollectionDataset(models.Model):
 #     """
@@ -709,6 +412,8 @@ class Interaction(DatasetBase):
         on_delete=models.CASCADE,
         verbose_name="Instruction ID",
         help_text="ID of the related instruction",
+        null=True,
+        blank=True,
     )
     interactions_json = models.JSONField(verbose_name="Interactions JSON")
     no_of_turns = models.IntegerField(
@@ -727,7 +432,10 @@ class Interaction(DatasetBase):
         max_length=255, verbose_name="Model", help_text="Model used for the interaction"
     )
     datetime = models.DateTimeField(
-        verbose_name="Datetime", help_text="Timestamp of the interaction"
+        verbose_name="Datetime",
+        help_text="Timestamp of the interaction",
+        null=True,
+        blank=True,
     )
     time_taken = models.FloatField(
         verbose_name="Time Taken", help_text="Time taken for the interaction"
@@ -788,12 +496,6 @@ class PromptAnswer(DatasetBase):
     language = models.CharField(
         verbose_name="language", choices=LANG_CHOICES, max_length=15
     )
-    eval_output_likert_score = models.IntegerField(
-        verbose_name="evaluation_prompt_response_rating",
-        null=True,
-        blank=True,
-        help_text=("Rating of the prompt response"),
-    )
     eval_form_output_json = models.JSONField(
         verbose_name="evaluation_form_output",
         null=True,
@@ -805,6 +507,12 @@ class PromptAnswer(DatasetBase):
         null=True,
         blank=True,
         help_text=("Time taken to complete the prompt response"),
+    )
+    prompt_output_pair_id = models.CharField(
+        verbose_name="prompt_output_pair_id",
+        max_length=16,
+        help_text=("prompt_output_pair_id"),
+        null=True,
     )
 
     def __str__(self):
@@ -846,3 +554,50 @@ class PromptAnswerEvaluation(DatasetBase):
 
     def __str__(self):
         return str(self.id)
+
+
+class MultiModelInteraction(DatasetBase):
+    """
+    Subclass model for MultiModelInteraction
+    """
+
+    parent_interaction_ids = models.JSONField(
+        verbose_name="Parent Interaction Ids",
+        help_text="A json containing all the parent ids",
+        null=True,
+        blank=True,
+    )
+    multiple_interaction_json = models.JSONField(
+        verbose_name="Multiple Interaction Json",
+        help_text="A json containing interactions for a single prompt from multiple models.",
+    )
+    eval_form_json = models.JSONField(
+        verbose_name="form_output",
+        null=True,
+        blank=True,
+        help_text="Form output for all the interactions",
+    )
+    no_of_turns = models.IntegerField(
+        verbose_name="Number of Turns",
+        help_text="Number of turns in the interaction",
+        null=True,
+        blank=True,
+    )
+    no_of_models = models.IntegerField(
+        verbose_name="Number of Models",
+        help_text="Number of models in the interaction",
+        null=True,
+        blank=True,
+    )
+    language = models.CharField(
+        max_length=20,
+        choices=LANGUAGE_CHOICES,
+        verbose_name="Language",
+        help_text="Language of the interaction",
+    )
+    datetime = models.DateTimeField(
+        verbose_name="Datetime",
+        help_text="Timestamp of the interaction",
+        null=True,
+        blank=True,
+    )

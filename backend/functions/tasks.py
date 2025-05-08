@@ -11,7 +11,7 @@ from projects.utils import (
     convert_seconds_to_hours,
     get_audio_project_types,
     get_audio_transcription_duration,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
     ocr_word_count,
     get_not_null_audio_transcription_duration,
 )
@@ -40,639 +40,18 @@ from utils.blob_functions import (
 from utils.custom_bulk_create import multi_inheritance_table_bulk_insert
 from workspaces.models import Workspace
 
-from .utils import (
-    get_batch_translations,
-    get_batch_ocr_predictions,
-    get_batch_asr_predictions,
-)
 from django.db import transaction, DataError, IntegrityError
 from dataset.models import DatasetInstance
 from django.apps import apps
 from rest_framework.test import APIRequestFactory
 from django.http import QueryDict
 from rest_framework.request import Request
+from dataset.models import LANGUAGE_CHOICES
 import os
 import tempfile
 
 
 ## CELERY SHARED TASKS
-@shared_task(bind=True)
-def sentence_text_translate_and_save_translation_pairs(
-    self,
-    languages,
-    input_dataset_instance_id,
-    output_dataset_instance_id,
-    batch_size,
-    api_type="indic-trans-v2",
-    checks_for_particular_languages=False,
-    automate_missing_data_items=True,
-):  # sourcery skip: raise-specific-error
-    """Function to translate SentenceTexts and to save the TranslationPairs in the database.
-
-    Args:
-        languages (list): List of output languages for the translations.
-        input_dataset_instance_id (int): ID of the input dataset instance.
-        output_dataset_instance_id (int): ID of the output dataset instance.
-        batch_size (int): Number of sentences to be translated in a single batch.
-        api_type (str): Type of API to be used for translation. (default: indic-trans-v2)
-            Allowed - [indic-trans, google, indic-trans-v2, azure, blank]
-        checks_for_particular_languages (bool): If True, checks for the particular languages in the translations.
-        automate_missing_data_items (bool): If True, consider only those data items that are missing in the target dataset instance.
-    """
-
-    output_sentences = list(
-        dataset_models.TranslationPair.objects.filter(
-            instance_id=output_dataset_instance_id,
-            output_language__in=languages,
-        ).values_list(
-            "id",
-            "output_language",
-            "parent_data_id",
-        )
-    )
-
-    # Collect the sentences from Sentence Text based on dataset id
-    input_sentences = list(
-        dataset_models.SentenceText.objects.filter(
-            instance_id=input_dataset_instance_id
-        ).values_list(
-            "id",
-            "corrected_text",
-            "language",
-            "context",
-            "quality_status",
-            "metadata_json",
-        )
-    )
-
-    # Convert the input_sentences list into a dataframe
-    input_sentences_complete_df = pd.DataFrame(
-        input_sentences,
-        columns=[
-            "sentence_text_id",
-            "corrected_text",
-            "input_language",
-            "context",
-            "quality_status",
-            "metadata",
-        ],
-    )
-
-    # Keep only the clean sentences
-    input_sentences_complete_df = input_sentences_complete_df[
-        (input_sentences_complete_df["quality_status"] == "Clean")
-    ].reset_index(drop=True)
-
-    # Check if the dataframe is empty
-    if input_sentences_complete_df.shape[0] == 0:
-        # Update the task status
-        self.update_state(
-            state="FAILURE",
-            meta={
-                "No sentences to upload.",
-            },
-        )
-
-        raise Exception("No clean sentences found. Perform project export first.")
-
-    # Get the output dataset instance
-    output_dataset_instance = dataset_models.DatasetInstance.objects.get(
-        instance_id=output_dataset_instance_id
-    )
-
-    # Keep count of the number of sentences translated
-    translated_sentences_count = 0
-
-    # Iterate through the languages
-    for output_language in languages:
-        if automate_missing_data_items == True:
-            # Fetch all parent ids of translation pairs present in the target dataset instance
-            output_sentences_parent_ids = [
-                t[2] for t in output_sentences if t[1] == output_language
-            ]
-
-            # Fetch samples from the input dataset instance which are not yet translated
-            input_sentences_df = input_sentences_complete_df[
-                ~input_sentences_complete_df["sentence_text_id"].isin(
-                    output_sentences_parent_ids
-                )
-            ].reset_index(drop=True)
-        else:
-            # Fetch all samples from the input dataset instance
-            input_sentences_df = input_sentences_complete_df
-
-        # Make a sentence list for valid sentences to be translated
-        all_sentences_to_be_translated = input_sentences_df["corrected_text"].tolist()
-
-        # Loop through all the sentences to be translated in batch format
-        for i in range(0, len(all_sentences_to_be_translated), batch_size):
-            # Create a TranslationPair object list
-            translation_pair_objects = []
-
-            batch_of_input_sentences = all_sentences_to_be_translated[
-                i : i + batch_size
-            ]
-
-            # Get the translations for the batch of sentences
-            translations_output = get_batch_translations(
-                sentences_to_translate=batch_of_input_sentences,
-                source_lang=input_sentences_df["input_language"].iloc[0],
-                target_lang=output_language,
-                api_type=api_type,
-                checks_for_particular_languages=checks_for_particular_languages,
-            )
-
-            if translations_output["status"] == "failure":
-                # Update the task status and raise an exception
-                self.update_state(
-                    state="FAILURE",
-                    meta={
-                        "API Error",
-                    },
-                )
-
-                raise Exception(
-                    translations_output["output"]
-                )  # sourcery skip: raise-specific-error
-
-            else:
-                translated_sentences = translations_output["output"]
-
-            # Check if the translated sentences are equal to the input sentences
-            if len(translated_sentences) != len(batch_of_input_sentences):
-                # Update the task status and raise an exception
-                self.update_state(
-                    state="FAILURE",
-                    meta={
-                        "Error: Number of translated sentences does not match with the number of input sentences.",
-                    },
-                )
-                raise Exception(
-                    "The number of translated sentences does not match the number of input sentences."
-                )
-
-            # Iterate through the dataframe
-            for index, row in input_sentences_df[i : i + batch_size].iterrows():
-                # Get the values for the TranslationPair model
-                sentence_text_id = row["sentence_text_id"]
-                input_sentence = row["corrected_text"]
-                input_language = row["input_language"]
-                translated_sentence = translated_sentences[index - i]
-                metadata = row["metadata"]
-                context = row["context"]
-
-                # Get the sentencetext model object by ID
-                sentence_text_object = dataset_models.SentenceText.objects.get(
-                    id=sentence_text_id
-                )
-
-                # Create and save a TranslationPair object
-                translation_pair_obj = dataset_models.TranslationPair(
-                    parent_data=sentence_text_object,
-                    instance_id=output_dataset_instance,
-                    input_language=input_language,
-                    output_language=output_language,
-                    input_text=input_sentence,
-                    machine_translation=translated_sentence,
-                    context=context,
-                    metadata_json=metadata,
-                )
-
-                # Append the object to TranslationPair list for bulk create
-                translation_pair_objects.append(translation_pair_obj)
-
-            # Bulk create the TranslationPair objects for the particular language
-            multi_inheritance_table_bulk_insert(translation_pair_objects)
-            translated_sentences_count += len(translation_pair_objects)
-
-    return f"{translated_sentences_count} translation pairs created for languages: {str(languages)}"
-
-
-@shared_task(bind=True)
-def conversation_data_machine_translation(
-    self,
-    languages,
-    input_dataset_instance_id,
-    output_dataset_instance_id,
-    batch_size,
-    api_type,
-    checks_for_particular_languages,
-):
-    """Function to translate Conversation data item and to save the translations in another Conversation dataitem.
-    Args:
-        languages (list): List of output languages for the translations.
-        input_dataset_instance_id (int): ID of the input dataset instance.
-        output_dataset_instance_id (int): ID of the output dataset instance.
-        batch_size (int): Number of sentences to be translated in a single batch.
-        api_type (str): Type of API to be used for translation. (default: indic-trans)
-            Allowed - [indic-trans, google, indic-trans-v2, azure, blank]
-        checks_for_particular_languages (bool): If True, checks for the particular languages in the translations.
-    """
-
-    # Get the output dataset instance
-    output_dataset_instance = dataset_models.DatasetInstance.objects.get(
-        instance_id=output_dataset_instance_id
-    )
-
-    # Collect all the Conversation dataitems for the input DatasetInstance and convert to dataframe
-    conversation_dataitems = dataset_models.Conversation.objects.filter(
-        instance_id=input_dataset_instance_id
-    ).values_list("id", "scenario", "prompt", "conversation_json", "language")
-
-    conversation_dataitems_df = pd.DataFrame(
-        conversation_dataitems,
-        columns=["id", "scenario", "prompt", "conversation_json", "language"],
-    )
-
-    # Check if the dataframe is empty
-    if conversation_dataitems_df.shape[0] == 0:
-        # Update the task status
-        self.update_state(
-            state="FAILURE",
-            meta={
-                "No sentences to upload.",
-            },
-        )
-
-        raise Exception("The conversation data is empty.")
-
-    # Iterate through the languages
-    for output_language in languages:
-        all_translated_conversation_objects = []
-        # Iterate through the conversation dataitems
-        for index, row in conversation_dataitems_df.iterrows():
-            # Get the instance of the Conversation dataitem
-            conversation_dataitem = dataset_models.Conversation.objects.get(
-                id=row["id"]
-            )
-
-            # Get the conversation JSON and iterate through it
-            conversation_json = row["conversation_json"]
-            translated_conversation_json = []
-            for conversation in conversation_json:
-                # Get the sentence list, scenario and prompt
-                sentences_to_translate = dict(conversation).get("sentences", [])
-                speaker_id = dict(conversation).get("speaker_id")
-
-                # Get the translations for the sentences
-                translations_output = get_batch_translations(
-                    sentences_to_translate=sentences_to_translate,
-                    source_lang=row["language"],
-                    target_lang=output_language,
-                    api_type=api_type,
-                    checks_for_particular_languages=checks_for_particular_languages,
-                )
-
-                if translations_output["status"] == "success":
-                    # Append the translations to the translated conversation JSON
-                    translated_conversation_json.append(
-                        {
-                            "sentences": translations_output["output"],
-                            "speaker_id": speaker_id,
-                        }
-                    )
-                else:
-                    # Update the task status and raise an exception
-                    self.update_state(
-                        state="FAILURE",
-                        meta={
-                            "API Error",
-                        },
-                    )
-
-                    raise Exception(translations_output["output"])
-
-            # Translate the scenario and prompt
-            untranslated_prompt_and_scenario = [row["prompt"], row["scenario"]]
-            translations_output = get_batch_translations(
-                sentences_to_translate=untranslated_prompt_and_scenario,
-                source_lang=row["language"],
-                target_lang=output_language,
-                api_type=api_type,
-                checks_for_particular_languages=checks_for_particular_languages,
-            )
-
-            if translations_output["status"] == "failure":
-                # Update the task status and raise an exception
-                self.update_state(
-                    state="FAILURE",
-                    meta={
-                        "API Error",
-                    },
-                )
-
-                raise Exception(translations_output["output"])
-            else:
-                translated_prompt_and_scenario = translations_output["output"]
-
-                # Create the Conversation object
-                conversation_object = dataset_models.Conversation(
-                    instance_id=output_dataset_instance,
-                    parent_data=conversation_dataitem,
-                    domain=conversation_dataitem.domain,
-                    topic=conversation_dataitem.topic,
-                    speaker_count=conversation_dataitem.speaker_count,
-                    speakers_json=conversation_dataitem.speakers_json,
-                    scenario=translated_prompt_and_scenario[1],
-                    prompt=translated_prompt_and_scenario[0],
-                    machine_translated_conversation_json=translated_conversation_json,
-                    language=output_language,
-                )
-
-                # Append the conversation object to the list
-                all_translated_conversation_objects.append(conversation_object)
-
-        # Save the Conversation objects in bulk
-        multi_inheritance_table_bulk_insert(all_translated_conversation_objects)
-
-    return f"{len(all_translated_conversation_objects)} conversation dataitems created for each of languages: {str(languages)}"
-
-
-@shared_task(bind=True)
-def generate_ocr_prediction_json(
-    self, dataset_instance_id, api_type, automate_missing_data_items
-):
-    """Function to generate OCR prediction data and to save to the same data item.
-    Args:
-        dataset_instance_id (int): ID of the dataset instance.
-        api_type (str): Type of API to be used for translation. (default: google)
-            Example - [indic-trans, google, indic-trans-v2, azure, blank]
-        automate_missing_data_items (bool): "Boolean to translate only missing data items"
-    """
-    # Fetching the data items for the given dataset instance.
-    success_count, total_count = 0, 0
-    try:
-        ocr_data_items = dataset_models.OCRDocument.objects.filter(
-            instance_id=dataset_instance_id
-        ).values_list(
-            "id",
-            "metadata_json",
-            "draft_data_json",
-            "file_type",
-            "file_url",
-            "image_url",
-            "page_number",
-            "language",
-            "ocr_type",
-            "ocr_domain",
-            "ocr_transcribed_json",
-            "ocr_prediction_json",
-            "image_details_json",
-            "parent_data",
-        )
-    except Exception as e:
-        ocr_data_items = []
-
-    # converting the dataset_instance to pandas dataframe.
-    ocr_data_items_df = pd.DataFrame(
-        ocr_data_items,
-        columns=[
-            "id",
-            "metadata_json",
-            "draft_data_json",
-            "file_type",
-            "file_url",
-            "image_url",
-            "page_number",
-            "language",
-            "ocr_type",
-            "ocr_domain",
-            "ocr_transcribed_json",
-            "ocr_prediction_json",
-            "image_details_json",
-            "parent_data",
-        ],
-    )
-
-    # Check if the dataframe is empty
-    if ocr_data_items_df.shape[0] == 0:
-        raise Exception("The OCR data is empty.")
-
-    required_columns = {
-        "id",
-        "metadata_json",
-        "draft_data_json",
-        "file_type",
-        "file_url",
-        "image_url",
-        "page_number",
-        "language",
-        "ocr_type",
-        "ocr_domain",
-        "ocr_transcribed_json",
-        "ocr_prediction_json",
-        "image_details_json",
-        "parent_data",
-    }
-    if not required_columns.issubset(ocr_data_items_df.columns):
-        missing_columns = required_columns - set(ocr_data_items_df.columns)
-        raise ValueError(
-            f"The following required columns are missing: {missing_columns}"
-        )
-
-    # Update the ocr_predictions field for each row in the DataFrame
-    for index, row in ocr_data_items_df.iterrows():
-        curr_id = row["id"]
-        if "image_url" not in row:
-            print(f"The OCR item with {curr_id} has missing image_url.")
-            continue
-        image_url = row["image_url"]
-
-        # Considering the case when we should generate predictions for data items
-        # which already have ocr_predictions or not.
-        if automate_missing_data_items and row["ocr_prediction_json"]:
-            continue
-        total_count += 1
-        ocr_predictions = get_batch_ocr_predictions(curr_id, image_url, api_type)
-        if ocr_predictions["status"] == "Success":
-            success_count += 1
-            ocr_predictions_json = ocr_predictions["output"]
-
-            # Updating the ocr_prediction_json column and saving in OCRDocument dataset with the new ocr predictions
-            try:
-                ocr_data_items_df.at[
-                    index, "ocr_prediction_json"
-                ] = ocr_predictions_json
-                ocr_document = dataset_models.OCRDocument(
-                    instance_id_id=dataset_instance_id,
-                    id=curr_id,
-                    metadata_json=row["metadata_json"],
-                    draft_data_json=row["draft_data_json"],
-                    file_type=row["file_type"],
-                    file_url=row["file_url"],
-                    image_url=image_url,
-                    page_number=row["page_number"],
-                    language=row["language"],
-                    ocr_type=row["ocr_type"],
-                    ocr_domain=row["ocr_domain"],
-                    ocr_transcribed_json=row["ocr_transcribed_json"],
-                    ocr_prediction_json=ocr_predictions_json,
-                    image_details_json=row["image_details_json"],
-                    parent_data=row["parent_data"],
-                )
-                with transaction.atomic():
-                    ocr_document.save()
-            except IntegrityError as e:
-                # Handling unique constraint violations or other data integrity issues
-                print(f"Error while saving dataset id- {curr_id}, IntegrityError: {e}")
-            except DataError as e:
-                # Handling data-related issues like incorrect data types, etc.
-                print(f"Error while saving dataset id- {curr_id}, DataError: {e}")
-            except Exception as e:
-                # Handling other unexpected exceptions.
-                print(f"Error while saving dataset id- {curr_id}, Error message: {e}")
-
-        else:
-            print(
-                f"The {api_type} API has not generated predictions for data item with id-{curr_id}"
-            )
-    return f"{success_count} out of {total_count} populated"
-
-
-@shared_task(bind=True)
-def generate_asr_prediction_json(
-    self, dataset_instance_id, api_type, automate_missing_data_items
-):
-    """Function to generate ASR prediction data and to save to the same data item.
-    Args:
-        dataset_instance_id (int): ID of the dataset instance.
-        api_type (str): Type of API to be used for translation. (default: dhruva_asr)
-            Example - [dhruva_asr, indic-trans, google, indic-trans-v2, azure, blank]
-        automate_missing_data_items (bool): "Boolean to translate only missing data items"
-    """
-    # Fetching the data items for the given dataset instance.
-    success_count, total_count = 0, 0
-    try:
-        asr_data_items = dataset_models.SpeechConversation.objects.filter(
-            instance_id=dataset_instance_id
-        ).values_list(
-            "id",
-            "metadata_json",
-            "draft_data_json",
-            "domain",
-            "scenario",
-            "speaker_count",
-            "speakers_json",
-            "language",
-            "transcribed_json",
-            "machine_transcribed_json",
-            "audio_url",
-            "audio_duration",
-            "reference_raw_transcript",
-            "prediction_json",
-            "parent_data",
-        )
-    except Exception as e:
-        asr_data_items = []
-
-    # converting the dataset_instance to pandas dataframe.
-    asr_data_items_df = pd.DataFrame(
-        asr_data_items,
-        columns=[
-            "id",
-            "metadata_json",
-            "draft_data_json",
-            "domain",
-            "scenario",
-            "speaker_count",
-            "speakers_json",
-            "language",
-            "transcribed_json",
-            "machine_transcribed_json",
-            "audio_url",
-            "audio_duration",
-            "reference_raw_transcript",
-            "prediction_json",
-            "parent_data",
-        ],
-    )
-
-    # Check if the dataframe is empty
-    if asr_data_items_df.shape[0] == 0:
-        raise Exception("The ASR data is empty.")
-
-    required_columns = {
-        "id",
-        "metadata_json",
-        "draft_data_json",
-        "domain",
-        "scenario",
-        "speaker_count",
-        "speakers_json",
-        "language",
-        "transcribed_json",
-        "machine_transcribed_json",
-        "audio_url",
-        "audio_duration",
-        "reference_raw_transcript",
-        "prediction_json",
-        "parent_data",
-    }
-    if not required_columns.issubset(asr_data_items_df.columns):
-        missing_columns = required_columns - set(asr_data_items_df.columns)
-        raise ValueError(
-            f"The following required columns are missing: {missing_columns}"
-        )
-
-    # Update the asr_predictions field for each row in the DataFrame
-    for index, row in asr_data_items_df.iterrows():
-        curr_id = row["id"]
-        if "audio_url" not in row:
-            print(f"The ASR item with {curr_id} has missing audio_url.")
-            continue
-        audio_url = row["audio_url"]
-        language = row["language"]
-
-        # Considering the case when we should generate predictions for data items
-        # which already have asr_predictions or not.
-        if automate_missing_data_items and row["prediction_json"]:
-            continue
-        total_count += 1
-        asr_predictions = get_batch_asr_predictions(
-            curr_id, audio_url, api_type, language
-        )
-        if asr_predictions["status"] == "Success":
-            success_count += 1
-            prediction_json = asr_predictions["output"]
-
-            # Updating the asr_prediction_json column and saving in SpeechConversation dataset with the new asr predictions
-            try:
-                asr_data_items_df.at[index, "prediction_json"] = prediction_json
-                asr_document = dataset_models.SpeechConversation(
-                    instance_id_id=dataset_instance_id,
-                    id=curr_id,
-                    metadata_json=row["metadata_json"],
-                    draft_data_json=row["draft_data_json"],
-                    domain=row["domain"],
-                    scenario=row["scenario"],
-                    speaker_count=row["speaker_count"],
-                    speakers_json=row["speakers_json"],
-                    language=row["language"],
-                    transcribed_json=row["transcribed_json"],
-                    machine_transcribed_json=row["machine_transcribed_json"],
-                    audio_url=audio_url,
-                    audio_duration=row["audio_duration"],
-                    reference_raw_transcript=row["reference_raw_transcript"],
-                    prediction_json=prediction_json,
-                    parent_data=row["parent_data"],
-                )
-                with transaction.atomic():
-                    asr_document.save()
-            except IntegrityError as e:
-                # Handling unique constraint violations or other data integrity issues
-                print(f"Error while saving dataset id- {curr_id}, IntegrityError: {e}")
-            except DataError as e:
-                # Handling data-related issues like incorrect data types, etc.
-                print(f"Error while saving dataset id- {curr_id}, DataError: {e}")
-            except Exception as e:
-                # Handling other unexpected exceptions.
-                print(f"Error while saving dataset id- {curr_id}, Error message: {e}")
-
-        else:
-            print(
-                f"The {api_type} API has not generated predictions for data item with id-{curr_id}"
-            )
-    print(f"{success_count} out of {total_count} populated")
 
 
 @shared_task(bind=True)
@@ -818,6 +197,9 @@ def get_stats(proj_objs, anno_stats, meta_stats, complete_stats, project_type, u
             result_ann_meta_stats,
             result_rev_meta_stats,
             result_sup_meta_stats,
+            average_ann_vs_rev_WER,
+            average_rev_vs_sup_WER,
+            average_ann_vs_sup_WER,
         ) = get_stats_definitions()
         for ann_obj in annotations:
             if ann_obj.annotation_type == ANNOTATOR_ANNOTATION:
@@ -830,6 +212,9 @@ def get_stats(proj_objs, anno_stats, meta_stats, complete_stats, project_type, u
                         result_ann_meta_stats,
                         ann_obj,
                         project_type,
+                        average_ann_vs_rev_WER,
+                        average_rev_vs_sup_WER,
+                        average_ann_vs_sup_WER,
                     )
                 except:
                     continue
@@ -843,6 +228,9 @@ def get_stats(proj_objs, anno_stats, meta_stats, complete_stats, project_type, u
                         result_rev_meta_stats,
                         ann_obj,
                         project_type,
+                        average_ann_vs_rev_WER,
+                        average_rev_vs_sup_WER,
+                        average_ann_vs_sup_WER,
                     )
                 except:
                     continue
@@ -856,6 +244,9 @@ def get_stats(proj_objs, anno_stats, meta_stats, complete_stats, project_type, u
                         result_sup_meta_stats,
                         ann_obj,
                         project_type,
+                        average_ann_vs_rev_WER,
+                        average_rev_vs_sup_WER,
+                        average_ann_vs_sup_WER,
                     )
                 except:
                     continue
@@ -869,6 +260,9 @@ def get_stats(proj_objs, anno_stats, meta_stats, complete_stats, project_type, u
             anno_stats,
             meta_stats,
             complete_stats,
+            average_ann_vs_rev_WER,
+            average_rev_vs_sup_WER,
+            average_ann_vs_sup_WER,
             proj.id,
             user,
         )
@@ -906,82 +300,120 @@ def get_stats_definitions():
         "unlabeled": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "skipped": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "draft": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "labeled": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "to_be_revised": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
     }
     result_rev_meta_stats = {
         "unreviewed": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "skipped": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "draft": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "to_be_revised": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "accepted": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "accepted_with_minor_changes": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "accepted_with_major_changes": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "rejected": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
     }
     result_sup_meta_stats = {
         "unvalidated": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "skipped": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "draft": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "validated": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "validated_with_changes": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
         "rejected": {
             "Total_Words_in_Prompts": 0,
             "Number_of_Prompt-Output_Pairs": 0,
+            "Avg_Word_Count_Per_Prompt": 0,
+            "Avg_Word_Count_Per_Output": 0,
         },
     }
     return (
@@ -991,6 +423,9 @@ def get_stats_definitions():
         result_ann_meta_stats,
         result_rev_meta_stats,
         result_sup_meta_stats,
+        [],
+        [],
+        [],
     )
 
 
@@ -1004,6 +439,9 @@ def get_modified_stats_result(
     anno_stats,
     meta_stats,
     complete_stats,
+    average_ann_vs_rev_WER,
+    average_rev_vs_sup_WER,
+    average_ann_vs_sup_WER,
     proj_id,
     user,
 ):
@@ -1014,15 +452,15 @@ def get_modified_stats_result(
         for key, value in result_rev_anno_stats.items():
             result[f"Reviewer - {key.replace('_', ' ').title()} Annotations"] = value
         for key, value in result_sup_anno_stats.items():
-            result[
-                f"Superchecker - {key.replace('_', ' ').title()} Annotations"
-            ] = value
+            result[f"Superchecker - {key.replace('_', ' ').title()} Annotations"] = (
+                value
+            )
     if meta_stats or complete_stats:
         for key, value in result_ann_meta_stats.items():
             for sub_key in value.keys():
-                result[
-                    f"Annotator - {key.replace('_', ' ').title()} {sub_key}"
-                ] = value[sub_key]
+                result[f"Annotator - {key.replace('_', ' ').title()} {sub_key}"] = (
+                    value[sub_key]
+                )
         for key, value in result_rev_meta_stats.items():
             for sub_key in value.keys():
                 result[f"Reviewer - {key.replace('_', ' ').title()} {sub_key}"] = value[
@@ -1030,9 +468,9 @@ def get_modified_stats_result(
                 ]
         for key, value in result_sup_meta_stats.items():
             for sub_key in value.keys():
-                result[
-                    f"Superchecker - {key.replace('_', ' ').title()} {sub_key}"
-                ] = value[sub_key]
+                result[f"Superchecker - {key.replace('_', ' ').title()} {sub_key}"] = (
+                    value[sub_key]
+                )
 
     # adding unassigned tasks count
     result["Annotator - Unassigned Tasks"] = get_task_count_unassigned(proj_id, user)
@@ -1051,6 +489,15 @@ def get_modified_stats_result(
         .exclude(review_user=user.id)
         .count()
     )
+    result["Average Annotator VS Reviewer Word Error Rate"] = "{:.2f}".format(
+        get_average_of_a_list(average_ann_vs_rev_WER)
+    )
+    result["Average Reviewer VS Superchecker Word Error Rate"] = "{:.2f}".format(
+        get_average_of_a_list(average_rev_vs_sup_WER)
+    )
+    result["Average Annotator VS Superchecker Word Error Rate"] = "{:.2f}".format(
+        get_average_of_a_list(average_rev_vs_sup_WER)
+    )
     return result
 
 
@@ -1060,7 +507,7 @@ def get_average_of_a_list(arr):
     total_sum = 0
     total_length = 0
     for num in arr:
-        if isinstance(num, int):
+        if isinstance(num, int) or isinstance(num, float):
             total_sum += num
             total_length += 1
     return total_sum / total_length if total_length > 0 else 0
@@ -1078,7 +525,8 @@ def get_proj_objs(
 ):
     if workspace_level_reports:
         if project_type:
-            if language not in ["NULL", "None", None]:
+            LANG_CHOICES_DICT = dict(LANGUAGE_CHOICES)
+            if language in LANG_CHOICES_DICT:
                 proj_objs = Project.objects.filter(
                     workspace_id=wid,
                     project_type=project_type,
@@ -1092,7 +540,8 @@ def get_proj_objs(
             proj_objs = Project.objects.filter(workspace_id=wid)
     elif organization_level_reports:
         if project_type:
-            if language != ["NULL", "None", None]:
+            LANG_CHOICES_DICT = dict(LANGUAGE_CHOICES)
+            if language in LANG_CHOICES_DICT:
                 proj_objs = Project.objects.filter(
                     organization_id=oid,
                     project_type=project_type,
@@ -1106,7 +555,8 @@ def get_proj_objs(
             proj_objs = Project.objects.filter(organization_id=oid)
     elif dataset_level_reports:
         if project_type:
-            if language != ["NULL", "None", None]:
+            LANG_CHOICES_DICT = dict(LANGUAGE_CHOICES)
+            if language in LANG_CHOICES_DICT:
                 proj_objs = Project.objects.filter(
                     dataset_id=did,
                     project_type=project_type,
@@ -1131,6 +581,9 @@ def get_stats_helper(
     result_meta_stats,
     ann_obj,
     project_type,
+    average_ann_vs_rev_WER,
+    average_rev_vs_sup_WER,
+    average_ann_vs_sup_WER,
 ):
     task_obj = ann_obj.task
     task_data = task_obj.data
@@ -1142,9 +595,42 @@ def get_stats_helper(
     update_meta_stats(
         result_meta_stats,
         ann_obj,
-        task_data,
         project_type,
     )
+    if task_obj.task_status == REVIEWED:
+        if ann_obj.annotation_type == REVIEWER_ANNOTATION:
+            try:
+                average_ann_vs_rev_WER.append(
+                    calculate_wer_between_two_annotations(
+                        get_most_recent_annotation(ann_obj).result,
+                        get_most_recent_annotation(ann_obj.parent_annotation).result,
+                    )
+                )
+            except Exception as error:
+                pass
+    elif task_obj.task_status == SUPER_CHECKED:
+        if ann_obj.annotation_type == SUPER_CHECKER_ANNOTATION:
+            try:
+                average_ann_vs_rev_WER.append(
+                    calculate_wer_between_two_annotations(
+                        get_most_recent_annotation(ann_obj.parent_annotation).result,
+                        get_most_recent_annotation(
+                            ann_obj.parent_annotation.parent_annotation
+                        ).result,
+                    )
+                )
+            except Exception as error:
+                pass
+            try:
+                average_rev_vs_sup_WER.append(
+                    calculate_wer_between_two_annotations(
+                        get_most_recent_annotation(ann_obj).result,
+                        get_most_recent_annotation(ann_obj.parent_annotation).result,
+                    )
+                )
+            except Exception as error:
+                pass
+
     return 0
 
 
@@ -1153,16 +639,36 @@ def update_anno_stats(result_anno_stats, ann_obj, anno_stats):
     return 0 if anno_stats else None
 
 
-def update_meta_stats(result_meta_stats, ann_obj, task_data, project_type):
+def update_meta_stats(result_meta_stats, ann_obj, project_type):
     if "InstructionDrivenChat" in project_type:
         result_meta_stats_ann = ann_obj.meta_stats
         if result_meta_stats_ann:
-            result_meta_stats[ann_obj.annotation_status][
-                "Total_Words_in_Prompts"
-            ] += result_meta_stats_ann["prompts_word_count"]
+            result_meta_stats[ann_obj.annotation_status]["Total_Words_in_Prompts"] += (
+                result_meta_stats_ann["prompts_word_count"]
+                if "prompts_word_count" in result_meta_stats_ann
+                else 0
+            )
             result_meta_stats[ann_obj.annotation_status][
                 "Number_of_Prompt-Output_Pairs"
-            ] += result_meta_stats_ann["number_of_turns"]
+            ] += (
+                result_meta_stats_ann["number_of_turns"]
+                if "number_of_turns" in result_meta_stats_ann
+                else 0
+            )
+            result_meta_stats[ann_obj.annotation_status][
+                "Avg_Word_Count_Per_Prompt"
+            ] += (
+                result_meta_stats_ann["avg_word_count_per_prompt"]
+                if "avg_word_count_per_prompt" in result_meta_stats_ann
+                else 0
+            )
+            result_meta_stats[ann_obj.annotation_status][
+                "Avg_Word_Count_Per_Output"
+            ] += (
+                result_meta_stats_ann["avg_word_count_per_output"]
+                if "avg_word_count_per_output" in result_meta_stats_ann
+                else 0
+            )
 
 
 def calculate_ced_between_two_annotations(annotation1, annotation2):
@@ -1200,7 +706,7 @@ def calculate_ced_between_two_annotations(annotation1, annotation2):
 
 def calculate_wer_between_two_annotations(annotation1, annotation2):
     try:
-        return calculate_word_error_rate_between_two_audio_transcription_annotation(
+        return calculate_word_error_rate_between_two_llm_prompts(
             annotation1, annotation2
         )
     except Exception as e:
@@ -1264,9 +770,9 @@ def schedule_mail_to_download_all_projects(
             query_params = QueryDict(mutable=True)
             query_params["include_input_data_metadata_json"] = "true"
             query_params["export_type"] = "CSV"
-            query_params[
-                "task_status"
-            ] = "incomplete,annotated,reviewed,super_checked,exported"
+            query_params["task_status"] = (
+                "incomplete,annotated,reviewed,super_checked,exported"
+            )
             custom_request = Request(factory.get(url, data=query_params, timeout=15))
             custom_request.user = user
             try:

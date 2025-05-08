@@ -34,7 +34,7 @@ from projects.utils import (
     get_audio_project_types,
     get_audio_transcription_duration,
     get_audio_segments_count,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
     get_translation_dataset_project_types,
     convert_hours_to_seconds,
     ocr_word_count,
@@ -64,6 +64,7 @@ from .tasks import (
     get_review_reports,
     get_supercheck_reports,
 )
+from projects.registry_helper import ProjectRegistry
 
 
 # Create your views here.
@@ -160,7 +161,12 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
         try:
             # Filter workspaces where guest_workspace is True
             guest_workspaces = Workspace.objects.filter(guest_workspace=True)
+            authenticated_workspaces = guest_workspaces.filter(members=request.user)
             serializer = WorkspaceSerializer(guest_workspaces, many=True)
+            for workspace in serializer.data:
+                workspace["is_autheticated"] = workspace[
+                    "id"
+                ] in authenticated_workspaces.values_list("id", flat=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
             return Response(
@@ -893,7 +899,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                                     )
                                 )
                                 total_word_error_rate_ar_list.append(
-                                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                    calculate_word_error_rate_between_two_llm_prompts(
                                         review_annotation.result,
                                         review_annotation.parent_annotation.result,
                                     )
@@ -927,7 +933,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                                     )
                                 )
                                 total_word_error_rate_rs_list.append(
-                                    calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                    calculate_word_error_rate_between_two_llm_prompts(
                                         supercheck_annotation.result,
                                         supercheck_annotation.parent_annotation.result,
                                     )
@@ -1658,14 +1664,14 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             metainfo = request.query_params["metainfo"]
             if metainfo == "true" or metainfo == "True":
                 metainfo = True
-        project_types = [
-            "ContextualTranslationEditing",
-            "ContextualSentenceVerification",
-            "SemanticTextualSimilarity_Scale5",
-            "AudioTranscriptionEditing",
-            "AudioTranscription",
-            "AudioSegmentation",
-        ]
+        if "project_type_filter" in dict(request.query_params):
+            project_types = [request.query_params["project_type_filter"]]
+        else:
+            project_types = [
+                "InstructionDrivenChat",
+                "ModelInteractionEvaluation",
+                "ModelOutputEvaluation",
+            ]
         if "project_type" in dict(request.query_params):
             project_type = request.query_params["project_type"]
             project_types = [project_type]
@@ -1681,22 +1687,40 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             other_lang = []
             for lang in languages:
                 proj_lang_filter = proj_objs.filter(tgt_language=lang)
-                annotation_tasks_count = 0
-                reviewer_task_count = 0
-                reviewer_tasks = Task.objects.filter(
-                    project_id__in=proj_lang_filter,
-                    project_id__project_stage__in=[REVIEW_STAGE, SUPERCHECK_STAGE],
-                    task_status__in=["reviewed", "exported", "super_checked"],
-                )
-
                 annotation_tasks = Task.objects.filter(
                     project_id__in=proj_lang_filter,
                     task_status__in=[
                         "annotated",
                         "reviewed",
-                        "exported",
                         "super_checked",
                     ],
+                )
+                reviewer_tasks = Task.objects.filter(
+                    project_id__in=proj_lang_filter,
+                    project_id__project_stage__in=[REVIEW_STAGE, SUPERCHECK_STAGE],
+                    task_status__in=["reviewed", "super_checked"],
+                )
+                supercheck_tasks = Task.objects.filter(
+                    project_id__in=proj_lang_filter,
+                    project_id__project_stage__in=[SUPERCHECK_STAGE],
+                    task_status__in=["super_checked"],
+                )
+                annotation_tasks_exported = Task.objects.filter(
+                    project_id__in=proj_lang_filter,
+                    project_id__project_stage__in=[ANNOTATION_STAGE],
+                    task_status__in=[
+                        "exported",
+                    ],
+                )
+                reviewer_tasks_exported = Task.objects.filter(
+                    project_id__in=proj_lang_filter,
+                    project_id__project_stage__in=[REVIEW_STAGE],
+                    task_status__in=["exported"],
+                )
+                supercheck_tasks_exported = Task.objects.filter(
+                    project_id__in=proj_lang_filter,
+                    project_id__project_stage__in=[SUPERCHECK_STAGE],
+                    task_status__in=["exported"],
                 )
 
                 if metainfo == True:
@@ -1840,14 +1864,23 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                         }
 
                 else:
-                    reviewer_task_count = reviewer_tasks.count()
+                    reviewer_task_count = (
+                        reviewer_tasks.count() + reviewer_tasks_exported.count()
+                    )
 
-                    annotation_tasks_count = annotation_tasks.count()
+                    annotation_tasks_count = (
+                        annotation_tasks.count() + annotation_tasks_exported.count()
+                    )
+
+                    supercheck_tasks_count = (
+                        supercheck_tasks.count() + supercheck_tasks_exported.count()
+                    )
 
                     result = {
                         "language": lang,
                         "ann_cumulative_tasks_count": annotation_tasks_count,
                         "rew_cumulative_tasks_count": reviewer_task_count,
+                        "sup_cumulative_tasks_count": supercheck_tasks_count,
                     }
 
                 if lang == None or lang == "":
@@ -1857,6 +1890,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
 
             ann_task_count = 0
             rew_task_count = 0
+            sup_task_count = 0
             ann_word_count = 0
             rew_word_count = 0
             ann_aud_dur = 0
@@ -1865,6 +1899,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                 if metainfo != True:
                     ann_task_count += dat["ann_cumulative_tasks_count"]
                     rew_task_count += dat["rew_cumulative_tasks_count"]
+                    sup_task_count += dat["sup_cumulative_tasks_count"]
                 else:
                     if project_type in get_audio_project_types():
                         ann_aud_dur += convert_hours_to_seconds(
@@ -1886,6 +1921,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                         "language": "Others",
                         "ann_cumulative_tasks_count": ann_task_count,
                         "rew_cumulative_tasks_count": rew_task_count,
+                        "sup_cumulative_tasks_count": sup_task_count,
                     }
                 else:
                     if project_type in get_audio_project_types():
@@ -2862,6 +2898,13 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             + str(from_date)
             + str(to_date)
         )
+        project_type = request.data.get("project_type")
+        pr = ProjectRegistry.get_instance()
+        if project_type not in pr.project_types.keys():
+            return Response(
+                {"message": "This project type does not exist."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         celery_lock = Lock(user_id, task_name)
         try:
             lock_status = celery_lock.lockStatus()

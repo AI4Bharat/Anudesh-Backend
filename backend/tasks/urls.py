@@ -5,6 +5,8 @@ from tasks.views import (
     AnnotationViewSet,
     PredictionViewSet,
     get_celery_tasks,
+    TransliterationAPIView,
+    TranscribeAPIView,
 )
 
 
@@ -15,4 +17,14 @@ router = routers.DefaultRouter()
 
 urlpatterns = [
     path("get_celery_tasks", get_celery_tasks),
+    path(
+        "xlit-api/generic/transliteration/<str:target_language>/<str:data>",
+        TransliterationAPIView.as_view(),
+        name="transliteration-api",
+    ),
+    path(
+        "asr-api/generic/transcribe",
+        TranscribeAPIView.as_view(),
+        name="transcription-api",
+    ),
 ] + router.urls

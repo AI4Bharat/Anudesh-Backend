@@ -31,7 +31,7 @@ from projects.utils import (
     convert_seconds_to_hours,
     get_audio_project_types,
     get_audio_transcription_duration,
-    calculate_word_error_rate_between_two_audio_transcription_annotation,
+    calculate_word_error_rate_between_two_llm_prompts,
     ocr_word_count,
 )
 
@@ -325,9 +325,9 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
             json_data = json.dumps(exported_items, default=str)
             # Create a StreamingHttpResponse with the JSON data
             response = StreamingHttpResponse(json_data, content_type="application/json")
-            response[
-                "Content-Disposition"
-            ] = f'attachment; filename="{dataset_instance}.json"'
+            response["Content-Disposition"] = (
+                f'attachment; filename="{dataset_instance}.json"'
+            )
             return response
         return StreamingHttpResponse(
             exported_items, status=status.HTTP_200_OK, content_type=content_type
@@ -1020,7 +1020,7 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
                                 )
                             )
                             total_word_error_rate_ar_list.append(
-                                calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                calculate_word_error_rate_between_two_llm_prompts(
                                     review_annotation.result,
                                     review_annotation.parent_annotation.result,
                                 )
@@ -1049,7 +1049,7 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
                                 )
                             )
                             total_word_error_rate_rs_list.append(
-                                calculate_word_error_rate_between_two_audio_transcription_annotation(
+                                calculate_word_error_rate_between_two_llm_prompts(
                                     supercheck_annotation.result,
                                     supercheck_annotation.parent_annotation.result,
                                 )
