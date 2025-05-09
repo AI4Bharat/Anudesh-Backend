@@ -2324,9 +2324,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """
         Pull a new batch of labeled tasks and assign to the reviewer
         """
-        allow_unireview = False
         try:
             allow_unireview = project.metadata_json["allow_unireview"]
+        except:
+            allow_unireview = False
         cur_user = request.user
         project = Project.objects.get(pk=pk)
         if not project.is_published:
