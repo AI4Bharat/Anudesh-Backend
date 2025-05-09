@@ -2379,7 +2379,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
 
-        if project.required_annotators_per_task > 1:
+        if project.required_annotators_per_task > 1 and (project.metadata_json["allow_unireview"] == True):
             task_ids = (
                 Annotation_model.objects
                 .filter(task__in=tasks)
@@ -2406,7 +2406,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
         print("Before loop: ",task_ids)
-        if required_annotators_per_task > 1:
+        if required_annotators_per_task > 1 and (project.metadata_json["allow_unireview"] == True):
             seen_tasks = set(task_ids)
             for i in range(len(task_ids)):
                 ti = task_ids[i]
