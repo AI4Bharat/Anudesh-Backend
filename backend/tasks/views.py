@@ -1569,45 +1569,60 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        output_result = get_all_llm_output(
-                            request.data["result"],
-                            annotation_obj.task,
-                            annotation_obj,
-                            annotation_obj.task.project_id.metadata_json,
-                            ["GPT4OMini", "GPT4"]
-                        )
-                        if output_result == -1:
-                            ret_dict = {
-                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                            }
-                            ret_status = status.HTTP_403_FORBIDDEN
-                            return Response(ret_dict, status=ret_status)
-                        elif isinstance(output_result, Response):
-                            return output_result
-                        # store the result of all checks as well
-                        prompt_text = request.data["result"]
-                        for model_name, model_output in output_result.items():
-                            new_interaction = {
-                                "prompt": prompt_text,
-                                "output": model_output,
-                                "preferred_response": (request.data['preferred_response'] == model_name),
-                                "prompt_output_pair_id": request.data['prompt_output_pair_id']
-                            }
-
-                            model_found = False
+                        if(request.data["result"]==""):
+                            preferred_model = request.data.get("preferred_response")
+                            preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
-                                if model_entry.get("model_name") == model_name:
-                                    model_entry["interaction_json"].append(new_interaction)
-                                    model_found = True
-                                    break
+                                if model_entry.get("model_name") == preferred_model:
+                                    for interaction in model_entry.get("interaction_json", []):
+                                        if interaction.get("prompt_output_pair_id") == preferred_id:
+                                            interaction["preferred_response"] = True
+                                        else:
+                                            interaction["preferred_response"] = False
+                                else:
+                                    for interaction in model_entry.get("interaction_json", []):
+                                        if interaction.get("prompt_output_pair_id") == preferred_id:
+                                            interaction["preferred_response"] = False
+                        else:
+                            output_result = get_all_llm_output(
+                                request.data["result"],
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                                ["GPT4OMini", "GPT4"]
+                            )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                            # store the result of all checks as well
+                            prompt_text = request.data["result"]
+                            for model_name, model_output in output_result.items():
+                                new_interaction = {
+                                    "prompt": prompt_text,
+                                    "output": model_output,
+                                    "preferred_response": False,
+                                    "prompt_output_pair_id": request.data['prompt_output_pair_id']
+                                }
 
-                            # If model not found, create a new one
-                            if not model_found:
-                                annotation_obj.result.append({
-                                    "model_name": model_name,
-                                    "interaction_json": [new_interaction]
+                                model_found = False
+                                for model_entry in annotation_obj.result:
+                                    if model_entry.get("model_name") == model_name:
+                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_found = True
+                                        break
 
-                                })  
+                                # If model not found, create a new one
+                                if not model_found:
+                                    annotation_obj.result.append({
+                                        "model_name": model_name,
+                                        "interaction_json": [new_interaction]
+
+                                    })  
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -1797,47 +1812,62 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        output_result = get_all_llm_output(
-                            request.data["result"],
-                            annotation_obj.task,
-                            annotation_obj,
-                            annotation_obj.task.project_id.metadata_json,
-                            ["GPT4OMini", "GPT4"]
-                        )
-                        if output_result == -1:
-                            ret_dict = {
-                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                            }
-                            ret_status = status.HTTP_403_FORBIDDEN
-                            return Response(ret_dict, status=ret_status)
-                        elif isinstance(output_result, Response):
-                            return output_result
-                        # store the result of all checks as well
-                        prompt_text = request.data["result"]
-                        for model_name, model_output in output_result.items():
-                            if isinstance(model_output, Response):
-                                model_output = model_output.data 
-                            new_interaction = {
-                                "prompt": prompt_text,
-                                "output": model_output,
-                                "preferred_response": (request.data['preferred_response'] == model_name),
-                                "prompt_output_pair_id": request.data['prompt_output_pair_id'],
-                            }
-
-                            model_found = False
+                        if(request.data["result"]==""):
+                            preferred_model = request.data.get("preferred_response")
+                            preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
-                                if model_entry.get("model_name") == model_name:
-                                    model_entry["interaction_json"].append(new_interaction)
-                                    model_found = True
-                                    break
+                                if model_entry.get("model_name") == preferred_model:
+                                    for interaction in model_entry.get("interaction_json", []):
+                                        if interaction.get("prompt_output_pair_id") == preferred_id:
+                                            interaction["preferred_response"] = True
+                                        else:
+                                            interaction["preferred_response"] = False
+                                else:
+                                    for interaction in model_entry.get("interaction_json", []):
+                                        if interaction.get("prompt_output_pair_id") == preferred_id:
+                                            interaction["preferred_response"] = False
+                        else:
+                            output_result = get_all_llm_output(
+                                request.data["result"],
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                                ["GPT4OMini", "GPT4"]
+                            )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                            # store the result of all checks as well
+                            prompt_text = request.data["result"]
+                            for model_name, model_output in output_result.items():
+                                if isinstance(model_output, Response):
+                                    model_output = model_output.data 
+                                new_interaction = {
+                                    "prompt": prompt_text,
+                                    "output": model_output,
+                                    "preferred_response": False,
+                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
+                                }
 
-                            # If model not found, create a new one
-                            if not model_found:
-                                annotation_obj.result.append({
-                                    "model_name": model_name,
-                                    "interaction_json": [new_interaction]
+                                model_found = False
+                                for model_entry in annotation_obj.result:
+                                    if model_entry.get("model_name") == model_name:
+                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_found = True
+                                        break
 
-                                })  
+                                # If model not found, create a new one
+                                if not model_found:
+                                    annotation_obj.result.append({
+                                        "model_name": model_name,
+                                        "interaction_json": [new_interaction]
+
+                                    })  
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -2096,45 +2126,60 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        output_result = get_all_llm_output(
-                            request.data["result"],
-                            annotation_obj.task,
-                            annotation_obj,
-                            annotation_obj.task.project_id.metadata_json,
-                            ["GPT4OMini", "GPT4"]
-                        )
-                        if output_result == -1:
-                            ret_dict = {
-                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                            }
-                            ret_status = status.HTTP_403_FORBIDDEN
-                            return Response(ret_dict, status=ret_status)
-                        elif isinstance(output_result, Response):
-                            return output_result
-                        # store the result of all checks as well
-                        prompt_text = request.data["result"]
-                        for model_name, model_output in output_result.items():
-                            new_interaction = {
-                                "prompt": prompt_text,
-                                "output": model_output,
-                                "preferred_response": (request.data['preferred_response'] == model_name),
-                                "prompt_output_pair_id": request.data['prompt_output_pair_id'],
-                            }
-
-                            model_found = False
+                        if(request.data["result"]==""):
+                            preferred_model = request.data.get("preferred_response")
+                            preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
-                                if model_entry.get("model_name") == model_name:
-                                    model_entry["interaction_json"].append(new_interaction)
-                                    model_found = True
-                                    break
+                                if model_entry.get("model_name") == preferred_model:
+                                    for interaction in model_entry.get("interaction_json", []):
+                                        if interaction.get("prompt_output_pair_id") == preferred_id:
+                                            interaction["preferred_response"] = True
+                                        else:
+                                            interaction["preferred_response"] = False
+                                else:
+                                    for interaction in model_entry.get("interaction_json", []):
+                                        if interaction.get("prompt_output_pair_id") == preferred_id:
+                                            interaction["preferred_response"] = False
+                        else:
+                            output_result = get_all_llm_output(
+                                request.data["result"],
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                                ["GPT4OMini", "GPT4"]
+                            )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                            # store the result of all checks as well
+                            prompt_text = request.data["result"]
+                            for model_name, model_output in output_result.items():
+                                new_interaction = {
+                                    "prompt": prompt_text,
+                                    "output": model_output,
+                                    "preferred_response": False,
+                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
+                                }
 
-                            # If model not found, create a new one
-                            if not model_found:
-                                annotation_obj.result.append({
-                                    "model_name": model_name,
-                                    "interaction_json": [new_interaction]
+                                model_found = False
+                                for model_entry in annotation_obj.result:
+                                    if model_entry.get("model_name") == model_name:
+                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_found = True
+                                        break
 
-                                })  
+                                # If model not found, create a new one
+                                if not model_found:
+                                    annotation_obj.result.append({
+                                        "model_name": model_name,
+                                        "interaction_json": [new_interaction]
+
+                                    })  
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
