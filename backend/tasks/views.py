@@ -1590,7 +1590,7 @@ class AnnotationViewSet(
                             new_interaction = {
                                 "prompt": prompt_text,
                                 "output": model_output,
-                                "preferred_response": request.data['preferred_response'],
+                                "preferred_response": (request.data['preferred_response'] == model_name),
                                 "prompt_output_pair_id": request.data['prompt_output_pair_id']
                             }
 
@@ -1820,7 +1820,7 @@ class AnnotationViewSet(
                             new_interaction = {
                                 "prompt": prompt_text,
                                 "output": model_output,
-                                "preferred_response": request.data['preferred_response'],
+                                "preferred_response": (request.data['preferred_response'] == model_name),
                                 "prompt_output_pair_id": request.data['prompt_output_pair_id'],
                             }
 
@@ -2117,7 +2117,7 @@ class AnnotationViewSet(
                             new_interaction = {
                                 "prompt": prompt_text,
                                 "output": model_output,
-                                "preferred_response": request.data['preferred_response'],
+                                "preferred_response": (request.data['preferred_response'] == model_name),
                                 "prompt_output_pair_id": request.data['prompt_output_pair_id'],
                             }
 
