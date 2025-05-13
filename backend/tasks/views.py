@@ -2134,8 +2134,6 @@ class AnnotationViewSet(
                                     for interaction in model_entry.get("interaction_json", []):
                                         if interaction.get("prompt_output_pair_id") == preferred_id:
                                             interaction["preferred_response"] = True
-                                        else:
-                                            interaction["preferred_response"] = False
                                 else:
                                     for interaction in model_entry.get("interaction_json", []):
                                         if interaction.get("prompt_output_pair_id") == preferred_id:
