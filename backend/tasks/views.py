@@ -1573,16 +1573,10 @@ class AnnotationViewSet(
                             preferred_model = request.data.get("preferred_response")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
-                                if model_entry.get("model_name") == preferred_model:
-                                    for interaction in model_entry.get("interaction_json", []):
-                                        if interaction.get("prompt_output_pair_id") == preferred_id:
-                                            interaction["preferred_response"] = True
-                                        else:
-                                            interaction["preferred_response"] = False
-                                else:
-                                    for interaction in model_entry.get("interaction_json", []):
-                                        if interaction.get("prompt_output_pair_id") == preferred_id:
-                                            interaction["preferred_response"] = False
+                                model_name = model_entry.get("model_name")
+                                for interaction in model_entry.get("interaction_json", []):
+                                    if interaction.get("prompt_output_pair_id") == preferred_id:
+                                        interaction["preferred_response"] = (model_name == preferred_model)
                         else:
                             output_result = get_all_llm_output(
                                 request.data["result"],
@@ -1816,16 +1810,10 @@ class AnnotationViewSet(
                             preferred_model = request.data.get("preferred_response")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
-                                if model_entry.get("model_name") == preferred_model:
-                                    for interaction in model_entry.get("interaction_json", []):
-                                        if interaction.get("prompt_output_pair_id") == preferred_id:
-                                            interaction["preferred_response"] = True
-                                        else:
-                                            interaction["preferred_response"] = False
-                                else:
-                                    for interaction in model_entry.get("interaction_json", []):
-                                        if interaction.get("prompt_output_pair_id") == preferred_id:
-                                            interaction["preferred_response"] = False
+                                model_name = model_entry.get("model_name")
+                                for interaction in model_entry.get("interaction_json", []):
+                                    if interaction.get("prompt_output_pair_id") == preferred_id:
+                                        interaction["preferred_response"] = (model_name == preferred_model)
                         else:
                             output_result = get_all_llm_output(
                                 request.data["result"],
@@ -2130,14 +2118,18 @@ class AnnotationViewSet(
                             preferred_model = request.data.get("preferred_response")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
-                                if model_entry.get("model_name") == preferred_model:
-                                    for interaction in model_entry.get("interaction_json", []):
-                                        if interaction.get("prompt_output_pair_id") == preferred_id:
-                                            interaction["preferred_response"] = True
-                                else:
-                                    for interaction in model_entry.get("interaction_json", []):
-                                        if interaction.get("prompt_output_pair_id") == preferred_id:
-                                            interaction["preferred_response"] = False
+                                # if model_entry.get("model_name") == preferred_model:
+                                #     for interaction in model_entry.get("interaction_json", []):
+                                #         if interaction.get("prompt_output_pair_id") == preferred_id:
+                                #             interaction["preferred_response"] = True
+                                # else:
+                                #     for interaction in model_entry.get("interaction_json", []):
+                                #         if interaction.get("prompt_output_pair_id") == preferred_id:
+                                #             interaction["preferred_response"] = False
+                                model_name = model_entry.get("model_name")
+                                for interaction in model_entry.get("interaction_json", []):
+                                    if interaction.get("prompt_output_pair_id") == preferred_id:
+                                        interaction["preferred_response"] = (model_name == preferred_model)
                         else:
                             output_result = get_all_llm_output(
                                 request.data["result"],
