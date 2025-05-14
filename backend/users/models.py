@@ -96,7 +96,17 @@ class User(AbstractBaseUser, PermissionsMixin):
         (ORGANIZATION_OWNER, "Organization Owner"),
         (ADMIN, "Admin"),
     )
+     # additional fields
+    JOB_TYPE_CHOICES = [
+        ('Blue Collar', 'Blue Collar'),
+        ('White Collar', 'White Collar'),
+    ]
 
+    AREA_CHOICES = [
+        ('Rural', 'Rural'),
+        ('Urban', 'Urban'),
+    ]
+     
     username = models.CharField(verbose_name="username", max_length=265)
     password = models.CharField(
         verbose_name="password",
@@ -112,6 +122,33 @@ class User(AbstractBaseUser, PermissionsMixin):
     profile_photo = models.CharField(
         verbose_name="profile_photo", max_length=256, blank=True
     )
+    
+    # Adding new  fields Starts
+    
+    job_type = models.CharField(
+        verbose_name="Job Type",
+        max_length=15,
+        choices=JOB_TYPE_CHOICES,
+        blank=False,
+        help_text="job Type"
+    )
+
+    native_district = models.CharField(
+        verbose_name="Native District",
+        max_length=256,
+        blank=False,
+        help_text="Native District"
+    )
+
+    area = models.CharField(
+        verbose_name="Area",
+        max_length=10,
+        choices=AREA_CHOICES,
+        blank=False,
+        help_text="Area"
+    )
+    # Adding new fields Ends
+    
     gender_choices = (
         ("M", "Male"),
         ("F", "Female"),
