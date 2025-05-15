@@ -1164,265 +1164,271 @@ class AnalyticsViewSet(viewsets.ViewSet):
         url_name="get_user_analytics",
     )
     def get_user_analytics(self, request):
-        """
-        Get Reports of a User
-        """
-        PERMISSION_ERROR = {
-            "message": "You do not have enough permissions to access this view!"
-        }
-        emails = User.objects.all()
-        emails_list = emails.values_list("email", flat=True)
-        try:
-            user_email = request.user.email
-            if user_email not in emails_list:
-                return Response(PERMISSION_ERROR, status=status.HTTP_400_BAD_REQUEST)
-        except:
-            if type(request) == dict:
-                pass
-            else:
-                return Response(PERMISSION_ERROR, status=status.HTTP_400_BAD_REQUEST)
-
         try:
             start_date = request.data.get("start_date")
             end_date = request.data.get("end_date")
             user_id = request.data.get("user_id")
             reports_type = request.data.get("reports_type")
-            project_type = request.data.get("project_type")
-        except:
-            start_date = request["start_date"]
-            end_date = request["end_date"]
-            user_id = request["user_id"]
-            reports_type = request["reports_type"]
-            project_type = request["project_type"]
+            project_types = request.data.get("project_types", ["all"])  # Default to ["all"] if not provided
 
-        review_reports = False
-        supercheck_reports = False
-        if reports_type == "review":
-            review_reports = True
-        elif reports_type == "supercheck":
-            supercheck_reports = True
-        start_date = start_date + " 00:00"
-        end_date = end_date + " 23:59"
-
-        cond, invalid_message = is_valid_date(start_date)
-        if not cond:
-            return Response(
-                {"message": invalid_message}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        cond, invalid_message = is_valid_date(end_date)
-        if not cond:
-            return Response(
-                {"message": invalid_message}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        start_date = datetime.strptime(start_date, "%Y-%m-%d %H:%M")
-        end_date = datetime.strptime(end_date, "%Y-%m-%d %H:%M")
-
-        if start_date > end_date:
-            return Response(
-                {"message": "'To' Date should be after 'From' Date"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        project_type_lower = project_type.lower()
-        is_textual_project = (
-            False if project_type in get_audio_project_types() else True
-        )  # flag for distinguishing between textual and audio projects
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"message": "User not found"}, status=status.HTTP_404_NOT_FOUND
-            )
-
-        if review_reports:
-            if project_type == "all":
-                project_objs = Project.objects.filter(  # Not using the project_type filter if it is set to "all"
-                    annotation_reviewers=user_id,
-                )
-            else:
-                project_objs = Project.objects.filter(
-                    annotation_reviewers=user_id,
-                    project_type=project_type,
-                )
-        elif supercheck_reports:
-            if project_type == "all":
-                project_objs = Project.objects.filter(  # Not using the project_type filter if it is set to "all"
-                    review_supercheckers=user_id,
-                )
-            else:
-                project_objs = Project.objects.filter(
-                    review_supercheckers=user_id,
-                    project_type=project_type,
-                )
-        else:
-            if project_type == "all":
-                project_objs = Project.objects.filter(
-                    annotators=user_id,
-                )
-            else:
-                project_objs = Project.objects.filter(
-                    annotators=user_id,
-                    project_type=project_type,
+            if not all([start_date, end_date, user_id, reports_type]):
+                return Response(
+                    {"message": "Missing required fields"}, 
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
-        all_annotated_lead_time_list = []
-        all_annotated_lead_time_count = 0
-        total_annotated_tasks_count = 0
-        all_tasks_word_count = 0
-        all_projects_total_duration = 0
-        project_wise_summary = []
-        for proj in project_objs:
-            project_name = proj.title
-            project_type = proj.project_type
-            is_textual_project = (
-                False if project_type in get_audio_project_types() else True
-            )
-            annotated_labeled_tasks = []
-            if review_reports:
-                labeld_tasks_objs = Task.objects.filter(
-                    Q(project_id=proj.id)
-                    & Q(review_user=user_id)
-                    & Q(
-                        task_status__in=[
-                            "reviewed",
-                            "exported",
-                            "super_checked",
-                        ]
-                    )
+            # Filter out None or empty project_types
+            project_types = [pt for pt in project_types if isinstance(pt, str) and pt]
+            if not project_types:  # If all were None/empty, default to ["all"]
+                project_types = ["all"]
+
+            review_reports = False
+            supercheck_reports = False
+            if reports_type == "review":
+                review_reports = True
+            elif reports_type == "supercheck":
+                supercheck_reports = True
+
+            start_date = start_date + " 00:00"
+            end_date = end_date + " 23:59"
+
+            cond, invalid_message = is_valid_date(start_date)
+            if not cond:
+                return Response(
+                    {"message": invalid_message}, 
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
-                annotated_task_ids = list(
-                    labeld_tasks_objs.values_list("id", flat=True)
-                )
-                annotated_labeled_tasks = Annotation.objects.filter(
-                    task_id__in=annotated_task_ids,
-                    annotation_type=REVIEWER_ANNOTATION,
-                    updated_at__range=[start_date, end_date],
-                    completed_by=user_id,
-                ).exclude(annotation_status__in=["to_be_revised", "draft", "skipped"])
-            elif supercheck_reports:
-                labeld_tasks_objs = Task.objects.filter(
-                    Q(project_id=proj.id)
-                    & Q(super_check_user=user_id)
-                    & Q(
-                        task_status__in=[
-                            "exported",
-                            "super_checked",
-                        ]
-                    )
+            cond, invalid_message = is_valid_date(end_date)
+            if not cond:
+                return Response(
+                    {"message": invalid_message}, 
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
-                annotated_task_ids = list(
-                    labeld_tasks_objs.values_list("id", flat=True)
-                )
-                annotated_labeled_tasks = Annotation.objects.filter(
-                    task_id__in=annotated_task_ids,
-                    annotation_type=SUPER_CHECKER_ANNOTATION,
-                    updated_at__range=[start_date, end_date],
-                    completed_by=user_id,
-                )
-            else:
-                labeld_tasks_objs = Task.objects.filter(
-                    Q(project_id=proj.id)
-                    & Q(annotation_users=user_id)
-                    & Q(
-                        task_status__in=[
-                            "annotated",
-                            "reviewed",
-                            "exported",
-                            "super_checked",
-                        ]
-                    )
-                )
-                annotated_task_ids = list(
-                    labeld_tasks_objs.values_list("id", flat=True)
-                )
-                annotated_labeled_tasks = Annotation.objects.filter(
-                    task_id__in=annotated_task_ids,
-                    annotation_type=ANNOTATOR_ANNOTATION,
-                    updated_at__range=[start_date, end_date],
-                    completed_by=user_id,
+            start_date = datetime.strptime(start_date, "%Y-%m-%d %H:%M")
+            end_date = datetime.strptime(end_date, "%Y-%m-%d %H:%M")
+
+            if start_date > end_date:
+                return Response(
+                    {"message": "'To' Date should be after 'From' Date"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            annotated_tasks_count = annotated_labeled_tasks.count()
-            total_annotated_tasks_count += annotated_tasks_count
-
-            avg_lead_time = 0
-            lead_time_annotated_tasks = [
-                eachtask.lead_time for eachtask in annotated_labeled_tasks
-            ]
-            all_annotated_lead_time_list.extend(lead_time_annotated_tasks)
-            if len(lead_time_annotated_tasks) > 0:
-                avg_lead_time = sum(lead_time_annotated_tasks) / len(
-                    lead_time_annotated_tasks
+            try:
+                user = User.objects.get(id=user_id)
+            except User.DoesNotExist:
+                return Response(
+                    {"message": "User not found"}, 
+                    status=status.HTTP_404_NOT_FOUND
                 )
-                avg_lead_time = round(avg_lead_time, 2)
 
-            total_word_count = 0
-            if "OCRTranscription" in project_type:
-                for each_anno in annotated_labeled_tasks:
-                    total_word_count += ocr_word_count(each_anno.result)
-            elif is_textual_project:
-                total_word_count_list = []
-                for each_task in annotated_labeled_tasks:
-                    try:
-                        total_word_count_list.append(each_task.task.data["word_count"])
-                    except:
-                        pass
+            all_annotated_lead_time_list = []
+            all_annotated_lead_time_count = 0
+            total_annotated_tasks_count = 0
+            all_tasks_word_count = 0
+            all_projects_total_duration = 0
+            project_wise_summary = []
 
-                total_word_count = sum(total_word_count_list)
-            all_tasks_word_count += total_word_count
-
-            total_duration = "00:00:00"
-            if project_type in get_audio_project_types():
-                total_duration_list = []
-                for each_task in annotated_labeled_tasks:
-                    try:
-                        total_duration_list.append(
-                            get_audio_transcription_duration(each_task.result)
+            for project_type in project_types:
+                if review_reports:
+                    if project_type == "all":
+                        project_objs = Project.objects.filter(
+                            annotation_reviewers=user_id,
                         )
-                    except:
-                        pass
-                total_duration = convert_seconds_to_hours(sum(total_duration_list))
-                all_projects_total_duration += sum(total_duration_list)
+                    else:
+                        project_objs = Project.objects.filter(
+                            annotation_reviewers=user_id,
+                            project_type=project_type,
+                        )
+                elif supercheck_reports:
+                    if project_type == "all":
+                        project_objs = Project.objects.filter(
+                            review_supercheckers=user_id,
+                        )
+                    else:
+                        project_objs = Project.objects.filter(
+                            review_supercheckers=user_id,
+                            project_type=project_type,
+                        )
+                else:
+                    if project_type == "all":
+                        project_objs = Project.objects.filter(
+                            annotators=user_id,
+                        )
+                    else:
+                        project_objs = Project.objects.filter(
+                            annotators=user_id,
+                            project_type=project_type,
+                        )
 
-            result = {
-                "Project Name": project_name,
-                (
-                    "Reviewed Tasks"
-                    if review_reports
-                    else (
-                        "SuperChecked Tasks"
-                        if supercheck_reports
-                        else "Annotated Tasks"
+                for proj in project_objs:
+                    project_name = proj.title
+                    current_project_type = proj.project_type
+                    is_textual_project = (
+                        False if current_project_type in get_audio_project_types() else True
                     )
-                ): annotated_tasks_count,
-                "Word Count": total_word_count,
-                "Total Segments Duration": total_duration,
-                (
-                    "Avg Review Time (sec)"
-                    if review_reports
-                    else (
-                        "Avg SuperCheck Time (sec)"
-                        if supercheck_reports
-                        else "Avg Annotation Time (sec)"
-                    )
-                ): avg_lead_time,
-            }
+                    annotated_labeled_tasks = []
+                    if review_reports:
+                        labeld_tasks_objs = Task.objects.filter(
+                            Q(project_id=proj.id)
+                            & Q(review_user=user_id)
+                            & Q(
+                                task_status__in=[
+                                    "reviewed",
+                                    "exported",
+                                    "super_checked",
+                                ]
+                            )
+                        )
 
-            if project_type in get_audio_project_types():
-                del result["Word Count"]
-            elif is_textual_project:
-                del result["Total Segments Duration"]
-            else:
-                del result["Word Count"]
-                del result["Total Segments Duration"]
+                        annotated_task_ids = list(
+                            labeld_tasks_objs.values_list("id", flat=True)
+                        )
+                        annotated_labeled_tasks = Annotation.objects.filter(
+                            task_id__in=annotated_task_ids,
+                            annotation_type=REVIEWER_ANNOTATION,
+                            updated_at__range=[start_date, end_date],
+                            completed_by=user_id,
+                        ).exclude(annotation_status__in=["to_be_revised", "draft", "skipped"])
+                    elif supercheck_reports:
+                        labeld_tasks_objs = Task.objects.filter(
+                            Q(project_id=proj.id)
+                            & Q(super_check_user=user_id)
+                            & Q(
+                                task_status__in=[
+                                    "exported",
+                                    "super_checked",
+                                ]
+                            )
+                        )
 
-            if (
-                result[
+                        annotated_task_ids = list(
+                            labeld_tasks_objs.values_list("id", flat=True)
+                        )
+                        annotated_labeled_tasks = Annotation.objects.filter(
+                            task_id__in=annotated_task_ids,
+                            annotation_type=SUPER_CHECKER_ANNOTATION,
+                            updated_at__range=[start_date, end_date],
+                            completed_by=user_id,
+                        )
+                    else:
+                        labeld_tasks_objs = Task.objects.filter(
+                            Q(project_id=proj.id)
+                            & Q(annotation_users=user_id)
+                            & Q(
+                                task_status__in=[
+                                    "annotated",
+                                    "reviewed",
+                                    "exported",
+                                    "super_checked",
+                                ]
+                            )
+                        )
+                        annotated_task_ids = list(
+                            labeld_tasks_objs.values_list("id", flat=True)
+                        )
+                        annotated_labeled_tasks = Annotation.objects.filter(
+                            task_id__in=annotated_task_ids,
+                            annotation_type=ANNOTATOR_ANNOTATION,
+                            updated_at__range=[start_date, end_date],
+                            completed_by=user_id,
+                        )
+
+                    annotated_tasks_count = annotated_labeled_tasks.count()
+                    total_annotated_tasks_count += annotated_tasks_count
+
+                    avg_lead_time = 0
+                    lead_time_annotated_tasks = [
+                        eachtask.lead_time for eachtask in annotated_labeled_tasks
+                    ]
+                    all_annotated_lead_time_list.extend(lead_time_annotated_tasks)
+                    if len(lead_time_annotated_tasks) > 0:
+                        avg_lead_time = sum(lead_time_annotated_tasks) / len(
+                            lead_time_annotated_tasks
+                        )
+                        avg_lead_time = round(avg_lead_time, 2)
+
+                    total_word_count = 0
+                    if "OCRTranscription" in current_project_type:
+                        for each_anno in annotated_labeled_tasks:
+                            total_word_count += ocr_word_count(each_anno.result)
+                    elif is_textual_project:
+                        total_word_count_list = []
+                        for each_task in annotated_labeled_tasks:
+                            try:
+                                total_word_count_list.append(each_task.task.data["word_count"])
+                            except:
+                                pass
+
+                        total_word_count = sum(total_word_count_list)
+                    all_tasks_word_count += total_word_count
+
+                    total_duration = "00:00:00"
+                    if current_project_type in get_audio_project_types():
+                        total_duration_list = []
+                        for each_task in annotated_labeled_tasks:
+                            try:
+                                total_duration_list.append(
+                                    get_audio_transcription_duration(each_task.result)
+                                )
+                            except:
+                                pass
+                        total_duration = convert_seconds_to_hours(sum(total_duration_list))
+                        all_projects_total_duration += sum(total_duration_list)
+
+                    result = {
+                        "Project Name": project_name,
+                        "Project Type": current_project_type, 
+                        (
+                            "Reviewed Tasks"
+                            if review_reports
+                            else (
+                                "SuperChecked Tasks"
+                                if supercheck_reports
+                                else "Annotated Tasks"
+                            )
+                        ): annotated_tasks_count,
+                        "Word Count": total_word_count,
+                        "Total Segments Duration": total_duration,
+                        (
+                            "Avg Review Time (sec)"
+                            if review_reports
+                            else (
+                                "Avg SuperCheck Time (sec)"
+                                if supercheck_reports
+                                else "Avg Annotation Time (sec)"
+                            )
+                        ): avg_lead_time,
+                    }
+
+                    if current_project_type in get_audio_project_types():
+                        del result["Word Count"]
+                    elif is_textual_project:
+                        del result["Total Segments Duration"]
+                    else:
+                        del result["Word Count"]
+                        del result["Total Segments Duration"]
+
+                    if (
+                        result[
+                            (
+                                "Reviewed Tasks"
+                                if review_reports
+                                else (
+                                    "SuperChecked Tasks"
+                                    if supercheck_reports
+                                    else "Annotated Tasks"
+                                )
+                            )
+                        ]
+                        > 0
+                    ):
+                        project_wise_summary.append(result)
+
+            project_wise_summary = sorted(
+                project_wise_summary,
+                key=lambda x: x[
                     (
                         "Reviewed Tasks"
                         if review_reports
@@ -1432,71 +1438,58 @@ class AnalyticsViewSet(viewsets.ViewSet):
                             else "Annotated Tasks"
                         )
                     )
-                ]
-                > 0
-            ):
-                project_wise_summary.append(result)
+                ],
+                reverse=True,
+            )
 
-        project_wise_summary = sorted(
-            project_wise_summary,
-            key=lambda x: x[
+            if total_annotated_tasks_count > 0:
+                all_annotated_lead_time_count = (
+                    sum(all_annotated_lead_time_list) / total_annotated_tasks_count
+                )
+                all_annotated_lead_time_count = round(all_annotated_lead_time_count, 2)
+
+            total_result = {
                 (
                     "Reviewed Tasks"
                     if review_reports
+                    else ("SuperChecked Tasks" if supercheck_reports else "Annotated Tasks")
+                ): total_annotated_tasks_count,
+                "Word Count": all_tasks_word_count,
+                "Total Segments Duration": convert_seconds_to_hours(
+                    all_projects_total_duration
+                ),
+                (
+                    "Avg Review Time (sec)"
+                    if review_reports
                     else (
-                        "SuperChecked Tasks"
+                        "Avg SuperCheck Time (sec)"
                         if supercheck_reports
-                        else "Annotated Tasks"
+                        else "Avg Annotation Time (sec)"
                     )
-                )
-            ],
-            reverse=True,
-        )
+                ): round(all_annotated_lead_time_count, 2),
+            }
 
-        if total_annotated_tasks_count > 0:
-            all_annotated_lead_time_count = (
-                sum(all_annotated_lead_time_list) / total_annotated_tasks_count
+            # Remove fields based on project type
+            if any(pt in get_audio_project_types() for pt in project_types):
+                del total_result["Word Count"]
+            elif all(pt not in get_audio_project_types() for pt in project_types):
+                del total_result["Total Segments Duration"]
+            else:
+                del total_result["Word Count"]
+                del total_result["Total Segments Duration"]
+
+            total_summary = [total_result]
+
+            final_result = {
+                "total_summary": total_summary,
+                "project_summary": project_wise_summary,
+            }
+            return Response(final_result)
+        except Exception as e:
+            return Response(
+                {"message": "Error in getting user analytics", "error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-            all_annotated_lead_time_count = round(all_annotated_lead_time_count, 2)
-
-        # total_summary = {}
-        # if is_translation_project or project_type == "SemanticTextualSimilarity_Scale5":
-
-        total_result = {
-            (
-                "Reviewed Tasks"
-                if review_reports
-                else ("SuperChecked Tasks" if supercheck_reports else "Annotated Tasks")
-            ): total_annotated_tasks_count,
-            "Word Count": all_tasks_word_count,
-            "Total Segments Duration": convert_seconds_to_hours(
-                all_projects_total_duration
-            ),
-            (
-                "Avg Review Time (sec)"
-                if review_reports
-                else (
-                    "Avg SuperCheck Time (sec)"
-                    if supercheck_reports
-                    else "Avg Annotation Time (sec)"
-                )
-            ): round(all_annotated_lead_time_count, 2),
-        }
-        if project_type_lower != "all" and project_type in get_audio_project_types():
-            del total_result["Word Count"]
-        elif project_type_lower != "all" and is_textual_project:
-            del total_result["Total Segments Duration"]
-        elif project_type_lower != "all":
-            del total_result["Word Count"]
-            del total_result["Total Segments Duration"]
-
-        total_summary = [total_result]
-
-        final_result = {
-            "total_summary": total_summary,
-            "project_summary": project_wise_summary,
-        }
-        return Response(final_result)
 
     @action(
         detail=True,
