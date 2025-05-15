@@ -1672,6 +1672,9 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
+                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                        metadata = annotation_obj.task.project_id.metadata_json
+                        annotation_response.data["enable_preferrence_selection"] = metadata[0].get("question_type") if metadata and isinstance(metadata, list) else None
                 response_message = "Success"
             else:
                 if "annotation_status" in dict(request.data) and request.data[
@@ -1911,6 +1914,9 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
+                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                        metadata = annotation_obj.task.project_id.metadata_json
+                        annotation_response.data["enable_preferrence_selection"] = metadata[0].get("question_type") if metadata and isinstance(metadata, list) else None
                 response_message = "Success"
 
             else:
@@ -2225,6 +2231,9 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
+                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                        metadata = annotation_obj.task.project_id.metadata_json
+                        annotation_response.data["enable_preferrence_selection"] = metadata[0].get("question_type") if metadata and isinstance(metadata, list) else None
                 response_message = "Success"
 
             else:
@@ -2344,6 +2353,9 @@ class AnnotationViewSet(
                 annotation_response = super().partial_update(request)
                 if is_IDC:
                     annotation_response.data["output"] = output_result
+                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                        metadata = annotation_obj.task.project_id.metadata_json
+                        annotation_response.data["enable_preferrence_selection"] = metadata[0].get("question_type") if metadata and isinstance(metadata, list) else None
                 annotation_id = annotation_response.data["id"]
                 annotation = Annotation.objects.get(pk=annotation_id)
 
