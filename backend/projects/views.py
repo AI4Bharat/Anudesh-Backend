@@ -2050,6 +2050,144 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
         )
+    @action(detail=True,methods=["POST"],name="Manually assign tasks to user",
+        url_name="manual_task_assignment",)
+    @project_is_archived
+    def manual_task_assignment(self, request, pk=None):
+        """
+        Assign specified tasks to a user manually for annotation/review/sc.
+        Params (from request.data):
+            - task_ids: List of task IDs to assign
+            - user_id: ID of the user to assign tasks to
+            - allocation_type: 1=annotation, 2=review, 3=supercheck
+        """
+        project = Project.objects.get(pk=pk)
+        task_ids = request.data.get("task_ids", [])
+        user_id = request.data.get("user_id")
+        allocation_type = request.data.get("allocation_type")
+        if not task_ids or not user_id or allocation_type not in [1, 2, 3]:
+            return Response(
+                {"message": "Missing or invalid task_ids, user_id, or allocation_type"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"message": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+    
+        # Fetch relevant tasks for the project & provided task_ids
+        tasks = Task.objects.filter(project_id=pk, id__in=task_ids)
+    
+        for task in tasks:
+            # Add user to annotation/review/sc user fields based on allocation_type
+            if allocation_type == 1:
+                task.annotation_users.add(user)
+            elif allocation_type == 2:
+                task.review_users.add(user)
+            elif allocation_type == 3:
+                task.supercheck_users.add(user)
+    
+            # Create base annotation if not already present for this task/user/type
+            existing = Annotation_model.objects.filter(
+                task_id=task,
+                annotation_type=allocation_type,
+                completed_by=user,
+            ).exists()
+    
+            if not existing:
+                try:
+                    result = []
+                    if project.project_type in [
+                        "AcousticNormalisedTranscriptionEditing",
+                        "AudioTranscriptionEditing",
+                        "OCRTranscriptionEditing",
+                        "OCRSegmentCategorizationEditing",
+                        "OCRTextlineSegmentation",
+                    ]:
+                        try:
+                            result = convert_prediction_json_to_annotation_result(
+                                task.input_data.id, project.project_type, None, None, False
+                            )
+                        except Exception:
+                            result = []
+    
+                    annotation = Annotation_model(
+                        result=result,
+                        task=task,
+                        completed_by=user,
+                        annotation_type=allocation_type,
+                    )
+                    annotation.save()
+                except IntegrityError:
+                    print(
+                        f"Duplicate annotation for task {task.id}, user {user.email}, type {allocation_type}"
+                    )
+    
+        return Response(
+            {"message": "Tasks manually assigned successfully"},
+            status=status.HTTP_200_OK,
+        )
+        
+    @action(
+            detail=False,
+            methods=["POST"],
+            url_path="allocate_tasks",
+            name="Allocate tasks to user with role"
+        )
+    def allocate_tasks_to_user(self, request, *args, **kwargs):
+        """
+        Assign tasks to a user based on allocation_type:
+        1 - Annotator
+        2 - Reviewer
+        3 - Super Checker (SC)
+        """
+        project_id = request.data.get("projectID")
+        task_ids = request.data.get("taskIDs", [])
+        user_id = request.data.get("userID")
+        allocation_type = int(request.data.get("allocation_type", 1))  # default to 1
+        if not all([project_id, task_ids, user_id, allocation_type]):
+            return Response(
+                {"message": "Missing one or more required fields: projectID, taskIDs, userID, allocation_type"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            project = Project.objects.get(pk=project_id)
+            user = User.objects.get(pk=user_id)
+        except Project.DoesNotExist:
+            return Response({"message": "Invalid project ID"}, status=status.HTTP_404_NOT_FOUND)
+        except User.DoesNotExist:
+            return Response({"message": "Invalid user ID"}, status=status.HTTP_404_NOT_FOUND)
+        valid_tasks = Task.objects.filter(id__in=task_ids, project_id=project_id)
+        if not valid_tasks.exists():
+            return Response({"message": "No valid tasks found for the given IDs and project"}, status=status.HTTP_404_NOT_FOUND)
+        result = []
+        for task in valid_tasks:
+            # Assign user to appropriate field based on allocation_type
+            if allocation_type == 1:
+                task.annotation_users.add(user)
+            elif allocation_type == 2:
+                task.review_users.add(user)
+            elif allocation_type == 3:
+                task.super_check_users.add(user)
+            # Check if user already has an annotation of this type on the task
+            existing_annotation = Annotation_model.objects.filter(
+                task=task,
+                annotation_type=allocation_type,
+                completed_by=user
+            ).exists()
+            if not existing_annotation:
+                annotation = Annotation_model(
+                    result=result,
+                    task=task,
+                    completed_by=user,
+                    annotation_type=allocation_type
+                )
+                try:
+                    annotation.save()
+                except IntegrityError:
+                    print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
+        return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True, methods=["post"], name="Unassign tasks", url_name="unassign_tasks"
