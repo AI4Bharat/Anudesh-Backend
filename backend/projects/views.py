@@ -959,7 +959,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
             pk, request.user
         )
         project = Project.objects.get(id=pk)
-        if project.required_annotators_per_task > 1:
+        try:
+            allow_unireview = project.metadata_json["allow_unireview"]
+        except:
+            allow_unireview = False
+        if project.required_annotators_per_task > 1 and allow_unireview:
             similar_task_incomplete = Task.objects.filter(
                 project_id=OuterRef("project_id"),
                 input_data=OuterRef("input_data"),
