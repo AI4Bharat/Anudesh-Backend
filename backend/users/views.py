@@ -1169,12 +1169,14 @@ class AnalyticsViewSet(viewsets.ViewSet):
             end_date = request.data.get("end_date")
             user_id = request.data.get("user_id")
             reports_type = request.data.get("reports_type")
-            project_types = request.data.get("project_types", ["all"])  # Default to ["all"] if not provided
+            project_types = request.data.get(
+                "project_types", ["all"]
+            )  # Default to ["all"] if not provided
 
             if not all([start_date, end_date, user_id, reports_type]):
                 return Response(
-                    {"message": "Missing required fields"}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"message": "Missing required fields"},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             # Filter out None or empty project_types
@@ -1195,15 +1197,13 @@ class AnalyticsViewSet(viewsets.ViewSet):
             cond, invalid_message = is_valid_date(start_date)
             if not cond:
                 return Response(
-                    {"message": invalid_message}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"message": invalid_message}, status=status.HTTP_400_BAD_REQUEST
                 )
 
             cond, invalid_message = is_valid_date(end_date)
             if not cond:
                 return Response(
-                    {"message": invalid_message}, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"message": invalid_message}, status=status.HTTP_400_BAD_REQUEST
                 )
 
             start_date = datetime.strptime(start_date, "%Y-%m-%d %H:%M")
@@ -1219,8 +1219,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 user = User.objects.get(id=user_id)
             except User.DoesNotExist:
                 return Response(
-                    {"message": "User not found"}, 
-                    status=status.HTTP_404_NOT_FOUND
+                    {"message": "User not found"}, status=status.HTTP_404_NOT_FOUND
                 )
 
             all_annotated_lead_time_list = []
@@ -1266,7 +1265,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     project_name = proj.title
                     current_project_type = proj.project_type
                     is_textual_project = (
-                        False if current_project_type in get_audio_project_types() else True
+                        False
+                        if current_project_type in get_audio_project_types()
+                        else True
                     )
                     annotated_labeled_tasks = []
                     if review_reports:
@@ -1290,7 +1291,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
                             annotation_type=REVIEWER_ANNOTATION,
                             updated_at__range=[start_date, end_date],
                             completed_by=user_id,
-                        ).exclude(annotation_status__in=["to_be_revised", "draft", "skipped"])
+                        ).exclude(
+                            annotation_status__in=["to_be_revised", "draft", "skipped"]
+                        )
                     elif supercheck_reports:
                         labeld_tasks_objs = Task.objects.filter(
                             Q(project_id=proj.id)
@@ -1357,7 +1360,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         total_word_count_list = []
                         for each_task in annotated_labeled_tasks:
                             try:
-                                total_word_count_list.append(each_task.task.data["word_count"])
+                                total_word_count_list.append(
+                                    each_task.task.data["word_count"]
+                                )
                             except:
                                 pass
 
@@ -1374,12 +1379,14 @@ class AnalyticsViewSet(viewsets.ViewSet):
                                 )
                             except:
                                 pass
-                        total_duration = convert_seconds_to_hours(sum(total_duration_list))
+                        total_duration = convert_seconds_to_hours(
+                            sum(total_duration_list)
+                        )
                         all_projects_total_duration += sum(total_duration_list)
 
                     result = {
                         "Project Name": project_name,
-                        "Project Type": current_project_type, 
+                        "Project Type": current_project_type,
                         (
                             "Reviewed Tasks"
                             if review_reports
@@ -1452,7 +1459,11 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 (
                     "Reviewed Tasks"
                     if review_reports
-                    else ("SuperChecked Tasks" if supercheck_reports else "Annotated Tasks")
+                    else (
+                        "SuperChecked Tasks"
+                        if supercheck_reports
+                        else "Annotated Tasks"
+                    )
                 ): total_annotated_tasks_count,
                 "Word Count": all_tasks_word_count,
                 "Total Segments Duration": convert_seconds_to_hours(
@@ -1488,7 +1499,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
         except Exception as e:
             return Response(
                 {"message": "Error in getting user analytics", "error": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     @action(
@@ -1800,7 +1811,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
             schedule = (
                 "Daily"
                 if task.schedule == 1
-                else "Weekly" if task.schedule == 2 else "Monthly"
+                else "Weekly"
+                if task.schedule == 2
+                else "Monthly"
             )
             scheduled_day = (
                 calendar.day_name[int(task.celery_task.crontab.day_of_week) - 1]
