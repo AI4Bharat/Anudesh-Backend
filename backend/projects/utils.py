@@ -527,15 +527,14 @@ def add_extra_task_data(t, project):
     similar_tasks = (
         Task.objects.filter(input_data=t.input_data, project_id=project.id)
         .filter(task_status=ANNOTATED)
-        .filter(review_user__isnull=True)
     )
-    total_ratings, seen = [], {}
-    max_rating, curr_response = float("-inf"), ""
+    seen, total_rating, key_values = [], {}, {}
     for st in similar_tasks:
         ann = Annotation.objects.filter(task=st, annotation_status=LABELED)[0]
         for r in ann.result:
             if "model_responses_json" in r:
                 model_responses_json = r["model_responses_json"]
+                curr_response = {}
                 for mr in model_responses_json:
                     if "questions_response" in mr:
                         questions_response = mr["questions_response"]
@@ -548,25 +547,32 @@ def add_extra_task_data(t, project):
                                 and "ia_diff_check" in qr["question"]
                                 and qr["question"]["ia_diff_check"] == "true"
                             ):
-                                curr_response = qr["response"][0]
+                                curr_response[mr["model_name"]] = qr["response"][0]
                                 try:
-                                    curr_response = int(curr_response)
+                                    curr_response[mr["model_name"]] = int(curr_response)
                                 except Exception as e:
                                     pass
                                 break
-        if isinstance(curr_response, int):
-            seen[st.id] = curr_response
-            total_ratings.append(curr_response)
-            max_rating = max(max_rating, curr_response)
-    t.data["avg_rating"] = -1
-    t.data["curr_rating"] = -1
-    t.data["inter_annotator_difference"] = -1
-    if t.id in seen:
-        t.data["avg_rating"] = sum(total_ratings) / len(total_ratings)
-        t.data["curr_rating"] = seen[t.id]
-        t.data["inter_annotator_difference"] = (
-            max_rating - seen[t.id] if max_rating > float("-inf") else -1
-        )
+                seen.append(curr_response)
+
+    for item in seen:
+        for key, value in item.items():
+            total_rating[key] = total_rating.get(key, 0) + int(value)
+            if key not in key_values:
+                key_values[key] = []
+            key_values[key].append(int(value))
+
+    total_rating = {key: str(value) for key, value in total_rating.items()}
+    inter_annotator_difference = {
+        key: max(values) - min(values) for key, values in key_values.items()
+    }
+    curr_rating = {key: 1 for key in total_rating.keys()}
+
+    def dict_to_string(d):
+        return "{" + ", ".join(f"{key}: {value}" for key, value in d.items()) + "}"
+    
+    t.data["total_rating"] = dict_to_string(total_rating)
+    t.data["inter_annotator_difference"] = dict_to_string(inter_annotator_difference)
     t.save()
 
 

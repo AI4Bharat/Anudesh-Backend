@@ -8,7 +8,7 @@ import math
 
 from django.core.files import File
 from django.db import IntegrityError
-from django.db.models import Count, Q, F, Case, When, OuterRef, Exists
+from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField
 from django.forms.models import model_to_dict
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -636,9 +636,9 @@ def get_supercheck_reports(proj_id, userid, start_date, end_date):
         result["Rejected Word Count"] = rejected_word_count
     elif proj_type in get_audio_project_types():
         result["Validated Segments Duration"] = validated_audio_duration
-        result[
-            "Validated With Changes Segments Duration"
-        ] = validated_with_changes_audio_duration
+        result["Validated With Changes Segments Duration"] = (
+            validated_with_changes_audio_duration
+        )
         result["Rejected Segments Duration"] = rejected_audio_duration
         result["Total Raw Audio Duration"] = total_raw_audio_duration
         result["Average Word Error Rate R/S"] = round(avg_word_error_rate, 2)
@@ -805,13 +805,104 @@ def get_project_creation_status(pk) -> str:
 def get_task_count_unassigned(pk, user):
     project = Project.objects.get(pk=pk)
     required_annotators_per_task = project.required_annotators_per_task
+    if required_annotators_per_task==1:
+        proj_tasks = Task.objects.filter(project_id=pk).exclude(annotation_users=user)
+        proj_tasks_unassigned = (
+            proj_tasks.annotate(num_annotators=Count("annotation_users"))
+        ).filter(num_annotators__lt=required_annotators_per_task)
+        return len(proj_tasks_unassigned)
+    
+    if user.role==User.ADMIN:
+        assigned_task_ids = Annotation_model.objects.filter(
+        task__project_id=pk
+        ).values_list("task_id", flat=True) 
 
-    proj_tasks = Task.objects.filter(project_id=pk).exclude(annotation_users=user)
-    proj_tasks_unassigned = (
-        proj_tasks.annotate(num_annotators=Count("annotation_users"))
-    ).filter(num_annotators__lt=required_annotators_per_task)
+        tasks = Task.objects.filter(
+            project_id=pk,
+            task_status__in=[INCOMPLETE]
+        ).annotate(
+            annotator_count=Count("annotation_users")
+        ).filter(
+            annotator_count__lt=project.required_annotators_per_task 
+        ).exclude(id__in=assigned_task_ids)
+        return tasks.count()
 
-    return len(proj_tasks_unassigned)
+    else:
+        #Tasks that the user has already worked on but are incomplete and yje pending task count of the user
+        proj_annotations = Annotation_model.objects.filter(
+            task__project_id=pk, 
+            annotation_status=UNLABELED, 
+            completed_by=user
+        )
+        annotation_tasks = proj_annotations.values_list("task_id", flat=True)
+
+        pending_task_users = Task.objects.filter(
+            project_id=pk, 
+            annotation_users=user.id, 
+            task_status__in=[INCOMPLETE], 
+            id__in=annotation_tasks
+        ).count()
+
+        # Max tasks that can be assigned to the user based on the project constraint
+        tasks_to_be_assigned = project.max_pending_tasks_per_user - pending_task_users
+
+        # Check if user exceeded max_tasks_per_user
+        if project.max_tasks_per_user != -1:
+            tasks_assigned_to_user = Task.objects.filter(
+                project_id=pk, annotation_users=user.id
+            ).count()
+            
+            if tasks_assigned_to_user >= project.max_tasks_per_user:
+                return Response(
+                    {"message": f"You are only allowed a total of {project.max_tasks_per_user} tasks"},
+                    status=status.HTTP_200_OK,
+                )
+
+            max_task_that_can_be_assigned = min(
+                project.max_tasks_per_user - tasks_assigned_to_user,
+                tasks_to_be_assigned,
+            )
+        else:
+            max_task_that_can_be_assigned = tasks_to_be_assigned
+
+        # Fetch all available tasks
+        tasks = Task.objects.filter(
+            project_id=pk,
+            task_status__in=[INCOMPLETE]
+        ).exclude(
+            annotation_users=user.id 
+        ).annotate(
+            annotator_count=Count("annotation_users")
+        ).filter(
+            annotator_count__lt=project.required_annotators_per_task
+        ).order_by("id")  
+
+        # unique unassigned data items (as in the new design each annotator is given a seperate task of the same data item)
+        data_items_vs_tasks_map = {t.input_data.id: t for t in tasks}
+        data_items_of_unassigned_tasks = set(data_items_vs_tasks_map.keys())
+
+        #  Identify assigned data items
+        data_items_of_assigned_tasks = set(
+            proj_annotations.values_list("task__input_data_id", flat=True)
+        )
+        proj_annotations_annotated = Annotation_model.objects.filter(
+            task__project_id=pk, 
+            annotation_status__in=[UNLABELED, SKIPPED, DRAFT, LABELED, TO_BE_REVISED], 
+            completed_by=user, 
+            annotation_type=1
+        )
+        data_items_of_assigned_tasks.update(
+            proj_annotations_annotated.values_list("task__input_data_id", flat=True)
+        )
+
+        # Find unassigned data items that can still be assigned
+        all_unassigned_data_items = data_items_of_unassigned_tasks - data_items_of_assigned_tasks
+        tasks = [data_items_vs_tasks_map[task_id] for task_id in all_unassigned_data_items]
+        assignable_tasks = tasks[:max_task_that_can_be_assigned] if max_task_that_can_be_assigned else tasks[:tasks_to_be_assigned]
+        return len(assignable_tasks)
+
+
+
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -1943,9 +2034,30 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     continue
         # check if the project contains eligible tasks to pull
         tasks = Task.objects.filter(project_id=pk)
-        tasks = tasks.order_by("id")
+        if project.required_annotators_per_task > 1:
+            similar_task_count = (
+                Task.objects
+                .filter(
+                    project_id=OuterRef('project_id'),
+                    input_data=OuterRef('input_data'),
+                    task_status=ANNOTATED,
+                )
+                .exclude(id=OuterRef('id'))
+                .values('input_data')
+                .annotate(count=Count('id'))
+                .values('count')[:1]  # Get the count (or null if none)
+            )
+
+            tasks = (
+                Task.objects
+                .filter(project_id=pk)
+                .annotate(similar_annotated_count=Subquery(similar_task_count, output_field=IntegerField()))
+                .order_by('-similar_annotated_count')
+            )
+        else:
+            tasks = tasks.order_by("id")
         tasks = (
-            tasks.filter(task_status__in=[INCOMPLETE, UNLABELED])
+            tasks.filter(task_status__in=[INCOMPLETE])
             .exclude(annotation_users=cur_user.id)
             .annotate(annotator_count=Count("annotation_users"))
         )
@@ -2050,6 +2162,72 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
         )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="allocate_tasks",
+        name="Allocate tasks to user with role"
+    )
+    def allocate_tasks_to_user(self, request, *args, **kwargs):
+        """
+        Assign tasks to a user based on allocation_type:
+        1 - Annotator
+        2 - Reviewer
+        3 - Super Checker (SC)
+        """
+        project_id = request.data.get("projectID")
+        task_ids = request.data.get("taskIDs", [])
+        user_id = request.data.get("userID")
+        allocation_type = int(request.data.get("allocation_type", 1))  # default to 1
+
+        if not all([project_id, task_ids, user_id, allocation_type]):
+            return Response(
+                {"message": "Missing one or more required fields: projectID, taskIDs, userID, allocation_type"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            project = Project.objects.get(pk=project_id)
+            user = User.objects.get(pk=user_id)
+        except Project.DoesNotExist:
+            return Response({"message": "Invalid project ID"}, status=status.HTTP_404_NOT_FOUND)
+        except User.DoesNotExist:
+            return Response({"message": "Invalid user ID"}, status=status.HTTP_404_NOT_FOUND)
+
+        valid_tasks = Task.objects.filter(id__in=task_ids, project_id=project_id)
+        if not valid_tasks.exists():
+            return Response({"message": "No valid tasks found for the given IDs and project"}, status=status.HTTP_404_NOT_FOUND)
+
+        result = []
+        for task in valid_tasks:
+            # Assign user to appropriate field based on allocation_type
+            if allocation_type == 1:
+                task.annotation_users.add(user)
+            elif allocation_type == 2:
+                task.review_users.add(user)
+            elif allocation_type == 3:
+                task.super_check_users.add(user)
+
+            # Check if user already has an annotation of this type on the task
+            existing_annotation = Annotation_model.objects.filter(
+                task=task,
+                annotation_type=allocation_type,
+                completed_by=user
+            ).exists()
+
+            if not existing_annotation:
+                annotation = Annotation_model(
+                    result=result,
+                    task=task,
+                    completed_by=user,
+                    annotation_type=allocation_type
+                )
+                try:
+                    annotation.save()
+                except IntegrityError:
+                    print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
+
+        return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True, methods=["post"], name="Unassign tasks", url_name="unassign_tasks"
@@ -2266,20 +2444,34 @@ class ProjectViewSet(viewsets.ModelViewSet):
         task_pull_count = project.tasks_pull_count_per_batch
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
+
+        if project.required_annotators_per_task > 1:
+            task_ids = (
+                Annotation_model.objects
+                .filter(task__in=tasks)
+                .filter(annotation_type=ANNOTATOR_ANNOTATION)
+                .filter(annotation_status="labeled")  # focus only on labeled ones
+                .values("task__input_data")  # group by input_data
+                .annotate(tasks_with_labeled_count=Count("task", distinct=True))  # count tasks sharing this input_data
+                .order_by("-tasks_with_labeled_count")  # order by that count
+                .values_list("task", flat=True)  # get task IDs back
+            )
+        else:
         # Sort by most recently updated annotation; temporary change
-        task_ids = (
-            Annotation_model.objects.filter(task__in=tasks)
-            .filter(annotation_type=ANNOTATOR_ANNOTATION)
-            .distinct()
-            .order_by("-updated_at")
-            .values_list("task", flat=True)
-        )
+            task_ids = (
+                Annotation_model.objects.filter(task__in=tasks)
+                .filter(annotation_type=ANNOTATOR_ANNOTATION)
+                .distinct()
+                .order_by("-updated_at")
+                .values_list("task", flat=True)
+            )
         # tasks = tasks.order_by("id")
         task_ids = list(task_ids)
         task_ids = task_ids[:task_pull_count]
         seen = set()
         required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
+        print("Before loop: ",task_ids)
         if required_annotators_per_task > 1:
             seen_tasks = set(task_ids)
             for i in range(len(task_ids)):
@@ -2297,20 +2489,35 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     .filter(review_user__isnull=True)
                     .exclude(id=t.id)
                 )
+                
                 if corrupt_tasks:
                     corrupted_tasks.add(task_ids[i])
+                    print(f"Corrupt tasks related to {ti} inside loop iteration {i}: ",corrupt_tasks)
                     continue
                 for j in range(len(similar_tasks)):
                     st = similar_tasks[j]
                     if st.id not in seen_tasks:
                         task_ids.append(st.id)
+                print(f"Task_id inside loop iteration {i}: ",ti)
+                
+                print(f"Similar tasks inside loop iteration {i}: ",similar_tasks)
+        print("Corrupted tasks after loop: ",corrupted_tasks)
+        print("Task_ids after loop: ",task_ids)
         task_ids = [t for t in task_ids if t not in corrupted_tasks]
-        task_ids = task_ids[:task_pull_count]
+        # task_ids = task_ids[:task_pull_count]
         # if required_annotators_per_task > 1:
         #     task_ids = filter_tasks_for_review_filter_criteria(task_ids)
+        if len(task_ids) == 0:
+            project.release_lock(REVIEW_LOCK)
+            return Response(
+                {"message": "No tasks available for review in this project"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+            
         is_MultipleInteractionEvaluation = (
             project.project_type == "MultipleInteractionEvaluation"
         )
+        #print(task_ids)
         for task_id in task_ids:
             if task_id in seen:
                 continue
@@ -2325,6 +2532,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
                 .order_by("updated_at")
             )
+            curr_response = {}
+            def dict_to_string(d):
+                return "{" + ", ".join(f"{key}: {value}" for key, value in d.items()) + "}"
+            try:
+                for qa in rec_ann[0].result[0]["model_responses_json"]:
+                    curr_response[qa["model_name"]] = int(qa["questions_response"][0]["response"][0])
+                task.data["current_rating"] = dict_to_string(curr_response)
+                if "curr_rating" in task.data:
+                    del task.data["curr_rating"]
+                task.save()
+            except:
+                True
             reviewer_anno = Annotation_model.objects.filter(
                 task_id=task_id, annotation_type=REVIEWER_ANNOTATION
             )
@@ -3790,11 +4009,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 if include_input_data_metadata_json:
                     dataset_type = project.dataset_id.all()[0].dataset_type
                     dataset_model = getattr(dataset_models, dataset_type)
-                    task_dict["data"][
-                        "input_data_metadata_json"
-                    ] = dataset_model.objects.get(
-                        pk=task_dict["input_data"]
-                    ).metadata_json
+                    task_dict["data"]["input_data_metadata_json"] = (
+                        dataset_model.objects.get(
+                            pk=task_dict["input_data"]
+                        ).metadata_json
+                    )
                 del task_dict["annotation_users"]
                 del task_dict["review_user"]
                 tasks_list.append(OrderedDict(task_dict))
