@@ -2050,13 +2050,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
         )
+        
+        
     @action(
         detail=False,
         methods=["POST"],
-        url_path="allocate_tasks",
+        url_path="allocate_tasks_to_user",
         name="Allocate tasks to user with role"
     )
-    def allocate_tasks_to_user(self, request, *args, **kwargs):
+    def allocate_tasks_to_user(self, request,pk, *args, **kwargs):
         """
         Assign tasks to a user based on allocation_type:
         1 - Annotator
