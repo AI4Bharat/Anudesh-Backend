@@ -1,5 +1,8 @@
+import base64
+import io
 import json
 import os
+import subprocess
 from requests import RequestException
 import requests
 from dotenv import load_dotenv
@@ -109,3 +112,33 @@ def query_flower(filters=None):
             return {"error": "Failed to retrieve tasks from Flower"}
     except RequestException as e:
         return {"error": f" failed to connect to flower API, {str(e)}"}
+
+def convert_audio_base64_to_mp3(input_base64):
+        input_audio_bytes = base64.b64decode(input_base64)
+        input_buffer = io.BytesIO(input_audio_bytes)
+
+        ffmpeg_command = [
+            'ffmpeg', '-i', 'pipe:0',
+            '-f', 'mp3',
+            'pipe:1'
+        ]
+
+        try:
+            process = subprocess.Popen(
+                ffmpeg_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            output_mp3_bytes, error = process.communicate(input=input_buffer.read())
+
+            if process.returncode != 0:
+                raise Exception(f"FFmpeg error: {error.decode()}")
+
+            output_base64_mp3 = base64.b64encode(output_mp3_bytes).decode('utf-8')
+            return output_base64_mp3
+
+        except Exception as e:
+            print(f"Audio conversion error: {e}")
+            return None

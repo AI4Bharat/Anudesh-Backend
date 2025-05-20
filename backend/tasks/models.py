@@ -13,7 +13,7 @@ from label_studio_converter import Converter
 from label_studio.core.utils.io import (
     get_all_files_from_dir,
     get_temp_dir,
-    read_bytes_stream,
+    # read_bytes_stream,
 )
 from label_studio_tools.core.label_config import parse_config
 from django.conf import settings
