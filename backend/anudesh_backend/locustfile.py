@@ -1,17 +1,20 @@
+import os
 from locust import HttpUser, task, between
 from locust_tests.organisation_tab import OrganisationAPIs
 
 
 class UserBehavior(HttpUser):
     wait_time = between(1, 5)
-    host = "http://localhost:8000"
+    host = os.environ.get("API_URL", "http://localhost:8000")
 
     def on_start(self):
+        print(os.environ.get("TEST_EMAIL", ""), "Email")
+        print(os.environ.get("TEST_EMAIL_PASSWORD", ""), "Password")
         response = self.client.post(
             "/users/auth/jwt/create",
             json={
-                "email": "anudesh@ai4bharat.org",
-                "password": "Anudesh-AI4B@123",
+                "email": os.environ.get("TEST_EMAIL", ""),
+                "password": os.environ.get("TEST_EMAIL_PASSWORD", ""),
             },
         )
         if response.status_code == 200:
