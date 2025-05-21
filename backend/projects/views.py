@@ -959,7 +959,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
             pk, request.user
         )
         project = Project.objects.get(id=pk)
-        if project.required_annotators_per_task > 1:
+        try:
+            allow_unireview = project.metadata_json["allow_unireview"]
+        except:
+            allow_unireview = False
+        if project.required_annotators_per_task > 1 and allow_unireview:
             similar_task_incomplete = Task.objects.filter(
                 project_id=OuterRef("project_id"),
                 input_data=OuterRef("input_data"),
@@ -2390,6 +2394,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """
         Pull a new batch of labeled tasks and assign to the reviewer
         """
+        try:
+            allow_unireview = project.metadata_json["allow_unireview"]
+        except:
+            allow_unireview = False
         cur_user = request.user
         project = Project.objects.get(pk=pk)
         if not project.is_published:
@@ -2445,7 +2453,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
 
-        if project.required_annotators_per_task > 1:
+        if project.required_annotators_per_task > 1 and allow_unireview:
             task_ids = (
                 Annotation_model.objects
                 .filter(task__in=tasks)
@@ -2472,7 +2480,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
         print("Before loop: ",task_ids)
-        if required_annotators_per_task > 1:
+        if required_annotators_per_task > 1 and allow_unireview:
             seen_tasks = set(task_ids)
             for i in range(len(task_ids)):
                 ti = task_ids[i]
