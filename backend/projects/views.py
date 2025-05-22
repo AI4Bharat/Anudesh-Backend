@@ -4526,9 +4526,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             if allocation_type == 1:
                 task.annotation_users.add(user)
             elif allocation_type == 2:
-                task.review_users.add(user)
+                task.review_user = user
             elif allocation_type == 3:
-                task.super_check_users.add(user)
+                task.super_check_user = user
 
             # Check if user already has an annotation of this type on the task
             existing_annotation = Annotation_model.objects.filter(
