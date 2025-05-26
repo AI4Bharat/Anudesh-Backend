@@ -491,7 +491,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         )
 
     @is_particular_organization_owner
-    def bulk_add_members_to_projects(self, request):
+    def bulk_add_members_to_projects(self, request, pk=None, *args, **kwargs):
         """
         Add users based on role in the project.
         """
