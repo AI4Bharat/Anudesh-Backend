@@ -527,10 +527,9 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                 invalid_project_ids.append(pid)
         for project in valid_projects:
             for user in valid_users:
-                workspace = Workspace.objects.get(pk=project.workspace_id)
-                if user not in workspace.members.all():
-                    workspace.members.add(user)
-                    workspace.save()
+                if user not in project.workspace_id.members.all():
+                    project.workspace_id.members.add(user)
+                    project.workspace_id.save()
                 if role == "annotator":
                     if user in project.annotators.all():
                         excepted_additions.append(user.email)
