@@ -497,7 +497,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         """
         user_emails = request.data.get("user_emails", [])
         project_ids = request.data.get("project_ids", [])
-        role = int(request.data.get("user_role", none))  # default to none
+        role = request.data.get("user_role", none)  # default to none
         if not isinstance(user_emails, list) or not isinstance(project_ids, list):
             return Response(
                 {"message": "user_emails and project_ids must be lists."},
