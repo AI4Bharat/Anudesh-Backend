@@ -484,52 +484,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             )
         ],
     )
-    @action(
-        detail=True, methods=["POST"], name="Assign Manager", url_name="assign_manager"
-    )
-    @is_particular_organization_owner
-    def assign_manager(self, request, pk=None, *args, **kwargs):
-        """
-        API for assigning manager to a workspace
-        """
-        ret_dict = {}
-        ret_status = 0
-        if "ids" in dict(request.data):
-            ids = request.data.get("ids", "")
-        else:
-            return Response(
-                {"message": "key doesnot match"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        for id1 in ids:
-            try:
-                user = User.objects.get(id=id1)
-            except User.DoesNotExist:
-                return Response(
-                    {"message": "User with such id does not exist!"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            if user.role == User.ANNOTATOR or user.role == User.REVIEWER:
-                return Response(
-                    {"message": "One or more users do not have access to be manager"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            try:
-                workspace = Workspace.objects.get(pk=pk)
-            except Workspace.DoesNotExist:
-                ret_dict["message"] = "Workspace not found!"
-                ret_status = status.HTTP_404_NOT_FOUND
-                return Response(ret_dict, status=ret_status)
-            if user in workspace.managers.all():
-                ret_dict["message"] = "User already exists in workspace!"
-                ret_status = status.HTTP_400_BAD_REQUEST
-                return Response(ret_dict, status=ret_status)
-            workspace.managers.add(user)
-            workspace.members.add(user)
-            workspace.save()
-            serializer = WorkspaceManagerSerializer(workspace, many=False)
-        return Response({"done": True}, status=status.HTTP_200_OK)
-
+    
     @action(
         detail=True,
         methods=["POST"],
@@ -621,6 +576,53 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             },
             status=status.HTTP_200_OK,
         )
+    @action(
+        detail=True, methods=["POST"], name="Assign Manager", url_name="assign_manager"
+    )
+    @is_particular_organization_owner
+    def assign_manager(self, request, pk=None, *args, **kwargs):
+        """
+        API for assigning manager to a workspace
+        """
+        ret_dict = {}
+        ret_status = 0
+        if "ids" in dict(request.data):
+            ids = request.data.get("ids", "")
+        else:
+            return Response(
+                {"message": "key doesnot match"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for id1 in ids:
+            try:
+                user = User.objects.get(id=id1)
+            except User.DoesNotExist:
+                return Response(
+                    {"message": "User with such id does not exist!"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if user.role == User.ANNOTATOR or user.role == User.REVIEWER:
+                return Response(
+                    {"message": "One or more users do not have access to be manager"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                workspace = Workspace.objects.get(pk=pk)
+            except Workspace.DoesNotExist:
+                ret_dict["message"] = "Workspace not found!"
+                ret_status = status.HTTP_404_NOT_FOUND
+                return Response(ret_dict, status=ret_status)
+            if user in workspace.managers.all():
+                ret_dict["message"] = "User already exists in workspace!"
+                ret_status = status.HTTP_400_BAD_REQUEST
+                return Response(ret_dict, status=ret_status)
+            workspace.managers.add(user)
+            workspace.members.add(user)
+            workspace.save()
+            serializer = WorkspaceManagerSerializer(workspace, many=False)
+        return Response({"done": True}, status=status.HTTP_200_OK)
+
+    
 
     @action(
         detail=True,
