@@ -65,6 +65,7 @@ from .tasks import (
     get_supercheck_reports,
 )
 from projects.registry_helper import ProjectRegistry
+from django.db import IntegrityError
 
 
 # Create your views here.
@@ -528,6 +529,98 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             workspace.save()
             serializer = WorkspaceManagerSerializer(workspace, many=False)
         return Response({"done": True}, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["POST"],
+        name="Assign Members to Projects",
+        url_name="assign_members_to_projects",
+        )
+    
+    @is_particular_organization_owner
+    def assign_members_to_projects(self, request):
+        """
+        Assign users to tasks in selected projects based on annotation_type (1/2/3)
+        """
+        user_emails = request.data.get("user_emails", [])
+        project_ids = request.data.get("project_ids", [])
+        role = int(request.data.get("annotation_type", 1))  # default to annotator
+        if not isinstance(user_emails, list) or not isinstance(project_ids, list):
+            return Response(
+                {"message": "user_emails and project_ids must be lists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role not in [1, 2, 3]:
+            return Response(
+                {"message": "Invalid annotation_type. Must be 1 (annotator), 2 (reviewer), or 3 (superchecker)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            workspace = Workspace.objects.get(pk=request.data.get("workspace_id"))
+        except Workspace.DoesNotExist:
+            return Response({"message": "Workspace not found"}, status=status.HTTP_404_NOT_FOUND)
+        valid_users = []
+        invalid_user_emails = []
+        for email in user_emails:
+            try:
+                user = User.objects.get(email=email)
+                # Auto-add user to workspace if not already present
+                if user not in workspace.members.all():
+                    workspace.members.add(user)
+                valid_users.append(user)
+            except User.DoesNotExist:
+                invalid_user_emails.append(email)
+        valid_projects = []
+        invalid_project_ids = []
+        for pid in project_ids:
+            try:
+                project = Project.objects.get(pk=pid)
+                valid_projects.append(project)
+            except Project.DoesNotExist:
+                invalid_project_ids.append(pid)
+        assignments = []
+        for project in valid_projects:
+            tasks = Task.objects.filter(project=project)
+            for task in tasks:
+                for user in valid_users:
+                    # Skip if annotation already exists for user-task-type
+                    if Annotation.objects.filter(task=task, annotation_type=role, completed_by=user).exists():
+                        continue
+                    can_assign = False
+                    if role == 1:
+                        if not Annotation.objects.filter(task=task, annotation_type=1).exists():
+                            task.annotation_users.add(user)
+                            can_assign = True
+                    elif role == 2:
+                        if task.status == "annotated" and not Annotation.objects.filter(task=task, annotation_type=2).exists():
+                            task.review_user = user
+                            can_assign = True
+                    elif role == 3:
+                        if task.status == "reviewed" and not Annotation.objects.filter(task=task, annotation_type=3).exists():
+                            task.super_check_user = user
+                            can_assign = True
+                    if can_assign:
+                        task.save()
+                        # Create annotation entry
+                        try:
+                            Annotation.objects.create(
+                                result={},
+                                task=task,
+                                completed_by=user,
+                                annotation_type=role
+                            )
+                            assignments.append((task.id, user.email, role))
+                        except IntegrityError:
+                            continue
+        return Response(
+            {
+                "message": "Tasks and annotations assigned successfully.",
+                "invalid_user_emails": invalid_user_emails,
+                "invalid_project_ids": invalid_project_ids,
+                "assignments_made": assignments
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @action(
         detail=True,
