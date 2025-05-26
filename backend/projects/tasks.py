@@ -2,7 +2,7 @@ import random
 from copy import deepcopy
 from collections import OrderedDict
 from urllib.parse import parse_qsl
-
+from collections import deque
 from celery import shared_task
 from celery.utils.log import get_task_logger
 from dataset import models as dataset_models
@@ -250,6 +250,19 @@ def create_tasks_from_dataitems(items, project):
                 interaction_data[i]["prompt_output_pair_id"] = i + 1
             task.data["interactions_json"] = interaction_data
             task.save()
+    if project_type == "MultipleLLMInstructionDrivenChat":
+        llm_sets=project.metadata_json["model_set"]
+        fixed_llms=project.metadata_json["fixed_models"]
+        num_llms=project.metadata_json["num_models"]
+        num_extra_llms = num_llms - len(fixed_llms)
+        rotating_llms = deque([m for m in llm_sets if m not in fixed_llms])
+        for task in tasks:
+            extra_llms = [rotating_llms.popleft() for _ in range(num_extra_llms)]
+            selected_llms = fixed_llms + extra_llms
+            task.data["model"] = selected_llms
+            task.save()
+            rotating_llms.extend(extra_llms)
+            
     return tasks
 
 
