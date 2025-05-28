@@ -1594,7 +1594,7 @@ class AnnotationViewSet(
                         else:
                             if not annotation_obj.result:
                                 annotation_obj.result.append({
-                                    "eval_form": {},
+                                    "eval_form": [],
                                     "model_interactions": []
                                 })
                             result_entry = annotation_obj.result[0]
