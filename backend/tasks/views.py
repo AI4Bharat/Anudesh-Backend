@@ -1569,7 +1569,7 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if(request.data["result"]==""):
+                        if request.data["result"]=="":
                             # preferred_model = request.data.get("preferred_response")
                             # preferred_id = request.data.get("prompt_output_pair_id")
                             # for model_entry in annotation_obj.result:
@@ -1579,16 +1579,14 @@ class AnnotationViewSet(
                             #             interaction["preferred_response"] = (model_name == preferred_model)
                             eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
-                            
-                            if not annotation_obj.result:
-                                annotation_obj.result.append({
-                                    "eval_form": {},
-                                    "model_preds": []
-                                })
-                            result_entry = annotation_obj.result[0]
-                            if not isinstance(result_entry.get("eval_form"), list):
-                                result_entry["eval_form"] = []
-                            result_entry["eval_form"].append({
+                            eval_form_entry = next(
+                                (entry for entry in annotation_obj.result if "eval_form" in entry),
+                                None
+                            )
+                            if eval_form_entry is None:
+                                eval_form_entry = {"eval_form": []}
+                                annotation_obj.result.insert(0, eval_form_entry)
+                            eval_form_entry["eval_form"].append({
                                 "prompt_output_pair_id": preferred_id,
                                 "model_responses_json": eval_form_vals
                             })
