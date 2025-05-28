@@ -1595,11 +1595,11 @@ class AnnotationViewSet(
                             if not annotation_obj.result:
                                 annotation_obj.result.append({
                                     "eval_form": {},
-                                    "model_preds": []
+                                    "model_interactions": []
                                 })
                             result_entry = annotation_obj.result[0]
-                            if "model_preds" not in result_entry:
-                                result_entry["model_preds"] = []
+                            if "model_interactions" not in result_entry:
+                                result_entry["model_interactions"] = []
 
                             output_result = get_all_llm_output(
                                 request.data["result"],
@@ -1627,7 +1627,7 @@ class AnnotationViewSet(
                                 }
 
                                 model_found = False
-                                for model_entry in result_entry["model_preds"]:
+                                for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
                                         model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
@@ -1635,7 +1635,7 @@ class AnnotationViewSet(
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    result_entry["model_preds"].append({
+                                    result_entry["model_interactions"].append({
                                         "model_name": model_name,
                                         "interaction_json": [new_interaction]
 
