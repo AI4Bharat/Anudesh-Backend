@@ -1597,7 +1597,7 @@ class AnnotationViewSet(
                                     "eval_form": [],
                                     "model_interactions": []
                                 })
-                            result_entry = annotation_obj.result
+                            result_entry = annotation_obj.result[0]
                             if "model_interactions" not in result_entry:
                                 result_entry["model_interactions"] = []
 
@@ -2799,7 +2799,7 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
         dup_check = duplicate_check(ann_result, prompt)
 
     # GET MODEL OUTPUT
-    history = ann_result
+    history = ann_result[0]
 
 
     model_output = get_all_model_output(
