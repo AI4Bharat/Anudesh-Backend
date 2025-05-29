@@ -175,20 +175,19 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
     results = {}
 
     for model in models_to_run:
-        print("history:", history)
-        model_history = next(
-            (entry["interaction_json"] for entry in history if entry.get("model_name") == model),
-            []
-        )
+        # print("history:", history)
         # model_history = next(
-        #     (
-        #         interaction["interaction_json"]
-        #         for entry in history
-        #         for interaction in entry.get("model_interactions", [])
-        #         if interaction.get("model_name") == model
-        #     ),
+        #     (entry["interaction_json"] for entry in history if entry.get("model_name") == model),
         #     []
         # )
+        model_history = next(
+            (
+                interaction["interaction_json"]
+                for interaction in history.get("model_interactions", [])
+                if interaction.get("model_name") == model
+            ),
+            []
+        )
         if model == GPT35:
             results[model] = get_gpt3_output(system_prompt, user_prompt, model_history)
         elif model in [GPT4, GPT4O, GPT4OMini]:
