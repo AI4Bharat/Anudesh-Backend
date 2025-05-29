@@ -6,6 +6,7 @@ import subprocess
 from requests import RequestException
 import requests
 from dotenv import load_dotenv
+from collections import defaultdict
 
 Queued_Task_name = {
     "dataset.tasks.deduplicate_dataset_instance_items": "Deduplicate Dataset Instance Items",
@@ -83,24 +84,29 @@ def compute_meta_stats_for_instruction_driven_chat(conversation_history):
 
 def compute_meta_stats_for_multiple_llm_idc(conversation_history):
     meta_stats = {}
+    for result in conversation_history:
+        model_interactions = result.get("model_interactions", [])
+        for model_data in model_interactions:
+            model_name = model_data.get("model_name")
+            interactions = model_data.get("interaction_json", [])
 
-    for model_data in conversation_history:
-        model_name = model_data.get("model_name")
-        interactions = model_data.get("interaction_json", [])
+            num_turns = len(interactions)
+            total_prompt_len = sum(len(turn.get("prompt", "")) for turn in interactions)
+            # total_output_len = sum(len(turn.get("output", "")) for turn in interactions)
+            total_output_len = sum(
+                len(turn["output"]) for turn in interactions if isinstance(turn.get("output"), str)
+            )
+            
+            average_prompt_len = total_prompt_len/num_turns if num_turns else 0
+            average_output_len = total_output_len/num_turns if num_turns else 0
 
-        num_turns = len(interactions)
-        total_prompt_len = sum(len(turn.get("prompt", "")) for turn in interactions)
-        total_output_len = sum(len(turn.get("output", "")) for turn in interactions)
-        average_prompt_len = total_prompt_len/num_turns if num_turns else 0
-        average_output_len = total_output_len/num_turns if num_turns else 0
-
-        meta_stats[model_name] = {
-            "num_turns": num_turns,
-            "total_prompt_length": total_prompt_len,
-            "total_output_length": total_output_len,
-            "average_prompt_length": round(average_prompt_len, 2),
-            "average_output_length": round(average_output_len, 2),
-        }
+            meta_stats[model_name] = {
+                "num_turns": num_turns,
+                "total_prompt_length": total_prompt_len,
+                "total_output_length": total_output_len,
+                "average_prompt_length": round(average_prompt_len, 2),
+                "average_output_length": round(average_output_len, 2),
+            }
 
     return meta_stats
 
