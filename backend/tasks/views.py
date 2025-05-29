@@ -1597,7 +1597,7 @@ class AnnotationViewSet(
                                     "eval_form": [],
                                     "model_interactions": []
                                 })
-                            result_entry = annotation_obj.result[0]
+                            result_entry = annotation_obj.result
                             if "model_interactions" not in result_entry:
                                 result_entry["model_interactions"] = []
 
