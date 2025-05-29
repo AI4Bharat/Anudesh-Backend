@@ -84,9 +84,8 @@ def compute_meta_stats_for_instruction_driven_chat(conversation_history):
 
 def compute_meta_stats_for_multiple_llm_idc(conversation_history):
     meta_stats = {}
-    for result in conversation_history:
-        model_interactions = result.get("model_interactions", [])
-        for model_data in model_interactions:
+    model_interactions = conversation_history.get("model_interactions", [])
+    for model_data in model_interactions:
             model_name = model_data.get("model_name")
             interactions = model_data.get("interaction_json", [])
 
