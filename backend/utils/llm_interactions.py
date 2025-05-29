@@ -181,10 +181,9 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
         # )
         model_history = next(
             (
-                interaction["interaction_json"]
-                for entry in history
-                for interaction in entry.get("model_interactions", [])
-                if interaction.get("model_name") == model
+                model_data.get("interaction_json", [])
+                for model_data in history.get("model_interactions", [])
+                if model_data.get("model_name") == model
             ),
             []
         )
