@@ -175,6 +175,7 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
     results = {}
 
     for model in models_to_run:
+        print("history:", history)
         model_history = next(
             (entry["interaction_json"] for entry in history if entry.get("model_name") == model),
             []
