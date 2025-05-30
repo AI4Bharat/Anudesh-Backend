@@ -1410,6 +1410,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             users_id = [user.id for user in ws.members.all()]
 
             selected_language = "-"
+            frozen_user = [user.username for user in ws.frozen_users.all()]
             final_reports = []
             for index, each_annotation_user in enumerate(users_id):
                 name = user_name[index]
@@ -1592,7 +1593,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     and project_progress_stage > ANNOTATION_STAGE
                 ):
                     result = {
-                        "Annotator": name,
+                        "Annotator": "*" + name if name in frozen_user else name,
                         "Email": email,
                         "Language": selected_language,
                         "No.of Projects": project_count,
@@ -1614,7 +1615,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     }
                 else:
                     result = {
-                        "Annotator": name,
+                        "Annotator": "*" + name if name in frozen_user else name,
                         "Email": email,
                         "Language": selected_language,
                         "No.of Projects": project_count,
