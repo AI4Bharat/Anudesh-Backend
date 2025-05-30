@@ -1586,10 +1586,17 @@ class AnnotationViewSet(
                             if eval_form_entry is None:
                                 eval_form_entry = {"eval_form": []}
                                 annotation_obj.result.insert(0, eval_form_entry)
-                            eval_form_entry["eval_form"].append({
-                                "prompt_output_pair_id": preferred_id,
-                                "model_responses_json": eval_form_vals
-                            })
+                            existing_entry = next(
+                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
+                                None
+                            )
+                            if existing_entry:
+                                existing_entry["model_responses_json"] = eval_form_vals
+                            else:
+                                eval_form_entry["eval_form"].append({
+                                    "prompt_output_pair_id": preferred_id,
+                                    "model_responses_json": eval_form_vals
+                                })
 
                         else:
                             if not annotation_obj.result:
