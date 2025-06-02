@@ -62,9 +62,15 @@ def compute_meta_stats_for_instruction_driven_chat(conversation_history):
 
     for entry in conversation_history:
         if "prompt" in entry:
-            total_prompt_words += len(entry["prompt"].split())
+            try:
+                total_prompt_words += len(entry["prompt"].split())
+            except:
+                total_prompt_words = 0
         if "output" in entry:
-            total_output_words += len(entry["output"].split())
+            try:
+                total_output_words += len(entry["output"].split())
+            except:
+                total_output_words = 0
 
     avg_word_count_per_prompt = (
         total_prompt_words / number_of_turns if number_of_turns else 0
