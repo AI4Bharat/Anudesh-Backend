@@ -70,7 +70,7 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
     elif model == GPT4OMini:
         engine = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O_MINI")
     else:
-        engine = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4")
+        engine = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O_MINI")
 
     history = process_history(history)
     messages = [{"role": "system", "content": system_prompt}]
