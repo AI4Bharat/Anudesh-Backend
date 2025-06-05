@@ -128,6 +128,12 @@ LLAMA2 = "LLAMA2"
 GPT4OMini = "GPT4OMini"
 GPT4O = "GPT4O"
 GEMMA = "GEMMA"
+Llama = "Llama"
+Gemini = "Gemini" 
+GPT45 = "GPT4.5"
+GPT4Turbo = "GPT4Turbo"
+Sarvam = "Sarvam"
+AI4B = "AI4B"
 
 LLM_CHOICES = (
     (GPT35, GPT35),
