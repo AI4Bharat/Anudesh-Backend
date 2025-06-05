@@ -1611,8 +1611,7 @@ class AnnotationViewSet(
                                 request.data["result"],
                                 annotation_obj.task,
                                 annotation_obj,
-                                annotation_obj.
-                                project_id.metadata_json,
+                                annotation_obj.task.project_id.metadata_json,
                                 task.data["model"]
                             )
                             if output_result == -1:
