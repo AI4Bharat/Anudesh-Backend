@@ -1597,7 +1597,6 @@ class AnnotationViewSet(
                                     "prompt_output_pair_id": preferred_id,
                                     "model_responses_json": eval_form_vals
                                 })
-
                         else:
                             if not annotation_obj.result:
                                 annotation_obj.result.append({

@@ -251,7 +251,7 @@ def create_tasks_from_dataitems(items, project):
             task.data["interactions_json"] = interaction_data
             task.save()
     if project_type == "MultipleLLMInstructionDrivenChat":
-        llm_sets=project.metadata_json["model_set"]
+        llm_sets=project.metadata_json["models_set"]
         fixed_llms=project.metadata_json["fixed_models"]
         num_llms=project.metadata_json["num_models"]
         num_extra_llms = num_llms - len(fixed_llms)
