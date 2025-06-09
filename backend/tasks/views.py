@@ -1839,14 +1839,36 @@ class AnnotationViewSet(
                 ):
                     if isinstance(request.data["result"], str):
                         if(request.data["result"]==""):
-                            preferred_model = request.data.get("preferred_response")
+                            eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
-                            for model_entry in annotation_obj.result:
-                                model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                            eval_form_entry = next(
+                                (entry for entry in annotation_obj.result if "eval_form" in entry),
+                                None
+                            )
+                            if eval_form_entry is None:
+                                eval_form_entry = {"eval_form": []}
+                                annotation_obj.result.insert(0, eval_form_entry)
+                            existing_entry = next(
+                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
+                                None
+                            )
+                            if existing_entry:
+                                existing_entry["model_responses_json"] = eval_form_vals
+                            else:
+                                eval_form_entry["eval_form"].append({
+                                    "prompt_output_pair_id": preferred_id,
+                                    "model_responses_json": eval_form_vals
+                                })
                         else:
+                            if not annotation_obj.result:
+                                annotation_obj.result.append({
+                                    "eval_form": [],
+                                    "model_interactions": []
+                                })
+                            result_entry = annotation_obj.result[0]
+                            if "model_interactions" not in result_entry:
+                                result_entry["model_interactions"] = []
+
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
@@ -2150,22 +2172,36 @@ class AnnotationViewSet(
                 ):
                     if isinstance(request.data["result"], str):
                         if(request.data["result"]==""):
-                            preferred_model = request.data.get("preferred_response")
+                            eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
-                            for model_entry in annotation_obj.result:
-                                # if model_entry.get("model_name") == preferred_model:
-                                #     for interaction in model_entry.get("interaction_json", []):
-                                #         if interaction.get("prompt_output_pair_id") == preferred_id:
-                                #             interaction["preferred_response"] = True
-                                # else:
-                                #     for interaction in model_entry.get("interaction_json", []):
-                                #         if interaction.get("prompt_output_pair_id") == preferred_id:
-                                #             interaction["preferred_response"] = False
-                                model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                            eval_form_entry = next(
+                                (entry for entry in annotation_obj.result if "eval_form" in entry),
+                                None
+                            )
+                            if eval_form_entry is None:
+                                eval_form_entry = {"eval_form": []}
+                                annotation_obj.result.insert(0, eval_form_entry)
+                            existing_entry = next(
+                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
+                                None
+                            )
+                            if existing_entry:
+                                existing_entry["model_responses_json"] = eval_form_vals
+                            else:
+                                eval_form_entry["eval_form"].append({
+                                    "prompt_output_pair_id": preferred_id,
+                                    "model_responses_json": eval_form_vals
+                                })
                         else:
+                            if not annotation_obj.result:
+                                annotation_obj.result.append({
+                                    "eval_form": [],
+                                    "model_interactions": []
+                                })
+                            result_entry = annotation_obj.result[0]
+                            if "model_interactions" not in result_entry:
+                                result_entry["model_interactions"] = []
+
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
