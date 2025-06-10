@@ -57,6 +57,7 @@ def process_search_query(
     parsed_value: any = None
     queryset_dict: dict = {}
 
+    print(query_dict)
 
     try:
         for i, j in flatten(extract_search_params(query_dict)).items():
@@ -64,19 +65,19 @@ def process_search_query(
             print({i: j})
             if i in searchable_fields:
                 if type(parsed_value) == str:
-                    queryset_dict[
-                        f"{search_field_name}__{i}__icontains"
-                    ] = parsed_value 
+                    queryset_dict[f"{search_field_name}__{i}__icontains"] = (
+                        parsed_value  # Unaccent doesn't work as intended.
+                    )
                 else:
-                    queryset_dict[f"{search_field_name}__{i}"] = parsed_value 
+                    queryset_dict[f"{search_field_name}__{i}"] = parsed_value
             else:
                 if type(parsed_value) != str:
                     queryset_dict[i] = parse_for_data_types(j)
                 else:
-                    queryset_dict[
-                        f"{i}__icontains"
-                    ] = parsed_value  # Unaccent is not supported for CharField
-            if i == 'meta_info_language':
+                    queryset_dict[f"{i}__icontains"] = (
+                        parsed_value  # Unaccent is not supported for CharField
+                    )
+            if i == 'meta_info_language': 
                 queryset_dict[f"{search_field_name}__{i}"] = str(parsed_value)
     except Exception as e:
         print(f"\033[1mError found while processing query dictionary. In: {e}\033[0m")
