@@ -1887,8 +1887,6 @@ class AnnotationViewSet(
                             # store the result of all checks as well
                             prompt_text = request.data["result"]
                             for model_name, model_output in output_result.items():
-                                if isinstance(model_output, Response):
-                                    model_output = model_output.data 
                                 new_interaction = {
                                     "prompt": prompt_text,
                                     "output": model_output,
@@ -1897,7 +1895,7 @@ class AnnotationViewSet(
                                 }
 
                                 model_found = False
-                                for model_entry in annotation_obj.result:
+                                for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
                                         model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
@@ -1905,7 +1903,7 @@ class AnnotationViewSet(
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
+                                    result_entry["model_interactions"].append({
                                         "model_name": model_name,
                                         "interaction_json": [new_interaction]
 
@@ -2228,7 +2226,7 @@ class AnnotationViewSet(
                                 }
 
                                 model_found = False
-                                for model_entry in annotation_obj.result:
+                                for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
                                         model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
@@ -2236,7 +2234,7 @@ class AnnotationViewSet(
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
+                                    result_entry["model_interactions"].append({
                                         "model_name": model_name,
                                         "interaction_json": [new_interaction]
 
