@@ -47,9 +47,7 @@ def get_all_annotation_reports(
         else (
             "Part Time"
             if participation_type == 2
-            else "Contract Basis"
-            if participation_type == 4
-            else "N/A"
+            else "Contract Basis" if participation_type == 4 else "N/A"
         )
     )
     role = get_role_name(user.role)
@@ -130,9 +128,7 @@ def get_all_review_reports(
         else (
             "Part Time"
             if participation_type == 2
-            else "Contract Basis"
-            if participation_type == 4
-            else "N/A"
+            else "Contract Basis" if participation_type == 4 else "N/A"
         )
     )
     role = get_role_name(user.role)
@@ -246,9 +242,7 @@ def get_all_supercheck_reports(
         else (
             "Part Time"
             if user.participation_type == 2
-            else "Contract Basis"
-            if user.participation_type == 4
-            else "N/A"
+            else "Contract Basis" if user.participation_type == 4 else "N/A"
         )
     )
     role = get_role_name(user.role)
@@ -464,9 +458,7 @@ def send_user_reports_mail_org(
             else (
                 "Part Time"
                 if participation_type == 2
-                else "Contract Basis"
-                if participation_type == 4
-                else "N/A"
+                else "Contract Basis" if participation_type == 4 else "N/A"
             )
         )
         for participation_type in participation_types
@@ -858,9 +850,10 @@ def send_project_analytics_mail_org(
     final_result = []
     if projects_obj.count() != 0:
         for proj in projects_obj:
-            proj_manager = [
-                manager.get_username() for manager in proj.workspace_id.managers.all()
-            ]
+            if proj.workspace_id:
+                proj_manager = [manager.get_username() for manager in proj.workspace_id.managers.all()]
+            else:
+                proj_manager = []
             try:
                 org_owner = proj.organization_id.created_by.get_username()
                 proj_manager.append(org_owner)
@@ -1199,9 +1192,7 @@ def send_user_analytics_mail_org(
                 else (
                     "Part Time"
                     if participation_type == 2
-                    else "Contract Basis"
-                    if participation_type == 4
-                    else "N/A"
+                    else "Contract Basis" if participation_type == 4 else "N/A"
                 )
             )
             role = get_role_name(annotator.role)

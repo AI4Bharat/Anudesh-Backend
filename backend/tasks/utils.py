@@ -1,5 +1,8 @@
+import base64
+import io
 import json
 import os
+import subprocess
 from requests import RequestException
 import requests
 from dotenv import load_dotenv
@@ -59,9 +62,15 @@ def compute_meta_stats_for_instruction_driven_chat(conversation_history):
 
     for entry in conversation_history:
         if "prompt" in entry:
-            total_prompt_words += len(entry["prompt"].split())
+            try:
+                total_prompt_words += len(entry["prompt"].split())
+            except:
+                total_prompt_words = 0
         if "output" in entry:
-            total_output_words += len(entry["output"].split())
+            try:
+                total_output_words += len(entry["output"].split())
+            except:
+                total_output_words = 0
 
     avg_word_count_per_prompt = (
         total_prompt_words / number_of_turns if number_of_turns else 0
@@ -78,6 +87,28 @@ def compute_meta_stats_for_instruction_driven_chat(conversation_history):
     }
     return meta_stats
 
+def compute_meta_stats_for_multiple_llm_idc(conversation_history):
+    meta_stats = {}
+
+    for model_data in conversation_history:
+        model_name = model_data.get("model_name")
+        interactions = model_data.get("interaction_json", [])
+
+        num_turns = len(interactions)
+        total_prompt_len = sum(len(turn.get("prompt", "")) for turn in interactions)
+        total_output_len = sum(len(turn.get("output", "")) for turn in interactions)
+        average_prompt_len = total_prompt_len/num_turns if num_turns else 0
+        average_output_len = total_output_len/num_turns if num_turns else 0
+
+        meta_stats[model_name] = {
+            "num_turns": num_turns,
+            "total_prompt_length": total_prompt_len,
+            "total_output_length": total_output_len,
+            "average_prompt_length": round(average_prompt_len, 2),
+            "average_output_length": round(average_output_len, 2),
+        }
+
+    return meta_stats
 
 def query_flower(filters=None):
     try:
@@ -109,3 +140,33 @@ def query_flower(filters=None):
             return {"error": "Failed to retrieve tasks from Flower"}
     except RequestException as e:
         return {"error": f" failed to connect to flower API, {str(e)}"}
+
+def convert_audio_base64_to_mp3(input_base64):
+        input_audio_bytes = base64.b64decode(input_base64)
+        input_buffer = io.BytesIO(input_audio_bytes)
+
+        ffmpeg_command = [
+            'ffmpeg', '-i', 'pipe:0',
+            '-f', 'mp3',
+            'pipe:1'
+        ]
+
+        try:
+            process = subprocess.Popen(
+                ffmpeg_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            output_mp3_bytes, error = process.communicate(input=input_buffer.read())
+
+            if process.returncode != 0:
+                raise Exception(f"FFmpeg error: {error.decode()}")
+
+            output_base64_mp3 = base64.b64encode(output_mp3_bytes).decode('utf-8')
+            return output_base64_mp3
+
+        except Exception as e:
+            print(f"Audio conversion error: {e}")
+            return None
