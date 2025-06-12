@@ -850,9 +850,10 @@ def send_project_analytics_mail_org(
     final_result = []
     if projects_obj.count() != 0:
         for proj in projects_obj:
-            proj_manager = [
-                manager.get_username() for manager in proj.workspace_id.managers.all()
-            ]
+            if proj.workspace_id:
+                proj_manager = [manager.get_username() for manager in proj.workspace_id.managers.all()]
+            else:
+                proj_manager = []
             try:
                 org_owner = proj.organization_id.created_by.get_username()
                 proj_manager.append(org_owner)

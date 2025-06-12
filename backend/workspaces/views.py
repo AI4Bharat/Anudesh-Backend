@@ -484,6 +484,78 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         ],
     )
     @action(
+        detail=True,
+        methods=["POST"],
+        name="Bulk add Members to Projects",
+        url_name="bulk_add_members_to_projects",
+        )
+
+    @is_particular_organization_owner
+    def bulk_add_members_to_projects(self, request, pk=None, *args, **kwargs):
+        """
+        Add users based on role in the project.
+        """
+        user_emails = request.data.get("user_emails", [])
+        project_ids = request.data.get("project_ids", [])
+        role = request.data.get("user_role", None)  # default to none
+        if not isinstance(user_emails, list) or not isinstance(project_ids, list):
+            return Response(
+                {"message": "user_emails and project_ids must be lists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role not in ["annotator", "reviewer", "super_checker"]:
+            return Response(
+                {"message": "Invalid role. Must be annotator or reviewer or super_checker."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        valid_users = []
+        invalid_user_emails = []
+        for email in user_emails:
+            try:
+                user = User.objects.get(email=email)
+                valid_users.append(user)
+            except User.DoesNotExist:
+                invalid_user_emails.append(email)
+        valid_projects = []
+        invalid_project_ids = []
+        excepted_additions = []
+        for pid in project_ids:
+            try:
+                project = Project.objects.get(pk=pid)
+                valid_projects.append(project)
+            except Project.DoesNotExist:
+                invalid_project_ids.append(pid)
+        for project in valid_projects:
+            for user in valid_users:
+                if user not in project.workspace_id.members.all():
+                    project.workspace_id.members.add(user)
+                    project.workspace_id.save()
+                if role == "annotator":
+                    if user in project.annotators.all():
+                        excepted_additions.append(user.email)
+                    else:
+                        project.annotators.add(user)
+                elif role == "reviewer":
+                    if user in project.annotation_reviewers.all():
+                        excepted_additions.append(user.email)
+                    else:
+                        project.annotation_reviewers.add(user)
+                elif role == "super_checker":
+                    if user in project.review_supercheckers.all():
+                        excepted_additions.append(user.email)
+                    else:
+                        project.review_supercheckers.add(user)
+                project.save()
+        message = "Users added to projects successfully."
+        if excepted_additions != []:
+            message += f'Following users were not yet added: {excepted_additions}'
+        return Response(
+            {
+                "message": message,
+            },
+            status=status.HTTP_200_OK,
+        )
+    @action(
         detail=True, methods=["POST"], name="Assign Manager", url_name="assign_manager"
     )
     @is_particular_organization_owner
@@ -1410,6 +1482,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             users_id = [user.id for user in ws.members.all()]
 
             selected_language = "-"
+            frozen_user = [user.username for user in ws.frozen_users.all()]
             final_reports = []
             for index, each_annotation_user in enumerate(users_id):
                 name = user_name[index]
@@ -1592,7 +1665,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     and project_progress_stage > ANNOTATION_STAGE
                 ):
                     result = {
-                        "Annotator": name,
+                        "Annotator": "*" + name if name in frozen_user else name,
                         "Email": email,
                         "Language": selected_language,
                         "No.of Projects": project_count,
@@ -1614,7 +1687,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     }
                 else:
                     result = {
-                        "Annotator": name,
+                        "Annotator": "*" + name if name in frozen_user else name,
                         "Email": email,
                         "Language": selected_language,
                         "No.of Projects": project_count,

@@ -959,7 +959,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
             pk, request.user
         )
         project = Project.objects.get(id=pk)
-        if project.required_annotators_per_task > 1:
+        try:
+            allow_unireview = project.metadata_json["allow_unireview"]
+        except:
+            allow_unireview = False
+        if project.required_annotators_per_task > 1 and allow_unireview:
             similar_task_incomplete = Task.objects.filter(
                 project_id=OuterRef("project_id"),
                 input_data=OuterRef("input_data"),
@@ -2162,6 +2166,72 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
         )
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="allocate_tasks",
+        name="Allocate tasks to user with role"
+    )
+    def allocate_tasks_to_user(self, request, *args, **kwargs):
+        """
+        Assign tasks to a user based on allocation_type:
+        1 - Annotator
+        2 - Reviewer
+        3 - Super Checker (SC)
+        """
+        project_id = request.data.get("projectID")
+        task_ids = request.data.get("taskIDs", [])
+        user_id = request.data.get("userID")
+        allocation_type = int(request.data.get("allocation_type", 1))  # default to 1
+
+        if not all([project_id, task_ids, user_id, allocation_type]):
+            return Response(
+                {"message": "Missing one or more required fields: projectID, taskIDs, userID, allocation_type"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            project = Project.objects.get(pk=project_id)
+            user = User.objects.get(pk=user_id)
+        except Project.DoesNotExist:
+            return Response({"message": "Invalid project ID"}, status=status.HTTP_404_NOT_FOUND)
+        except User.DoesNotExist:
+            return Response({"message": "Invalid user ID"}, status=status.HTTP_404_NOT_FOUND)
+
+        valid_tasks = Task.objects.filter(id__in=task_ids, project_id=project_id)
+        if not valid_tasks.exists():
+            return Response({"message": "No valid tasks found for the given IDs and project"}, status=status.HTTP_404_NOT_FOUND)
+
+        result = []
+        for task in valid_tasks:
+            # Assign user to appropriate field based on allocation_type
+            if allocation_type == 1:
+                task.annotation_users.add(user)
+            elif allocation_type == 2:
+                task.review_users.add(user)
+            elif allocation_type == 3:
+                task.super_check_users.add(user)
+
+            # Check if user already has an annotation of this type on the task
+            existing_annotation = Annotation_model.objects.filter(
+                task=task,
+                annotation_type=allocation_type,
+                completed_by=user
+            ).exists()
+
+            if not existing_annotation:
+                annotation = Annotation_model(
+                    result=result,
+                    task=task,
+                    completed_by=user,
+                    annotation_type=allocation_type
+                )
+                try:
+                    annotation.save()
+                except IntegrityError:
+                    print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
+
+        return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
 
     @action(
         detail=True, methods=["post"], name="Unassign tasks", url_name="unassign_tasks"
@@ -2324,6 +2394,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """
         Pull a new batch of labeled tasks and assign to the reviewer
         """
+        try:
+            allow_unireview = project.metadata_json["allow_unireview"]
+        except:
+            allow_unireview = False
         cur_user = request.user
         project = Project.objects.get(pk=pk)
         if not project.is_published:
@@ -2379,7 +2453,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
 
-        if project.required_annotators_per_task > 1:
+        if project.required_annotators_per_task > 1 and allow_unireview:
             task_ids = (
                 Annotation_model.objects
                 .filter(task__in=tasks)
@@ -2406,7 +2480,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
         print("Before loop: ",task_ids)
-        if required_annotators_per_task > 1:
+        if required_annotators_per_task > 1 and allow_unireview:
             seen_tasks = set(task_ids)
             for i in range(len(task_ids)):
                 ti = task_ids[i]
@@ -4417,3 +4491,70 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="allocate_tasks_to_user",
+        name="Allocate tasks to user with role"
+    )
+    def allocate_tasks_to_user(self, request, *args, **kwargs):
+        """
+        Assign tasks to a user based on allocation_type:
+        1 - Annotator
+        2 - Reviewer
+        3 - Super Checker (SC)
+        """
+        project_id = request.data.get("project_id")
+        task_ids = request.data.get("taskIDs", [])
+        user_id = request.data.get("userID")
+        allocation_type = int(request.data.get("allocation_type", 1))  # default to 1
+
+        if not all([project_id, task_ids, user_id, allocation_type]):
+            return Response(
+                {"message": "Missing one or more required fields: projectID, taskIDs, userID, allocation_type"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            project = Project.objects.get(pk=project_id)
+            user = User.objects.get(pk=user_id)
+        except Project.DoesNotExist:
+            return Response({"message": "Invalid project ID"}, status=status.HTTP_404_NOT_FOUND)
+        except User.DoesNotExist:
+            return Response({"message": "Invalid user ID"}, status=status.HTTP_404_NOT_FOUND)
+
+        valid_tasks = Task.objects.filter(id__in=task_ids, project_id=project_id)
+        if not valid_tasks.exists():
+            return Response({"message": "No valid tasks found for the given IDs and project"}, status=status.HTTP_404_NOT_FOUND)
+
+        result = []
+        for task in valid_tasks:
+            # Assign user to appropriate field based on allocation_type
+            if allocation_type == 1:
+                task.annotation_users.add(user)
+            elif allocation_type == 2:
+                task.review_user = user
+            elif allocation_type == 3:
+                task.super_check_user = user
+
+            # Check if user already has an annotation of this type on the task
+            existing_annotation = Annotation_model.objects.filter(
+                task=task,
+                annotation_type=allocation_type,
+                completed_by=user
+            ).exists()
+
+            if not existing_annotation:
+                annotation = Annotation_model(
+                    result=result,
+                    task=task,
+                    completed_by=user,
+                    annotation_type=allocation_type
+                )
+                try:
+                    annotation.save()
+                except IntegrityError:
+                    print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
+
+        return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
