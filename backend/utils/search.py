@@ -64,15 +64,26 @@ def process_search_query(
             parsed_value = parse_for_data_types(j)
             print({i: j})
             if i in searchable_fields:
-                if type(parsed_value) == str:
+            
+                if i == 'meta_info_language':
+                   for field_name, raw_value in flatten(extract_search_params(query_dict)).items():
+
+                        lang_codes = str(raw_value).split(',')
+                        lang_codes = [code.strip() for code in lang_codes]
+            
+                        if len(lang_codes) == 1:
+                            queryset_dict[f"{search_field_name}__{field_name}"] = lang_codes[0]
+                        else:
+                            queryset_dict[f"{search_field_name}__{field_name}__in"] = lang_codes
+                        continue
+
+                elif type(parsed_value) == str:
                     queryset_dict[f"{search_field_name}__{i}__icontains"] = (
                         parsed_value  # Unaccent doesn't work as intended.
                     )
+                
                 else:
-                    if i == 'meta_info_language': 
-                        queryset_dict[f"{search_field_name}__{i}"] = str(parsed_value)
-                    else:
-                        queryset_dict[f"{search_field_name}__{i}"] = parsed_value
+                     queryset_dict[f"{search_field_name}__{i}"] = parsed_value
             else:
                 if type(parsed_value) != str:
                     queryset_dict[i] = parse_for_data_types(j)
