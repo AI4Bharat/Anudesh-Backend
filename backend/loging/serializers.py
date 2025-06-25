@@ -12,3 +12,17 @@ class TransliterationSerializer(serializers.Serializer):
     word = serializers.CharField()
     language = serializers.CharField()
     steps = SelectionSerializer(many=True)
+
+class VoiceLogsSerializer(serializers.Serializer):
+    audioBase64 = serializers.CharField()
+    machineTranscription = serializers.CharField()
+    correctedTranscription = serializers.CharField()
+    timestamp = serializers.DateTimeField()
+
+class TranscriptionSerializer(serializers.Serializer):
+    platform = serializers.CharField()
+    user_email = serializers.CharField()
+    language = serializers.CharField()
+    script = serializers.IntegerField()
+    task_id = serializers.IntegerField()
+    voiceLogs = VoiceLogsSerializer(many=True)
