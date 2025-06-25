@@ -1187,13 +1187,19 @@ class AnalyticsViewSet(viewsets.ViewSet):
             end_date = request.data.get("end_date")
             user_id = request.data.get("user_id")
             reports_type = request.data.get("reports_type")
-            project_type = request.data.get("project_type")
+            project_type = request.data.get("project_type") or request.data.get(
+                "project_types"
+            )
+            if isinstance(project_type, str):
+                project_type = [project_type]
         except:
             start_date = request["start_date"]
             end_date = request["end_date"]
             user_id = request["user_id"]
             reports_type = request["reports_type"]
-            project_type = request["project_type"]
+            project_type = request.get("project_type") or request.get("project_types")
+            if isinstance(project_type, str):
+                project_type = [project_type]
 
         review_reports = False
         supercheck_reports = False
@@ -1225,10 +1231,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        project_type_lower = project_type.lower()
-        is_textual_project = (
-            False if project_type in get_audio_project_types() else True
-        )  # flag for distinguishing between textual and audio projects
+        is_textual_project = not any(
+            pt in get_audio_project_types() for pt in project_type
+        )
 
         try:
             user = User.objects.get(id=user_id)
@@ -1238,34 +1243,34 @@ class AnalyticsViewSet(viewsets.ViewSet):
             )
 
         if review_reports:
-            if project_type == "all":
-                project_objs = Project.objects.filter(  # Not using the project_type filter if it is set to "all"
+            if "all" in project_type:
+                project_objs = Project.objects.filter(
                     annotation_reviewers=user_id,
                 )
             else:
                 project_objs = Project.objects.filter(
                     annotation_reviewers=user_id,
-                    project_type=project_type,
+                    project_type__in=project_type,
                 )
         elif supercheck_reports:
-            if project_type == "all":
-                project_objs = Project.objects.filter(  # Not using the project_type filter if it is set to "all"
+            if "all" in project_type:
+                project_objs = Project.objects.filter(
                     review_supercheckers=user_id,
                 )
             else:
                 project_objs = Project.objects.filter(
                     review_supercheckers=user_id,
-                    project_type=project_type,
+                    project_type__in=project_type,
                 )
         else:
-            if project_type == "all":
+            if "all" in project_type:
                 project_objs = Project.objects.filter(
                     annotators=user_id,
                 )
             else:
                 project_objs = Project.objects.filter(
                     annotators=user_id,
-                    project_type=project_type,
+                    project_type__in=project_type,
                 )
 
         all_annotated_lead_time_list = []
@@ -1391,6 +1396,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
             result = {
                 "Project Name": project_name,
+                "Project Type": project_type,
                 (
                     "Reviewed Tasks"
                     if review_reports
@@ -1482,13 +1488,22 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 )
             ): round(all_annotated_lead_time_count, 2),
         }
-        if project_type_lower != "all" and project_type in get_audio_project_types():
-            del total_result["Word Count"]
-        elif project_type_lower != "all" and is_textual_project:
-            del total_result["Total Segments Duration"]
-        elif project_type_lower != "all":
-            del total_result["Word Count"]
-            del total_result["Total Segments Duration"]
+
+        has_audio_projects = any(pt in get_audio_project_types() for pt in project_type)
+        has_textual_projects = any(
+            pt not in get_audio_project_types() for pt in project_type
+        )
+
+        if "all" not in project_type:
+            if has_audio_projects and not has_textual_projects:
+                del total_result["Word Count"]
+            elif has_textual_projects and not has_audio_projects:
+                del total_result["Total Segments Duration"]
+            elif has_audio_projects and has_textual_projects:
+                pass
+            else:
+                del total_result["Word Count"]
+                del total_result["Total Segments Duration"]
 
         total_summary = [total_result]
 
