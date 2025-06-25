@@ -41,6 +41,7 @@ else:
         "dev.anudesh.ai4bharat.org",
         "0.0.0.0",
         "backend.dev.anudesh.ai4bharat.org",
+        "127.0.0.1",
     ]
 
 # Application definition
