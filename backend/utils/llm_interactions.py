@@ -187,7 +187,6 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         response = s.post(url, headers=headers, json=body)
         response.raise_for_status() 
         response_data = response.json()
-        print(response_data)
         return response_data["choices"][0]["message"]["content"].strip()
     except requests.exceptions.RequestException as e:
         print(f"An error occurred during the API request: {e}")
