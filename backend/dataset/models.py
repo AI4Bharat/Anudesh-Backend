@@ -138,6 +138,18 @@ LLM_CHOICES = (
     (GPT4O, GPT4O),
     (GEMMA, GEMMA),
     (SARVAM_M, SARVAM_M),
+    ("google/gemma-3-12b-it", "google/gemma-3-12b-it"),
+    ("Qwen/Qwen3-30B-A3B", "Qwen/Qwen3-30B-A3B"),
+    ("meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"),
+    ("meta-llama/Llama-4-Scout-17B-16E-Instruct", "meta-llama/Llama-4-Scout-17B-16E-Instruct"),
+    ("google/gemma-3-27b-it", "google/gemma-3-27b-it"),
+    ("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
+    ("meta-llama/Llama-3.2-3B-Instruct", "meta-llama/Llama-3.2-3B-Instruct"),
+    ("meta-llama/Llama-3.3-70B-Instruct-Turbo", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
+    ("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"),
+    ("meta-llama/Llama-3.3-70B-Instruct", "meta-llama/Llama-3.3-70B-Instruct"),
+    ("meta-llama/Meta-Llama-3.1-70B-Instruct", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
+    ("meta-llama/Meta-Llama-3.1-8B-Instruct", "meta-llama/Meta-Llama-3.1-8B-Instruct"),
 )
 
 
@@ -491,7 +503,7 @@ class PromptAnswer(DatasetBase):
     )
     model = models.CharField(
         verbose_name="model",
-        max_length=16,
+        max_length=49,
         help_text=("Model of the response"),
         choices=LLM_CHOICES,
     )
