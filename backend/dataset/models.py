@@ -128,6 +128,7 @@ LLAMA2 = "LLAMA2"
 GPT4OMini = "GPT4OMini"
 GPT4O = "GPT4O"
 GEMMA = "GEMMA"
+SARVAM_M = "SARVAM_M"
 
 LLM_CHOICES = (
     (GPT35, GPT35),
@@ -136,6 +137,7 @@ LLM_CHOICES = (
     (GPT4OMini, GPT4OMini),
     (GPT4O, GPT4O),
     (GEMMA, GEMMA),
+    (SARVAM_M, SARVAM_M),
 )
 
 
