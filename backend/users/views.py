@@ -177,7 +177,10 @@ class InviteViewSet(viewsets.ViewSet):
             return Response(ret_dict, status=status.HTTP_201_CREATED)
         except IntegrityError as e:
             return Response(
-                {"message": "Email Id already present in database"},
+                {
+                    "message": ret_dict["message"],
+                    "err": "Email Id already present in database"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
