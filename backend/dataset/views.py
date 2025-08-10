@@ -1478,3 +1478,4 @@ class InteractionsViewSet(viewsets.ModelViewSet):
 #     queryset = VideoChunk.objects.all()
 #     serializer_class = VideoChunkSerializer
 #     permission_classes = (IsAuthenticatedOrReadOnly, )
+
