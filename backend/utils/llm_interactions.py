@@ -45,7 +45,7 @@ import openai
 import requests
 from rest_framework import status
 from rest_framework.response import Response
-from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini
+from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini, SARVAM_M
 
 
 def process_history(history):
@@ -159,6 +159,42 @@ def get_llama2_output(system_prompt, conv_history, user_prompt):
     result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
     return result.json()["choices"][0]["message"]["content"].strip()
 
+def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
+    api_base = os.getenv("SARVAM_M_API_BASE")
+    api_key = os.getenv("SARVAM_M_API_KEY") 
+    url = f"{api_base}/chat/completions"
+
+    headers = {
+        "api-subscription-key": api_key,
+        "Content-Type": "application/json"
+    }
+
+    history = process_history(conv_history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_prompt})
+
+    body = {
+        "model": "sarvam-m",
+        "messages": messages,
+        "temperature": 0.2,
+        "max_tokens": 500,
+        "top_p": 1,
+    }
+    
+    try:
+        s = requests.Session()
+        response = s.post(url, headers=headers, json=body)
+        response.raise_for_status() 
+        response_data = response.json()
+        return response_data["choices"][0]["message"]["content"].strip()
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred during the API request: {e}")
+        raise
+    except (KeyError, IndexError) as e:
+        print(f"Error parsing the API response: {e}")
+        print(f"Full response data: {response_data}")
+        raise
 
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
@@ -169,6 +205,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_gpt4_output(system_prompt, user_prompt, history, model)
     elif model == LLAMA2:
         out = get_llama2_output(system_prompt, history, user_prompt)
+    elif model == SARVAM_M:
+        out = get_sarvam_m_output(system_prompt, history, user_prompt)
     return out
 
 def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
