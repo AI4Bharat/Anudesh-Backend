@@ -196,6 +196,39 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         print(f"Full response data: {response_data}")
         raise
 
+def get_deepinfra_output(system_prompt, user_prompt, history, model):
+    try:
+        openai.api_key = os.getenv("DEEPINFRA_API_KEY")
+        openai.api_base = os.getenv("DEEPINFRA_BASE_URL")
+
+        history_messages = process_history(history)
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history_messages)
+        messages.append({"role": "user", "content": user_prompt})
+
+        response = openai.ChatCompletion.create(
+            model=model, 
+            messages=messages,
+            temperature=0.7,
+            max_tokens=700,
+        )
+        
+        return response["choices"][0]["message"]["content"].strip()
+
+    except openai.InvalidRequestError as e:
+        message = "Prompt violates LLM policy. Please enter a new prompt."
+        st = status.HTTP_400_BAD_REQUEST
+    except KeyError as e:
+        message = "Invalid response from the LLM"
+        st = status.HTTP_500_INTERNAL_SERVER_ERROR
+    except Exception as e:
+        message = "An error occurred while interacting with LLM."
+        st = status.HTTP_500_INTERNAL_SERVER_ERROR
+    return Response(
+        {"message": message},
+        status=st,
+    )
+
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
@@ -207,6 +240,8 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_llama2_output(system_prompt, history, user_prompt)
     elif model == SARVAM_M:
         out = get_sarvam_m_output(system_prompt, history, user_prompt)
+    else:
+        out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out
 
 def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
