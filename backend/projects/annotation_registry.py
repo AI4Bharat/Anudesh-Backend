@@ -262,4 +262,7 @@ def draft_data_json_to_annotation_result(draft_data_json, project_type, pk=None)
         except:
             pass
 
+    if project_type == "InstructionDrivenChat" or project_type == "MultipleLLMInstructionDrivenChat":
+        result = dataset_item.draft_data_json
+
     return result
