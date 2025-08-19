@@ -19,7 +19,11 @@ from tasks.serializers import (
     PredictionSerializer,
     TaskAnnotationSerializer,
 )
-from tasks.utils import compute_meta_stats_for_instruction_driven_chat, compute_meta_stats_for_multiple_llm_idc, query_flower
+from tasks.utils import (
+    compute_meta_stats_for_instruction_driven_chat,
+    compute_meta_stats_for_multiple_llm_idc,
+    query_flower,
+)
 from tasks.utils import Queued_Task_name, convert_audio_base64_to_mp3
 from utils.pagination import paginate_queryset
 from notifications.views import createNotification
@@ -1569,21 +1573,28 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if(request.data["result"]==""):
+                        if request.data["result"] == "":
                             preferred_model = request.data.get("preferred_response")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
                                 model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                                for interaction in model_entry.get(
+                                    "interaction_json", []
+                                ):
+                                    if (
+                                        interaction.get("prompt_output_pair_id")
+                                        == preferred_id
+                                    ):
+                                        interaction["preferred_response"] = (
+                                            model_name == preferred_model
+                                        )
                         else:
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                ["GPT4OMini", "GPT4"]
+                                ["GPT4OMini", "GPT4"],
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -1600,23 +1611,28 @@ class AnnotationViewSet(
                                     "prompt": prompt_text,
                                     "output": model_output,
                                     "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id']
+                                    "prompt_output_pair_id": request.data[
+                                        "prompt_output_pair_id"
+                                    ],
                                 }
 
                                 model_found = False
                                 for model_entry in annotation_obj.result:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_entry["interaction_json"].append(
+                                            new_interaction
+                                        )
                                         model_found = True
                                         break
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                                    annotation_obj.result.append(
+                                        {
+                                            "model_name": model_name,
+                                            "interaction_json": [new_interaction],
+                                        }
+                                    )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -1672,9 +1688,16 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 response_message = "Success"
             else:
                 if "annotation_status" in dict(request.data) and request.data[
@@ -1750,16 +1773,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -1809,21 +1832,28 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if(request.data["result"]==""):
+                        if request.data["result"] == "":
                             preferred_model = request.data.get("preferred_response")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
                                 model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                                for interaction in model_entry.get(
+                                    "interaction_json", []
+                                ):
+                                    if (
+                                        interaction.get("prompt_output_pair_id")
+                                        == preferred_id
+                                    ):
+                                        interaction["preferred_response"] = (
+                                            model_name == preferred_model
+                                        )
                         else:
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                ["GPT4OMini", "GPT4"]
+                                ["GPT4OMini", "GPT4"],
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -1837,28 +1867,33 @@ class AnnotationViewSet(
                             prompt_text = request.data["result"]
                             for model_name, model_output in output_result.items():
                                 if isinstance(model_output, Response):
-                                    model_output = model_output.data 
+                                    model_output = model_output.data
                                 new_interaction = {
                                     "prompt": prompt_text,
                                     "output": model_output,
                                     "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
+                                    "prompt_output_pair_id": request.data[
+                                        "prompt_output_pair_id"
+                                    ],
                                 }
 
                                 model_found = False
                                 for model_entry in annotation_obj.result:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_entry["interaction_json"].append(
+                                            new_interaction
+                                        )
                                         model_found = True
                                         break
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                                    annotation_obj.result.append(
+                                        {
+                                            "model_name": model_name,
+                                            "interaction_json": [new_interaction],
+                                        }
+                                    )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -1914,9 +1949,16 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 response_message = "Success"
 
             else:
@@ -2031,16 +2073,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -2120,7 +2162,7 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if(request.data["result"]==""):
+                        if request.data["result"] == "":
                             preferred_model = request.data.get("preferred_response")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             for model_entry in annotation_obj.result:
@@ -2133,16 +2175,23 @@ class AnnotationViewSet(
                                 #         if interaction.get("prompt_output_pair_id") == preferred_id:
                                 #             interaction["preferred_response"] = False
                                 model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                                for interaction in model_entry.get(
+                                    "interaction_json", []
+                                ):
+                                    if (
+                                        interaction.get("prompt_output_pair_id")
+                                        == preferred_id
+                                    ):
+                                        interaction["preferred_response"] = (
+                                            model_name == preferred_model
+                                        )
                         else:
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                ["GPT4OMini", "GPT4"]
+                                ["GPT4OMini", "GPT4"],
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2159,23 +2208,28 @@ class AnnotationViewSet(
                                     "prompt": prompt_text,
                                     "output": model_output,
                                     "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
+                                    "prompt_output_pair_id": request.data[
+                                        "prompt_output_pair_id"
+                                    ],
                                 }
 
                                 model_found = False
                                 for model_entry in annotation_obj.result:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_entry["interaction_json"].append(
+                                            new_interaction
+                                        )
                                         model_found = True
                                         break
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                                    annotation_obj.result.append(
+                                        {
+                                            "model_name": model_name,
+                                            "interaction_json": [new_interaction],
+                                        }
+                                    )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -2231,9 +2285,16 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 response_message = "Success"
 
             else:
@@ -2339,23 +2400,30 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 annotation_id = annotation_response.data["id"]
                 annotation = Annotation.objects.get(pk=annotation_id)
 
@@ -2685,7 +2753,10 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         if isinstance(project_metadata_json, str)
         else project_metadata_json
     )
-    if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
+    if (
+        isinstance(project_metadata, dict)
+        and project_metadata.get("blank_response") == True
+    ):
         return ""
     if prompt in [None, "Null", 0, "None", "", " "]:
         return -1
@@ -2730,6 +2801,7 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     if res in [None, "Null", 0, "None", "", " "]:
         return -1
     return res
+
 
 def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_to_run):
     # CHECKS
@@ -2778,16 +2850,16 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
     # GET MODEL OUTPUT
     history = ann_result
 
-
     model_output = get_all_model_output(
         "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
         "bullet or numberings etc. suitably for code or the text. wherever required.",
         prompt,
         history,
-        models_to_run
+        models_to_run,
     )
 
     return model_output
+
 
 def format_model_output(model_output):
     result = ""
@@ -2823,29 +2895,44 @@ def format_model_output(model_output):
 def get_celery_tasks(request):
     filters = request.GET
     filtered_tasks = query_flower(filters)
+
+    # Check if filtered_tasks is a string (error case) or not a dict
+    if isinstance(filtered_tasks, str):
+        return JsonResponse(
+            {"message": "Error retrieving tasks: " + filtered_tasks}, status=503
+        )
+
+    if not isinstance(filtered_tasks, dict):
+        return JsonResponse(
+            {"message": "Unexpected response format from query_flower"}, status=503
+        )
+
+    # Check for error in response
+    if "error" in filtered_tasks:
+        return JsonResponse({"message": filtered_tasks["error"]}, status=503)
+
     for i in filtered_tasks:
         if filtered_tasks[i]["name"] in Queued_Task_name:
             filtered_tasks[i]["name"] = Queued_Task_name[filtered_tasks[i]["name"]]
+
     for i in filtered_tasks:
         if filtered_tasks[i]["succeeded"] is not None:
-            filtered_tasks[i]["succeeded"] = datetime.fromtimestamp(
-                filtered_tasks[i]["succeeded"], tz=timezone.utc
+            filtered_tasks[i]["succeeded"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["succeeded"]
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["failed"] is not None:
-            filtered_tasks[i]["failed"] = datetime.fromtimestamp(
-                filtered_tasks[i]["failed"], tz=timezone.utc
+            filtered_tasks[i]["failed"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["failed"]
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["started"] is not None:
-            filtered_tasks[i]["started"] = datetime.fromtimestamp(
-                filtered_tasks[i]["started"], tz=timezone.utc
+            filtered_tasks[i]["started"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["started"]
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         if filtered_tasks[i]["received"] is not None:
-            filtered_tasks[i]["received"] = datetime.fromtimestamp(
-                filtered_tasks[i]["received"], tz=timezone.utc
+            filtered_tasks[i]["received"] = timezone.datetime.utcfromtimestamp(
+                filtered_tasks[i]["received"]
             ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
-    if "error" in filtered_tasks:
-        return JsonResponse({"message": filtered_tasks["error"]}, status=503)
     page_number = request.GET.get("page")
     page_size = int(request.GET.get("page_size", 10))
     data = paginate_queryset(filtered_tasks, page_number, page_size)
@@ -2864,6 +2951,7 @@ class TransliterationAPIView(APIView):
         transliteration_output = response_transliteration.json()
         return Response(transliteration_output, status=status.HTTP_200_OK)
 
+
 class TranscribeAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -2875,23 +2963,28 @@ class TranscribeAPIView(APIView):
 
         chunk_data = {
             "config": {
-                "serviceId": os.getenv("DHRUVA_SERVICE_ID") if lang != "en" else os.getenv("DHRUVA_SERVICE_ID_EN"),
+                "serviceId": (
+                    os.getenv("DHRUVA_SERVICE_ID")
+                    if lang != "en"
+                    else os.getenv("DHRUVA_SERVICE_ID_EN")
+                ),
                 "language": {"sourceLanguage": lang},
-                "transcriptionFormat": {"value": "transcript"}
-                },
-            "audio": [
-                {
-                    "audioContent":mp3_base64
-                    }
-                ]
-            }
+                "transcriptionFormat": {"value": "transcript"},
+            },
+            "audio": [{"audioContent": mp3_base64}],
+        }
         try:
-            response = requests.post(os.getenv("DHRUVA_API_URL"),
-            headers={"authorization": os.getenv("DHRUVA_KEY")},
-            json=chunk_data,
+            response = requests.post(
+                os.getenv("DHRUVA_API_URL"),
+                headers={"authorization": os.getenv("DHRUVA_KEY")},
+                json=chunk_data,
             )
             transcript = response.json()["output"][0]["source"]
-            return Response({"transcript": transcript+" " or ""}, status=status.HTTP_200_OK)
+            return Response(
+                {"transcript": transcript + " " or ""}, status=status.HTTP_200_OK
+            )
         except Exception as e:
             print("Error:", e)
-            return Response({"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST
+            )
