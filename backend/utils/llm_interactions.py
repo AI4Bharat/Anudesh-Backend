@@ -40,7 +40,7 @@ import os
 #         return False
 
 
-import os
+import re
 import openai
 import requests
 from rest_framework import status
@@ -213,7 +213,9 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             max_tokens=700,
         )
         
-        return response["choices"][0]["message"]["content"].strip()
+        output=str(response["choices"][0]["message"]["content"].strip())
+        cleaned_response = re.sub(r'<think>.*?</think>\s*', '', output, flags=re.DOTALL)
+        return cleaned_response
 
     except openai.InvalidRequestError as e:
         message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -258,7 +260,9 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
             results[model] = get_gpt4_output(system_prompt, user_prompt, model_history, model)
         elif model == LLAMA2:
             results[model] = get_llama2_output(system_prompt, model_history, user_prompt)
+        elif model == SARVAM_M:
+            results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt)
         else:
-            print(f"Warning: Model {model} not recognized or not implemented.")
+            results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model)
 
     return results
