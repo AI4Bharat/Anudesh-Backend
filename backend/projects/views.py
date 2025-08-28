@@ -693,22 +693,22 @@ def get_project_pull_status(pk):
     )
 
     # If the celery TaskResults table returns
-    if taskresult_queryset:
-        # Sort the tasks by newest items first by date
-        taskresult_queryset = taskresult_queryset.order_by("-date_done")
+    # if taskresult_queryset:
+    #     # Sort the tasks by newest items first by date
+    #     taskresult_queryset = taskresult_queryset.order_by("-date_done")
 
-        # Get the export task status and last update date
-        task_status = taskresult_queryset.first().as_dict()["status"]
-        task_datetime = taskresult_queryset.first().as_dict()["date_done"]
-        task_result = taskresult_queryset.first().as_dict()["result"]
+    #     # Get the export task status and last update date
+    #     task_status = taskresult_queryset.first().as_dict()["status"]
+    #     task_datetime = taskresult_queryset.first().as_dict()["date_done"]
+    #     task_result = taskresult_queryset.first().as_dict()["result"]
 
-        if '"' in task_result:
-            task_result = task_result.strip('"')
-        # Extract date and time from the datetime object
-        task_date = task_datetime.date()
-        task_time = f"{str(task_datetime.time().replace(microsecond=0))} UTC"
+    #     if '"' in task_result:
+    #         task_result = task_result.strip('"')
+    #     # Extract date and time from the datetime object
+    #     task_date = task_datetime.date()
+    #     task_time = f"{str(task_datetime.time().replace(microsecond=0))} UTC"
 
-        return task_status, task_date, task_time, task_result
+    #     return task_status, task_date, task_time, task_result
     return (
         "Success",
         "Synchronously Completed. No Date.",
@@ -741,10 +741,10 @@ def get_project_export_status(pk):
     )
 
     # If the celery TaskResults table returns
-    if taskresult_queryset:
-        return extract_latest_status_date_time_from_taskresult_queryset(
-            taskresult_queryset
-        )
+    # if taskresult_queryset:
+    #     return extract_latest_status_date_time_from_taskresult_queryset(
+    #         taskresult_queryset
+    #     )
     return (
         "Success",
         "Synchronously Completed. No Date.",
@@ -775,9 +775,9 @@ def get_task_creation_status(pk) -> str:
         "REVOKED": "Task Creation Process Revoked",
     }
     # If the celery TaskResults table returns
-    if taskresult_queryset:
-        task_creation_status = taskresult_queryset.first().as_dict()["status"]
-        return task_creation_status_modified[task_creation_status]
+    # if taskresult_queryset:
+    #     task_creation_status = taskresult_queryset.first().as_dict()["status"]
+    #     return task_creation_status_modified[task_creation_status]
     return ""
 
 
