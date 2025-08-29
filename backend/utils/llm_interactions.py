@@ -240,7 +240,6 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
     
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
-    model = GPT35
     out = ""
     if model == GPT35:
         out = get_gpt3_output(system_prompt, user_prompt, history)
