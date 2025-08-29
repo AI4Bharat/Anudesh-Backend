@@ -41,7 +41,7 @@ import os
 
 
 import re
-import openai
+from openai import OpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
@@ -57,86 +57,92 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
-
 def get_gpt4_output(system_prompt, user_prompt, history, model):
-    openai.api_type = os.getenv("LLM_INTERACTIONS_OPENAI_API_TYPE")
-    openai.api_base = os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")
-    openai.api_version = os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    if model == GPT4:
-        engine = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4")
-    elif model == GPT4O:
-        engine = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O")
-    elif model == GPT4OMini:
-        engine = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O_MINI")
-
-    history = process_history(history)
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": user_prompt})
-
-    try:
-        response = openai.ChatCompletion.create(
-            engine=engine,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=700,
-            top_p=0.95,
-            frequency_penalty=0,
-            presence_penalty=0,
-            stop=None,
-        )
-        return response["choices"][0]["message"]["content"].strip()
-    except openai.InvalidRequestError as e:
-        message = "Prompt violates LLM policy. Please enter a new prompt."
-        st = status.HTTP_400_BAD_REQUEST
-    except KeyError as e:
-        message = "Invalid response from the LLM"
-        st = status.HTTP_500_INTERNAL_SERVER_ERROR
-    except Exception as e:
-        message = "An error occurred while interacting with LLM."
-        st = status.HTTP_500_INTERNAL_SERVER_ERROR
-    return {"error": message, "status": st}
-
-
-
-def get_gpt3_output(system_prompt, user_prompt, history):
-    openai.api_type = os.getenv("LLM_INTERACTIONS_OPENAI_API_TYPE")
-    openai.api_base = os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")
-    openai.api_version = os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    engine = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
-
-    history = process_history(history)
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": user_prompt})
-    try:
-        response = openai.ChatCompletion.create(
-            engine=engine,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=700,
-            top_p=0.95,
-            frequency_penalty=0,
-            presence_penalty=0,
-            stop=None,
-        )
-        return response["choices"][0]["message"]["content"].strip()
-    except openai.InvalidRequestError as e:
-        message = "Prompt violates LLM policy. Please enter a new prompt."
-        st = status.HTTP_400_BAD_REQUEST
-    except KeyError as e:
-        message = "Invalid response from the LLM"
-        st = status.HTTP_500_INTERNAL_SERVER_ERROR
-    except Exception as e:
-        message = "An error occurred while interacting with LLM."
-        st = status.HTTP_500_INTERNAL_SERVER_ERROR
-    return Response(
-        {"message": message},
-        status=st,
+    if model == "GPT4":
+        deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4")
+    elif model == "GPT4O":
+        deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O")
+    elif model == "GPT4OMini":
+        deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O_MINI")
+    else:
+        deployment = model
+    
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{deployment}"
     )
 
+    history_messages = process_history(history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = client.chat.completions.create(
+            model=deployment,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=700,
+            top_p=0.95,
+            frequency_penalty=0,
+            presence_penalty=0,
+            extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({"message": message}, status=st)
+
+def get_gpt3_output(system_prompt, user_prompt, history):
+    model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
+
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}"
+    )
+
+    history_messages = process_history(history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=700,
+            top_p=0.95,
+            frequency_penalty=0,
+            presence_penalty=0,
+            extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({"message": message}, status=st)
 
 def get_llama2_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
@@ -198,39 +204,40 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model):
     try:
-        openai.api_key = os.getenv("DEEPINFRA_API_KEY")
-        openai.api_base = os.getenv("DEEPINFRA_BASE_URL")
+        client = OpenAI(
+            api_key=os.getenv("DEEPINFRA_API_KEY"),
+            base_url=os.getenv("DEEPINFRA_BASE_URL")
+        )
 
         history_messages = process_history(history)
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history_messages)
         messages.append({"role": "user", "content": user_prompt})
 
-        response = openai.ChatCompletion.create(
-            model=model, 
+        response = client.chat.completions.create(
+            model=model,
             messages=messages,
             temperature=0.7,
             max_tokens=700,
         )
-        
-        output=str(response["choices"][0]["message"]["content"].strip())
+
+        output = response.choices[0].message.content.strip()
         cleaned_response = re.sub(r'<think>.*?</think>\s*', '', output, flags=re.DOTALL)
         return cleaned_response
 
-    except openai.InvalidRequestError as e:
-        message = "Prompt violates LLM policy. Please enter a new prompt."
-        st = status.HTTP_400_BAD_REQUEST
-    except KeyError as e:
-        message = "Invalid response from the LLM"
-        st = status.HTTP_500_INTERNAL_SERVER_ERROR
     except Exception as e:
-        message = "An error occurred while interacting with LLM."
-        st = status.HTTP_500_INTERNAL_SERVER_ERROR
-    return Response(
-        {"message": message},
-        status=st,
-    )
-
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({"message": message}, status=st)
+    
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
