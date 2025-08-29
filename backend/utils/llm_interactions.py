@@ -218,7 +218,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         return cleaned_response
 
     except openai.InvalidRequestError as e:
-        message = "Prompt violates LLM policy. Please enter a new prompt :"+e
+        message = "Prompt violates LLM policy. Please enter a new prompt :"+str(e)
         st = status.HTTP_400_BAD_REQUEST
     except KeyError as e:
         message = "Invalid response from the LLM"
