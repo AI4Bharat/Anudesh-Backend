@@ -2018,34 +2018,31 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         try:
             # Annotation (1)
-            
             if annotation_type == 1:
-           
                 annotator_ids = {target_user["id"] for target_user in serializer.data["annotators"]}
-            
+
                 if user_id not in annotator_ids:
                     return Response({"message": "User not assigned as annotator"}, status=403)
-            
+
+                # Find annotations already created but still pending
                 proj_annotations = Annotation_model.objects.filter(
                     task__project_id=pk,
                     annotation_status=UNLABELED,
                     completed_by=target_user
                 )
-            
                 annotation_tasks = [a.task.id for a in proj_annotations]
-                
+
                 pending_tasks = Task.objects.filter(
                     project_id=pk,
                     annotation_users=user_id,
                     task_status__in=[INCOMPLETE, UNLABELED],
                     id__in=annotation_tasks
                 ).count()
-                
+
                 if pending_tasks >= project.max_pending_tasks_per_user:
-                    
                     return Response({"message": "User has too many pending tasks"}, status=403)
-                
-            
+
+                # Get tasks eligible for assignment
                 assignable_tasks = Task.objects.filter(
                     id__in=task_ids,
                     project_id=pk,
@@ -2053,26 +2050,46 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 ).exclude(annotation_users=user_id).annotate(
                     annotator_count=Count("annotation_users")
                 ).filter(annotator_count__lt=project.required_annotators_per_task)
-            
+
                 count = 0
                 for task in assignable_tasks:
-            
                     # Reject assignment if already reviewed or being reviewed
                     if task.review_user or task.task_status in [ANNOTATED, REVIEWED]:
-                        return Response({"message": f"Task {task.id} already reviewed or in review stage. Cannot assign to annotator."}, status=400)
-            
-                    # Reject re-assigning to another annotator if already assigned
-                    if task.annotation_users.exists():
-                        if task.annotation_users.filter(id=target_user.id).exists():
-                            return Response({
-                                "message": f"Task {task.id} is already assigned to this annotator."
-                            }, status=200)
-                        return Response({"message": f"Task {task.id} already assigned to another annotator."}, status=400)
-            
+                        return Response(
+                            {"message": f"Task {task.id} already reviewed or in review stage. Cannot assign to annotator."},
+                            status=400
+                        )
+
+                    # Reject if this task is already assigned to another annotator
+                    if task.annotation_users.exists() and not task.annotation_users.filter(id=target_user.id).exists():
+                        return Response(
+                            {"message": f"Task {task.id} already assigned to another annotator."},
+                            status=400
+                        )
+
+                    # ✅ Assign task to annotator
                     task.annotation_users.add(target_user)
                     task.save()
+
+                    # ✅ Ensure Annotation_model is created
+                    annotation, created = Annotation_model.objects.get_or_create(
+                        task=task,
+                        completed_by=target_user,
+                        annotation_type=ANNOTATOR_ANNOTATION,
+                        defaults={
+                            "result": [],
+                            "annotation_status": UNLABELED,
+                        }
+                    )
+                    if created:
+                        print(f"✅ Created Annotation for task {task.id}, user {target_user.id}")
+                    else:
+                        print(f"⚠️ Annotation already existed for task {task.id}, user {target_user.id}")
+
                     count += 1
+
                 return Response({"message": f"{count} annotation tasks assigned."}, status=200)
+
 
             # Review (2)
             elif annotation_type == 2:
@@ -2134,11 +2151,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                         # If no reviewer annotation exists, create one
                         if not reviewer_anno_exists:
                             base_annotation_obj = Annotation_model.objects.create(
-                                result=rec_ann.result,        # copy annotator’s result
+                                result=rec_ann.result,        
                                 task=task,
-                                completed_by=target_user,     # assign to current reviewer
+                                completed_by=target_user,     
                                 annotation_status="unreviewed",
-                                parent_annotation=rec_ann,    # link back to original annotation
+                                parent_annotation=rec_ann,    
                                 annotation_type=REVIEWER_ANNOTATION,
                                 annotation_notes=rec_ann.annotation_notes,
                             )
