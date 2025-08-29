@@ -69,7 +69,7 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
     
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=f"{os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")}openai/deployments/{deployment}"
+        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{deployment}"
     )
 
     history_messages = process_history(history)
@@ -109,7 +109,7 @@ def get_gpt3_output(system_prompt, user_prompt, history):
 
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=f"{os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")}openai/deployments/{model}"
+        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}"
     )
 
     history_messages = process_history(history)
@@ -240,6 +240,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
     
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
+    model = GPT35
     out = ""
     if model == GPT35:
         out = get_gpt3_output(system_prompt, user_prompt, history)
