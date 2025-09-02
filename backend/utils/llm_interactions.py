@@ -53,7 +53,10 @@ def process_history(history):
     for turn in history:
         user_side = {"role": "user", "content": turn["prompt"]}
         messages.append(user_side)
-        system_side = {"role": "assistant", "content": turn["output"]}
+        content = ''
+        for out in turn['output']:
+            content += str(out['value'])
+        system_side = {"role": "assistant", "content": content}
         messages.append(system_side)
     return messages
 
