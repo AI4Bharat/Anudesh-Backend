@@ -361,8 +361,7 @@ def chat_output(request):
                 prompt,
                 history,
                 model,
-            ),
-            "model": model,
+            )
         },
         status=status.HTTP_200_OK,
     )
