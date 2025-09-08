@@ -1985,6 +1985,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"message": "This project is not yet published"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if cur_user.guest_user:
+            print(f"user{project.metadata_json}")
+            auto_assign_count = project.metadata_json.get('auto_assign_count', 0)
+
+        
+        # Check if guest already has auto-assigned tasks
+            if auto_assign_count > 0:
+                assigned_tasks_count = Task.objects.filter(
+                    project_id=pk,
+                    annotation_users=cur_user.id
+                ).count()
+                print(f"user{assigned_tasks_count}{auto_assign_count}")
+                if assigned_tasks_count >= auto_assign_count:
+                    return Response(
+                        {
+                            "message": "Your tasks have been auto-assigned",
+                        },
+                        status=status.HTTP_200_OK,
+                    )
         serializer = ProjectUsersSerializer(project, many=False)
         annotators = serializer.data["annotators"]
         annotator_ids = set()
@@ -2166,6 +2185,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
         )
+
     @action(
         detail=False,
         methods=["POST"],
