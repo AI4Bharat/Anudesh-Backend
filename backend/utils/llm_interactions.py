@@ -45,7 +45,7 @@ import openai
 import requests
 from rest_framework import status
 from rest_framework.response import Response
-from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini, Llama, Gemini, GPT45, GPT4Turbo, Sarvam, AI4B
+from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini
 
 
 def process_history(history):
@@ -192,7 +192,7 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
         )
         if model == GPT35:
             results[model] = get_gpt3_output(system_prompt, user_prompt, model_history)
-        elif model in [GPT4, GPT4O, GPT4OMini, Llama, Gemini, GPT45, "GPT4 Turbo", Sarvam, "Ai4B", "GPT4.5"]:
+        elif model in [GPT4, GPT4O, GPT4OMini]:
             results[model] = get_gpt4_output(system_prompt, user_prompt, model_history, model)
         elif model == LLAMA2:
             results[model] = get_llama2_output(system_prompt, model_history, user_prompt)
