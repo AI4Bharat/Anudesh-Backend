@@ -1970,7 +1970,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         name="Assign selected tasks to user based on annotation_type",
-        url_name="assign_tasks_to_user2",   
+        url_name="assign_tasks_to_user",   
     )
     @project_is_archived
     def assign_tasks_to_user2(self, request, pk, *args, **kwargs):
