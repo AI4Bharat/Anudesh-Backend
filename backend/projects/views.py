@@ -1973,7 +1973,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         url_name="assign_tasks_to_user",   
     )
     @project_is_archived
-    def assign_tasks_to_user2(self, request, pk, *args, **kwargs):
+    def assign_tasks_to_user(self, request, pk, *args, **kwargs):
         """
         Assign manually selected tasks to a user based on annotation_type.
         Includes all validation and logic from auto-pull assignment endpoints.
