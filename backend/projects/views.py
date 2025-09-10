@@ -4488,6 +4488,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
+                tasks = Task.objects.filter(project_id=pk)
+                print(f"Request: {request}")
+                user_id = request.data.get("user_id")
+                tasks = tasks.order_by("id")
+                tasks = (
+                    tasks.filter(task_status__in=[INCOMPLETE])
+                    .exclude(annotation_users=user_id)
+                    .annotate(annotator_count=Count("annotation_users"))
+                )
+                tasks = tasks.filter(
+                    annotator_count__lt=project.required_annotators_per_task
+                ).distinct()
+                if not tasks:
+                    project.release_lock(ANNOTATION_LOCK)
+                    return Response(
+                        {"message": "No tasks left for assignment in this project"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
                 if project.check_project_password(password):
                     current_user = request.data.get("user_id")
                     project.annotators.add(current_user)
