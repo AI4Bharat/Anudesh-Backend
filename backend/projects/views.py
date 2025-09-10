@@ -1839,36 +1839,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 ret_status = status.HTTP_400_BAD_REQUEST
                 return Response(ret_dict, status=ret_status)
         
-        data = self.serializer_class(data=request.data)
-        if data.is_valid():
-            project = data.save()
-            project.created_by = request.user
-            project.save()
-            
-            project_id = project.id
-            if project.required_annotators_per_task > 1:
-                project.project_stage = REVIEW_STAGE
-                project.save()
-            
-            create_parameters_for_task_creation.delay(
-                project_type=project_type,
-                dataset_instance_ids=dataset_instance_ids,
-                filter_string=filter_string,
-                sampling_mode=sampling_mode,
-                sampling_parameters=sampling_parameters,
-                project_id=project_id,
-                variable_parameters=variable_parameters,
-                automatic_annotation_creation_mode=automatic_annotation_creation_mode,
-            )
-            
-            return Response(
-                {"message": "Project created!", "id": project_id},
-                status=status.HTTP_201_CREATED,
-            )
-        else:
-            return Response(
-                {"message": "Invalid Data"}, status=status.HTTP_400_BAD_REQUEST
-            )
+        project_response = super().create(request, *args, **kwargs)
+        project_id = project_response.data["id"]
+
+        proj = Project.objects.get(id=project_id)
+        proj.created_by = request.user
+        if proj.required_annotators_per_task > 1:
+            proj.project_stage = REVIEW_STAGE
+        proj.save()
+
+        create_parameters_for_task_creation.delay(
+            project_type=project_type,
+            dataset_instance_ids=dataset_instance_ids,
+            filter_string=filter_string,
+            sampling_mode=sampling_mode,
+            sampling_parameters=sampling_parameters,
+            project_id=project_id,
+            variable_parameters=variable_parameters,
+            automatic_annotation_creation_mode=automatic_annotation_creation_mode,
+        )
+        return project_response
 
     @is_project_editor
     @project_is_archived
