@@ -2006,6 +2006,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                         },
                         status=status.HTTP_200_OK,
                     )
+                else:
+                    # Set the number of tasks to be assigned
+                    request.data["num_tasks"] = auto_assign_count - assigned_tasks_count
+
         serializer = ProjectUsersSerializer(project, many=False)
         annotators = serializer.data["annotators"]
         annotator_ids = set()
