@@ -1838,10 +1838,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 ret_dict = {"message": mes}
                 ret_status = status.HTTP_400_BAD_REQUEST
                 return Response(ret_dict, status=ret_status)
+        
         project_response = super().create(request, *args, **kwargs)
         project_id = project_response.data["id"]
 
         proj = Project.objects.get(id=project_id)
+        proj.created_by = request.user
         if proj.required_annotators_per_task > 1:
             proj.project_stage = REVIEW_STAGE
         proj.save()
