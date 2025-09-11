@@ -8,6 +8,7 @@ urlpatterns = [
     path("download_all_projects", download_all_projects),
     path("chat_log", chat_log),
     path("chat_output", chat_output),
+    path("upload_chat_image", upload_chat_image),
 ]
 
 # urlpatterns = format_suffix_patterns(urlpatterns)
