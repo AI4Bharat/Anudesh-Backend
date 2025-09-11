@@ -48,13 +48,10 @@ from rest_framework.response import Response
 from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini, SARVAM_M
 
 
-def process_history(history, sarvam_model=False):
+def process_history(history):
     messages = []
     for turn in history:
-        if sarvam_model:
-            user_side = {"role": "user", "content": turn["prompt"][0]["text"]}
-        else:
-            user_side = {"role": "user", "content": turn["prompt"]}
+        user_side = {"role": "user", "content": turn["prompt"]}
         messages.append(user_side)
         system_side = {"role": "assistant", "content": turn["output"]}
         messages.append(system_side)
@@ -178,7 +175,7 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         "Content-Type": "application/json"
     }
 
-    history = process_history(conv_history, sarvam_model=True)
+    history = process_history(conv_history)
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     if type(user_prompt) == list:
