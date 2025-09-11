@@ -1381,7 +1381,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     annotation_type=REVIEWER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
-                ).exclude(annotation_status__in=["to_be_revised"])
+                ).exclude(annotation_status__in=["to_be_revised", "draft", "skipped"])
             elif supercheck_reports:
                 labeld_tasks_objs = Task.objects.filter(
                     Q(project_id=proj.id)
