@@ -53,7 +53,6 @@ from projects.utils import (
     get_audio_project_types,
     get_audio_transcription_duration,
     ocr_word_count,
-    ocr_boundingbox_count
 )
 from datetime import datetime
 import calendar
@@ -1442,14 +1441,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 avg_lead_time = round(avg_lead_time, 2)
 
             total_word_count = 0
-            total_bbox_count = 0
-            if (
-                "OCRTranscription" in project_type
-                or "OCRTranscriptionEditing" in project_type
-            ):
+            if "OCRTranscription" in project_type:
                 for each_anno in annotated_labeled_tasks:
                     total_word_count += ocr_word_count(each_anno.result)
-                    total_bbox_count += ocr_boundingbox_count(each_anno.result)
             elif is_textual_project:
                 total_word_count_list = []
                 for each_task in annotated_labeled_tasks:
@@ -1459,7 +1453,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         pass
                 total_word_count = sum(total_word_count_list)
             all_tasks_word_count += total_word_count
-            all_tasks_bbox_count += total_bbox_count
 
             total_duration = "00:00:00"
             if project_type in get_audio_project_types():
@@ -1567,9 +1560,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 )
             ): round(all_annotated_lead_time_count, 2),
         }
-        if "OCRTranscription" not in project_type:
-                if "Bbox Count" in result:
-                    del result["Bbox Count"]
         if project_type_lower != "all" and project_type in get_audio_project_types():
             del total_result["Word Count"]
         elif project_type_lower != "all" and is_textual_project:
