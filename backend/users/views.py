@@ -1356,7 +1356,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
         total_annotated_tasks_count = 0
         all_tasks_word_count = 0
         all_projects_total_duration = 0
-         # New total counters
+        
+        # New total counters
         total_draft_tasks = 0
         total_skipped_tasks = 0
         total_to_be_revised_tasks = 0
@@ -1442,7 +1443,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
             
 
             draft_tasks_count = Annotation.objects.filter(
-                task_id__in=annotated_task_ids,
                 annotation_type=annotation_type,
                 updated_at__range=[start_date, end_date],
                 completed_by=user_id,
@@ -1451,7 +1451,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
             print("draft_tasks_count", draft_tasks_count)
 
             skipped_tasks_count = Annotation.objects.filter(
-                task_id__in=annotated_task_ids,
                 annotation_type=annotation_type,
                 updated_at__range=[start_date, end_date],
                 completed_by=user_id,
@@ -1462,7 +1461,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
             to_be_revised_tasks_count = 0
             if review_reports:
                 to_be_revised_tasks_count = Annotation.objects.filter(
-                    task_id__in=annotated_task_ids,
                     annotation_type=REVIEWER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
@@ -1473,13 +1471,12 @@ class AnalyticsViewSet(viewsets.ViewSet):
             rejected_tasks_count = 0
             if supercheck_reports:
                 rejected_tasks_count = Annotation.objects.filter(
-                    task_id__in=annotated_task_ids,
                     annotation_type=SUPER_CHECKER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
                     annotation_status="rejected",
                 ).count()
-                print("rejected_tasks_count", rejected_tasks_count)
+                print("rejected_tasks_count = ", rejected_tasks_count)
 
             # Update totals
             total_draft_tasks += draft_tasks_count
