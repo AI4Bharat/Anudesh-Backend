@@ -82,7 +82,7 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
             model=deployment,
             messages=messages,
             temperature=0.7,
-            max_tokens=700,
+            max_tokens=2048,
             top_p=0.95,
             frequency_penalty=0,
             presence_penalty=0,
@@ -122,7 +122,7 @@ def get_gpt3_output(system_prompt, user_prompt, history):
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=700,
+            max_tokens=2048,
             top_p=0.95,
             frequency_penalty=0,
             presence_penalty=0,
@@ -178,13 +178,16 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
     history = process_history(conv_history)
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
-    messages.append({"role": "user", "content": user_prompt})
+    if type(user_prompt) == list:
+        messages.append({"role": "user", "content": user_prompt[0]['text']})
+    else:
+        messages.append({"role": "user", "content": user_prompt})
 
     body = {
         "model": "sarvam-m",
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": 500,
+        "max_tokens": 2048,
         "top_p": 1,
     }
     
@@ -218,7 +221,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=700,
+            max_tokens=2048,
         )
 
         output = response.choices[0].message.content.strip()
@@ -257,8 +260,17 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
     results = {}
 
     for model in models_to_run:
+        # print("history:", history)
+        # model_history = next(
+        #     (entry["interaction_json"] for entry in history if entry.get("model_name") == model),
+        #     []
+        # )
         model_history = next(
-            (entry["interaction_json"] for entry in history if entry.get("model_name") == model),
+            (
+                interaction["interaction_json"]
+                for interaction in history.get("model_interactions", [])
+                if interaction.get("model_name") == model
+            ),
             []
         )
         if model == GPT35:

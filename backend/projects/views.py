@@ -1838,10 +1838,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 ret_dict = {"message": mes}
                 ret_status = status.HTTP_400_BAD_REQUEST
                 return Response(ret_dict, status=ret_status)
+        
         project_response = super().create(request, *args, **kwargs)
         project_id = project_response.data["id"]
 
         proj = Project.objects.get(id=project_id)
+        proj.created_by = request.user
         if proj.required_annotators_per_task > 1:
             proj.project_stage = REVIEW_STAGE
         proj.save()
@@ -2282,6 +2284,29 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"message": "This project is not yet published"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if cur_user.guest_user:
+            print(f"user{project.metadata_json}")
+            auto_assign_count = project.metadata_json.get('auto_assign_count', 0)
+
+        
+        # Check if guest already has auto-assigned tasks
+            if auto_assign_count > 0:
+                assigned_tasks_count = Task.objects.filter(
+                    project_id=pk,
+                    annotation_users=cur_user.id
+                ).count()
+                print(f"user{assigned_tasks_count}{auto_assign_count}")
+                if assigned_tasks_count >= auto_assign_count:
+                    return Response(
+                        {
+                            "message": "Your tasks have been auto-assigned",
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                else:
+                    # Set the number of tasks to be assigned
+                    request.data["num_tasks"] = auto_assign_count - assigned_tasks_count
+
         serializer = ProjectUsersSerializer(project, many=False)
         annotators = serializer.data["annotators"]
         annotator_ids = set()
@@ -2463,6 +2488,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
         )
+
     @action(
         detail=False,
         methods=["POST"],
@@ -4759,6 +4785,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
+                tasks = Task.objects.filter(project_id=pk)
+                print(f"Request: {request}")
+                user_id = request.data.get("user_id")
+                tasks = tasks.order_by("id")
+                tasks = (
+                    tasks.filter(task_status__in=[INCOMPLETE])
+                    .exclude(annotation_users=user_id)
+                    .annotate(annotator_count=Count("annotation_users"))
+                )
+                tasks = tasks.filter(
+                    annotator_count__lt=project.required_annotators_per_task
+                ).distinct()
+                if not tasks:
+                    project.release_lock(ANNOTATION_LOCK)
+                    return Response(
+                        {"message": "No tasks left for assignment in this project"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
                 if project.check_project_password(password):
                     current_user = request.data.get("user_id")
                     project.annotators.add(current_user)
