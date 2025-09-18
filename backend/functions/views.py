@@ -1,7 +1,7 @@
 import ast
 import json
 import os
-
+import uuid
 from azure.storage.blob import BlobServiceClient
 
 from anudesh_backend.locks import Lock
@@ -13,7 +13,7 @@ from drf_yasg.utils import swagger_auto_schema
 from projects.models import *
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from users.utils import (
     INDIC_TRANS_SUPPORTED_LANGUAGES,
@@ -312,6 +312,16 @@ def download_all_projects(request):
 def chat_log(request):
     try:
         interaction_json = request.data.get("interaction_json")
+        user_data = request.data.get("user_data", {})
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        user = request.user
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0].strip()
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        user_data["ip_address"] = ip
+        user_data["user"] = user.email
+        interaction_json = {"interaction_json": interaction_json, "user_data": user_data}
         now = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
         connection_string = os.getenv("CONNECTION_STRING_CHAT_LOG")
         container_name = os.getenv("CONTAINER_CHAT_LOG")
@@ -366,3 +376,28 @@ def chat_output(request):
         },
         status=status.HTTP_200_OK,
     )
+
+@permission_classes([IsAuthenticated])
+@api_view(["POST"])
+def upload_chat_image(request):
+    image_file = request.FILES.get('image')
+    user = request.user
+    if image_file:
+        account_url = os.getenv("AZURE_ACCOUNT_URL_CHAT_IMAGES")
+        container_name = os.getenv("AZURE_CONTAINER_NAME_CHAT_IMAGES")
+        sas_token = os.getenv("AZURE_SAS_TOKEN_CHAT_IMAGES")
+        file_extension = os.path.splitext(image_file.name)[1]
+        blob_name = f"image-{user.email}{uuid.uuid4()}{file_extension}"
+        try:
+            blob_service_client = BlobServiceClient(account_url=account_url, credential=sas_token)
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+            blob_client.upload_blob(image_file.read(), blob_type="BlockBlob")
+            image_url = blob_client.url
+            return Response(
+                {"image_url": image_url},
+                status=status.HTTP_201_CREATED,)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to upload image: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
