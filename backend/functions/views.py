@@ -33,7 +33,7 @@ from .tasks import (
 from .utils import (
     check_if_particular_organization_owner,
 )
-
+from datetime import timezone
 
 @api_view(["GET"])
 def get_indic_trans_supported_langs_model_codes(request):
@@ -315,14 +315,16 @@ def chat_log(request):
         user_data = request.data.get("user_data", {})
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         user = request.user
+        session_id = request.data.get("session_id", datetime.now(timezone.utc).strftime("%H:%M:%S %d-%m-%Y"))
         if x_forwarded_for:
             ip = x_forwarded_for.split(',')[0].strip()
         else:
             ip = request.META.get('REMOTE_ADDR')
         user_data["ip_address"] = ip
         user_data["user"] = user.email
-        interaction_json = {"interaction_json": interaction_json, "user_data": user_data}
-        now = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+        interaction_json["timestamp"] = datetime.now(timezone.utc).strftime("%H:%M:%S %d-%m-%Y")
+        log_entry_string = json.dumps(interaction_json) + "\n"
+        log_entry_bytes = log_entry_string.encode("utf-8")
         connection_string = os.getenv("CONNECTION_STRING_CHAT_LOG")
         container_name = os.getenv("CONTAINER_CHAT_LOG")
         if not test_container_connection(connection_string, container_name):
@@ -336,16 +338,19 @@ def chat_log(request):
             connection_string
         )
         container_client = blob_service_client.get_container_client(container_name)
-        name = f"{now} Anudesh interactions dump.log"
+        name = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/{user.email}-{session_id}.jsonl"
         blob_client = container_client.get_blob_client(name)
-        if blob_client.exists():
-            existing_data = blob_client.download_blob()
-            existing_content = existing_data.readall().decode("utf-8")
-            existing_json_data = json.loads(existing_content)
-            existing_json_data += interaction_json
-        else:
-            existing_json_data = json.dumps(interaction_json, indent=2)
-        blob_client.upload_blob(existing_json_data, overwrite=True)
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=name)
+
+        if not blob_client.exists():
+            blob_client.create_append_blob()
+            user_entry_string = json.dumps({'user_data': user_data}) + "\n"
+            user_entry_bytes = user_entry_string.encode("utf-8")
+            blob_client.append_block(user_entry_bytes)
+        
+        blob_client.append_block(log_entry_bytes)
+
         return Response(
             {"message": "Data stored successfully"},
             status=status.HTTP_201_CREATED,
