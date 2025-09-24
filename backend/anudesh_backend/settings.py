@@ -74,6 +74,8 @@ INSTALLED_APPS = [
 
 CSRF_COOKIE_SECURE = False
 
+CSRF_TRUSTED_ORIGINS=['https://*.anudesh.ai4bharat.org']
+
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",

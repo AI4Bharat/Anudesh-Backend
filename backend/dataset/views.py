@@ -847,10 +847,12 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         final_result = []
         if projects_objs.count() != 0:
             for proj in projects_objs:
-                proj_manager = [
-                    manager.get_username()
-                    for manager in proj.workspace_id.managers.all()
-                ]
+                proj_manager = []
+                if proj.workspace_id is not None:
+                    proj_manager = [
+                        manager.get_username()
+                        for manager in proj.workspace_id.managers.all()
+                    ]
                 try:
                     org_owner = proj.organization_id.created_by.get_username()
                     proj_manager.append(org_owner)
