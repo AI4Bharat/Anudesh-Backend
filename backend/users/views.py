@@ -1461,10 +1461,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
             to_be_revised_tasks_count = 0
             if review_reports:
                 to_be_revised_tasks_count = Annotation.objects.filter(
+                    annotation_status="to_be_revised",
                     annotation_type=REVIEWER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
-                    completed_by=user_id,
-                    annotation_status="to_be_revised",
                 ).count()
                 print("to_be_revised_tasks_count", to_be_revised_tasks_count)
 
@@ -1538,6 +1537,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 ): annotated_tasks_count,
                 "Draft Tasks": draft_tasks_count,
                 "Skipped Tasks": skipped_tasks_count,
+                "To Be Revised Tasks": total_to_be_revised_tasks if review_reports else 0,
+                "Rejected Tasks": total_rejected_tasks if supercheck_reports else 0,
                 "Word Count": total_word_count,
                 "Total Segments Duration": total_duration,
                 
