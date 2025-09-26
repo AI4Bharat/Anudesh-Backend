@@ -1451,6 +1451,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
             print("draft_tasks_count", draft_tasks_count)
 
             skipped_tasks_count = Annotation.objects.filter(
+                task__project_id=proj.id,
                 annotation_type=annotation_type,
                 updated_at__range=[start_date, end_date],
                 completed_by=user_id,
@@ -1461,15 +1462,19 @@ class AnalyticsViewSet(viewsets.ViewSet):
             to_be_revised_tasks_count = 0
             if review_reports:
                 to_be_revised_tasks_count = Annotation.objects.filter(
+                    task__project_id=proj.id,
+                    task__review_user=user_id,
                     annotation_status="to_be_revised",
                     annotation_type=REVIEWER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                 ).count()
-                print("to_be_revised_tasks_count", to_be_revised_tasks_count)
+                print("to_be_revised_tasks_count = ", to_be_revised_tasks_count)
 
             rejected_tasks_count = 0
             if supercheck_reports:
                 rejected_tasks_count = Annotation.objects.filter(
+                    task__project_id=proj.id,
+                    task__super_check_user=user_id,
                     annotation_type=SUPER_CHECKER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
@@ -1523,7 +1528,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 total_duration = convert_seconds_to_hours(sum(total_duration_list))
                 all_projects_total_duration += sum(total_duration_list)
 
-            # Per-project result
+            # Each-project result
             result = {
                 "Project Name": project_name,
                 (
