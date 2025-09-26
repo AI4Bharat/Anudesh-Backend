@@ -1616,11 +1616,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 if review_reports
                 else ("SuperChecked Tasks" if supercheck_reports else "Annotated Tasks")
             ): total_annotated_tasks_count,
-            # aditional things
-            "Draft Tasks": total_draft_tasks,
-            "Skipped Tasks": total_skipped_tasks,
-            "To Be Revised Tasks": total_to_be_revised_tasks if review_reports else 0,
-            "Rejected Tasks": total_rejected_tasks if supercheck_reports else 0,
             "Word Count": all_tasks_word_count,
             "Total Segments Duration": convert_seconds_to_hours(
                 all_projects_total_duration
