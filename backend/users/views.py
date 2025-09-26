@@ -1443,6 +1443,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
             
 
             draft_tasks_count = Annotation.objects.filter(
+                task__project_id=proj.id,
                 annotation_type=annotation_type,
                 updated_at__range=[start_date, end_date],
                 completed_by=user_id,
