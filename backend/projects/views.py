@@ -4930,8 +4930,9 @@ class UserProjectListView(generics.ListAPIView):
                 ),
             )
             .annotate(sort_time=Coalesce("bookmarked_at", Value(epoch_datetime)))
-            .order_by("-is_bookmarked", "-sort_time")
-        )
+                .order_by("-is_bookmarked", "-sort_time")
+                .filter(is_bookmarked=True)
+            )
 
 class BookmarkProjectView(APIView):
     permission_classes = [permissions.IsAuthenticated]
