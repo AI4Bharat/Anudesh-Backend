@@ -1008,6 +1008,9 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                             manager.get_username()
                             for manager in proj.workspace_id.managers.all()
                         ]
+                    else:
+                        proj_manager = []
+                    print(proj_manager)
                     try:
                         org_owner = proj.organization_id.created_by.get_username()
                         proj_manager.append(org_owner)
