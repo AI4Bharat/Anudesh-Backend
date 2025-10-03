@@ -1010,7 +1010,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         ]
                     else:
                         proj_manager = []
-                    print(proj_manager)
                     try:
                         org_owner = proj.organization_id.created_by.get_username()
                         proj_manager.append(org_owner)
