@@ -8,7 +8,7 @@ import math
 
 from django.core.files import File
 from django.db import IntegrityError
-from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField
+from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField, DateTimeField, Value
 from django.forms.models import model_to_dict
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -83,6 +83,14 @@ from workspaces.decorators import is_particular_workspace_manager
 from users.utils import generate_random_string
 from notifications.views import createNotification
 from notifications.utils import get_userids_from_project_id
+
+from django.db.models.functions import Coalesce
+from rest_framework import generics, permissions
+from .models import Project, ProjectBookmark
+from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
+
+
 
 # Create your views here.
 
@@ -1838,10 +1846,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 ret_dict = {"message": mes}
                 ret_status = status.HTTP_400_BAD_REQUEST
                 return Response(ret_dict, status=ret_status)
+        
         project_response = super().create(request, *args, **kwargs)
         project_id = project_response.data["id"]
 
         proj = Project.objects.get(id=project_id)
+        proj.created_by = request.user
         if proj.required_annotators_per_task > 1:
             proj.project_stage = REVIEW_STAGE
         proj.save()
@@ -2282,6 +2292,29 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"message": "This project is not yet published"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if cur_user.guest_user:
+            print(f"user{project.metadata_json}")
+            auto_assign_count = project.metadata_json.get('auto_assign_count', 0)
+
+        
+        # Check if guest already has auto-assigned tasks
+            if auto_assign_count > 0:
+                assigned_tasks_count = Task.objects.filter(
+                    project_id=pk,
+                    annotation_users=cur_user.id
+                ).count()
+                print(f"user{assigned_tasks_count}{auto_assign_count}")
+                if assigned_tasks_count >= auto_assign_count:
+                    return Response(
+                        {
+                            "message": "Your tasks have been auto-assigned",
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                else:
+                    # Set the number of tasks to be assigned
+                    request.data["num_tasks"] = auto_assign_count - assigned_tasks_count
+
         serializer = ProjectUsersSerializer(project, many=False)
         annotators = serializer.data["annotators"]
         annotator_ids = set()
@@ -2463,6 +2496,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
         )
+
     @action(
         detail=False,
         methods=["POST"],
@@ -4759,6 +4793,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
+                tasks = Task.objects.filter(project_id=pk)
+                print(f"Request: {request}")
+                user_id = request.data.get("user_id")
+                tasks = tasks.order_by("id")
+                tasks = (
+                    tasks.filter(task_status__in=[INCOMPLETE])
+                    .exclude(annotation_users=user_id)
+                    .annotate(annotator_count=Count("annotation_users"))
+                )
+                tasks = tasks.filter(
+                    annotator_count__lt=project.required_annotators_per_task
+                ).distinct()
+                if not tasks:
+                    project.release_lock(ANNOTATION_LOCK)
+                    return Response(
+                        {"message": "No tasks left for assignment in this project"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
                 if project.check_project_password(password):
                     current_user = request.data.get("user_id")
                     project.annotators.add(current_user)
@@ -4855,3 +4908,52 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
 
         return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
+
+class UserProjectListView(generics.ListAPIView):
+    serializer_class = ProjectSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        bookmark_qs = ProjectBookmark.objects.filter(
+            user=user, project=OuterRef("pk")
+        ).order_by("-bookmarked_at")
+
+        epoch_datetime = timezone.make_aware(datetime(1970, 1, 1))
+
+        return (
+            Project.objects.annotate(
+                is_bookmarked=Exists(bookmark_qs),
+                bookmarked_at=Subquery(
+                    bookmark_qs.values("bookmarked_at")[:1],
+                    output_field=DateTimeField(),
+                ),
+            )
+            .annotate(sort_time=Coalesce("bookmarked_at", Value(epoch_datetime)))
+                .order_by("-is_bookmarked", "-sort_time")
+                .filter(is_bookmarked=True)
+            )
+
+class BookmarkProjectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, project_id):
+        user = request.user
+        project = get_object_or_404(Project, pk=project_id)
+        bookmark, created = ProjectBookmark.objects.get_or_create(
+            user=user, project=project
+        )
+        if created:
+            return Response({"detail": "Bookmarked"}, status=status.HTTP_201_CREATED)
+        return Response({"detail": "Already bookmarked"}, status=status.HTTP_200_OK)
+
+class UnbookmarkProjectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, project_id):
+        deleted, _ = ProjectBookmark.objects.filter(
+            user=request.user, project__id=project_id
+        ).delete()
+        if deleted:
+            return Response({"detail": "Unbookmarked"}, status=status.HTTP_200_OK)
+        return Response({"detail": "Not bookmarked"}, status=status.HTTP_200_OK)
