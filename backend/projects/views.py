@@ -2273,6 +2273,89 @@ class ProjectViewSet(viewsets.ModelViewSet):
         finally:
             project.release_lock(lock_type)
             
+    # @action(
+    #     detail=True,
+    #     methods=["GET"],
+    #     name = "filter_base_tasks_assign",
+    #     url_name = "filter_base_tasks_asign",
+    # )
+    # @project_is_archived
+    # def filter_base_tasks_assign(self,request,pk,*args,**kwarges):
+    #     """
+    #     Fetch the list of tasks eligible for assignment to a user based on annotation_type.
+    #     """
+    #     project = Project.objects.get(pk=pk)
+    #     data = request.data
+
+    #     user_id = request.query_params.get("user_id")
+    #     annotation_type = int(request.query_params.get("annotation_type", 1))
+
+    #     if not project.is_published:
+    #         return Response({"message": "Project is not yet published"}, status=403)
+
+    #     if not all([user_id, annotation_type in [1, 2, 3]]):
+    #         return Response({"message": "Invalid or missing input."}, status=400)
+
+    #     try:
+    #         target_user = User.objects.get(id=user_id)
+    #     except User.DoesNotExist:
+    #         return Response({"message": "Target user not found"}, status=404)
+
+    #     serializer = ProjectUsersSerializer(project, many=False)
+
+    #     # Lock types
+    #     lock_type = {
+    #         1: ANNOTATION_LOCK,
+    #         2: REVIEW_LOCK,
+    #         3: SUPERCHECK_LOCK
+    #     }.get(annotation_type)
+
+    #     if lock_type and project.is_locked(lock_type):
+    #         while project.is_locked(lock_type):
+    #             sleep(settings.PROJECT_LOCK_RETRY_INTERVAL)
+
+    #     try:
+    #         project.set_lock(request.user, lock_type)
+    #     except Exception:
+    #         return Response({"message": "Failed to acquire lock. Try again later."}, status=429)
+
+        
+    #         # Annotation (1)
+    #     if annotation_type == 1:
+    #             annotator_ids = {target_user["id"] for target_user in serializer.data["annotators"]}
+
+    #             if user_id not in annotator_ids:
+    #                 return Response({"message": "User not assigned as annotator"}, status=403)
+
+    #             # Find annotations already created but still pending
+    #             proj_annotations = Annotation_model.objects.filter(
+    #                 task__project_id=pk,
+    #                 annotation_status=UNLABELED,
+    #                 completed_by=target_user
+    #             )
+    #             annotation_tasks = [a.task.id for a in proj_annotations]
+
+    #             pending_tasks = Task.objects.filter(
+    #                 project_id=pk,
+    #                 annotation_users=user_id,
+    #                 task_status__in=[INCOMPLETE, UNLABELED],
+    #                 id__in=annotation_tasks
+    #             ).count()
+
+    #             if pending_tasks >= project.max_pending_tasks_per_user:
+    #                 return Response({"message": "User has too many pending tasks"}, status=403)
+
+    #             # Get tasks eligible for assignment
+    #             assignable_tasks = Task.objects.filter(
+    #                 project_id=pk,
+    #                 task_status__in=[INCOMPLETE, UNLABELED]
+    #             ).exclude(annotation_users=user_id).annotate(
+    #                 annotator_count=Count("annotation_users")
+    #             ).filter(annotator_count__lt=project.required_annotators_per_task)
+    #             serializer = TaskSerializer(assignable_tasks, many=True)
+    #             return Response(serializer.data, status=200)
+        
+            
     @action(
         detail=True,
         methods=["POST"],
@@ -2731,6 +2814,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             allow_unireview = False
         cur_user = request.user
         project = Project.objects.get(pk=pk)
+
         if not project.is_published:
             return Response(
                 {"message": "This project is not yet published"},
@@ -2755,6 +2839,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"message": "You are not assigned to review this project"},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # --- New: Get selected annotators from frontend ---
+        annotator_user_ids = request.data.get("annotator_user_ids", [])
+        if not annotator_user_ids or not isinstance(annotator_user_ids, list):
+            return Response(
+                {"message": "Please provide a valid list of annotator_user_ids"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+            
+            
         lock_set = False
         while lock_set == False:
             if project.is_locked(REVIEW_LOCK):
@@ -2766,6 +2859,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     lock_set = True
                 except Exception as e:
                     continue
+                
+        # --- Filter tasks annotated by these users ---
+        annotated_task_ids = (
+            Annotation_model.objects.filter(
+                annotation_type=ANNOTATOR_ANNOTATION,
+                completed_by_id__in=annotator_user_ids,
+                annotation_status="labeled",
+            )
+            .values_list("task_id", flat=True)
+            .distinct()
+        )
+        
         # check if the project contains eligible tasks to pull
         tasks = (
             Task.objects.filter(project_id=pk)
