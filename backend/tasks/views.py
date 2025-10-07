@@ -79,7 +79,80 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated]
 
-    
+    # 🔹 Swagger docs for the unassigned review summary endpoint
+    @swagger_auto_schema(
+        method='get',
+        operation_summary="Get Unassigned Review Summary",
+        operation_description="""
+        Returns the number of **unassigned review tasks** grouped by annotator 
+        for a specific project.  
+
+        Use this to display a popup summary of pending review assignments 
+        per annotator in the Review Tasks tab.
+        """,
+        manual_parameters=[
+            openapi.Parameter(
+                'project_id',
+                openapi.IN_QUERY,
+                description="The ID of the project for which to fetch unassigned review task summary",
+                type=openapi.TYPE_INTEGER,
+                required=True,
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="List of annotators with their unassigned review task count",
+            ),
+            400: openapi.Response(description="Missing or invalid parameters"),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="unassigned-review-summary",
+        url_name="unassigned_review_summary",
+    )
+    def unassigned_review_summary(self, request):
+        """
+        Returns a summary of unassigned review tasks grouped by annotator,
+        including the list of unassigned task IDs.
+        """
+        project_id = request.query_params.get("project_id")
+        if not project_id:
+            return Response(
+                {"error": "Missing required parameter: project_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = (
+            Task.objects.filter(
+                project_id=project_id,
+                annotations__isnull=False,
+                review_user__isnull=True,
+            )
+            .values(
+                "annotations__completed_by__id",
+                "annotations__completed_by__email",
+            )
+            .annotate(
+                unassigned_count=Count("id"),
+                task_ids=ArrayAgg("id", distinct=True),
+            )
+            .order_by("-unassigned_count")
+        )
+
+        result = [
+            {
+                "annotator_id": item["annotations__completed_by__id"],
+                "annotator_email": item["annotations__completed_by__email"],
+                "unassigned_count": item["unassigned_count"],
+                "task_ids": item["task_ids"],
+            }
+            for item in data
+            if item["annotations__completed_by__id"] is not None
+        ]
+
+        return Response(result, status=status.HTTP_200_OK)
     @swagger_auto_schema(
         method="post",
         request_body=openapi.Schema(
