@@ -4922,6 +4922,8 @@ class UserProjectListView(generics.ListAPIView):
             user=user, project=OuterRef("pk")
         ).order_by("-bookmarked_at")
 
+        epoch_datetime = timezone.make_aware(datetime(1970, 1, 1))
+
         return (
             Project.objects.annotate(
                 is_bookmarked=Exists(bookmark_qs),
@@ -4930,8 +4932,9 @@ class UserProjectListView(generics.ListAPIView):
                     output_field=DateTimeField(),
                 ),
             )
-            .annotate(sort_time=Coalesce("bookmarked_at", Value("1970-01-01")))
+            .annotate(sort_time=Coalesce("bookmarked_at", Value(epoch_datetime)))
             .order_by("-is_bookmarked", "-sort_time")
+            .filter(is_bookmarked=True)
         )
 
 class BookmarkProjectView(APIView):
