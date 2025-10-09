@@ -26,6 +26,7 @@ from .utils import (
     assign_attributes_and_save_dataitem,
 )
 from .annotation_registry import *
+import random
 
 # Celery logger settings
 logger = get_task_logger(__name__)
@@ -259,6 +260,7 @@ def create_tasks_from_dataitems(items, project):
         for task in tasks:
             extra_llms = [rotating_llms.popleft() for _ in range(num_extra_llms)]
             selected_llms = fixed_llms + extra_llms
+            random.shuffle(selected_llms)
             task.data["model"] = selected_llms
             task.save()
             rotating_llms.extend(extra_llms)
