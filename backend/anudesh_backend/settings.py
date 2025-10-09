@@ -41,11 +41,13 @@ else:
         "dev.anudesh.ai4bharat.org",
         "0.0.0.0",
         "backend.dev.anudesh.ai4bharat.org",
+        "backend.anudesh.ai4bharat.org",
     ]
 
 # Application definition
 
 INSTALLED_APPS = [
+    "django_extensions",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
