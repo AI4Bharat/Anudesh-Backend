@@ -8,7 +8,7 @@ from rest_framework import mixins
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated,AllowAny
 from django.core.paginator import Paginator
 
 import requests
@@ -111,6 +111,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         methods=["get"],
         url_path="unassigned-review-summary",
         url_name="unassigned_review_summary",
+        permission_classes=[AllowAny],
     )
     def unassigned_review_summary(self, request):
         """
