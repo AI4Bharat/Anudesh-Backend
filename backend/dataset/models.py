@@ -396,7 +396,7 @@ class Instruction(DatasetBase):
         help_text="Domain information for the instruction",
     )
     meta_info_structure = models.CharField(
-        max_length=255,
+        max_length=2048,
         verbose_name="Meta Info Structure",
         null=True,
         blank=True,
