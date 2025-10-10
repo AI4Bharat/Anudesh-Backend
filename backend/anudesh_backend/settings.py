@@ -38,6 +38,8 @@ if DEBUG:
     ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0", "*"]
 else:
     ALLOWED_HOSTS = [
+        "127.0.0.1", 
+        "localhost",
         "dev.anudesh.ai4bharat.org",
         "0.0.0.0",
         "backend.dev.anudesh.ai4bharat.org",

@@ -762,6 +762,200 @@ class GoogleLogin(viewsets.ViewSet):
 
 class UserViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated,)
+    
+    # @action(detail=False, methods=["post"], url_path="save-preferred-annotators")
+    # def save_preferred_annotators(self, request):
+    #     user = request.user  # ✅ Automatically gets current logged-in user
+    #     annotator_ids = request.data.get("annotator_ids", [])
+
+    #     if not isinstance(annotator_ids, list):
+    #         return Response({"error": "annotator_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     # ✅ Load existing JSON or create base structure
+    #     preferred_tasks = user.preferred_task_by_json or {"preferred_annotators": {}, "preferred_reviewers": {}}
+
+    #     # ✅ Update only current user’s preferred annotators
+    #     preferred_tasks["preferred_annotators"][str(user.id)] = annotator_ids
+
+    #     # ✅ Save updated preferences
+    #     user.preferred_task_by_json = preferred_tasks
+    #     user.save(update_fields=["preferred_task_by_json"])
+
+    #     return Response(
+    #         {
+    #             "message": "Preferred annotators saved successfully",
+    #             "user_id": user.id,
+    #             "data": user.preferred_task_by_json
+    #         },
+    #         status=status.HTTP_200_OK
+    #     )
+
+    # @action(detail=False, methods=["post"], url_path="save-preferred-reviewers")
+    # def save_preferred_reviewers(self, request):
+    #     user = request.user  # ✅ Current logged-in user
+    #     reviewer_ids = request.data.get("reviewer_ids", [])  # ✅ Use reviewer_ids key now
+
+    #     if not isinstance(reviewer_ids, list):
+    #         return Response({"error": "reviewer_ids must be a list"}, status=status.HTTP_400_BAD_REQUEST)
+
+    #     # ✅ Load existing JSON or create base structure
+    #     preferred_tasks = user.preferred_task_by_json or {"preferred_annotators": {}, "preferred_reviewers": {}}
+
+    #     # ✅ Update only current user’s preferred reviewers
+    #     preferred_tasks["preferred_reviewers"][str(user.id)] = reviewer_ids
+
+    #     # ✅ Save updated preferences
+    #     user.preferred_task_by_json = preferred_tasks
+    #     user.save(update_fields=["preferred_task_by_json"])
+
+    #     return Response(
+    #         {
+    #             "message": "Preferred reviewers saved successfully",
+    #             "user_id": user.id,
+    #             "data": user.preferred_task_by_json
+    #         },
+    #         status=status.HTTP_200_OK
+        # )
+
+    # @action(detail=False, methods=["post"], url_path="save-preferred-users",)
+    # def save_preferred_users(self, request):
+    #     """
+    #     Saves preferred annotators and reviewers together for the current user.
+    #     Request payload:
+    #     {
+    #       "annotator_ids": [188, 189, 190],
+    #       "reviewer_ids": [188, 189, 190]
+    #     }
+    #     """
+    #     user = request.user
+    #     annotator_ids = request.data.get("annotator_ids", [])
+    #     reviewer_ids = request.data.get("reviewer_ids", [])
+
+    #     # ✅ Validate input types
+    #     if not isinstance(annotator_ids, list) or not isinstance(reviewer_ids, list):
+    #         return Response(
+    #             {"error": "annotator_ids and reviewer_ids must be lists"},
+    #             status=status.HTTP_400_BAD_REQUEST
+    #         )
+
+    #     # ✅ Load existing JSON safely
+    #     preferred_tasks = user.preferred_task_by_json or {
+    #         "preferred_annotators": {},
+    #         "preferred_reviewers": {}
+    #     }
+
+    #     user_id_str = str(user.id)
+
+    #     # ✅ Update both annotators and reviewers for the current user
+    #     preferred_tasks["preferred_annotators"] = {user_id_str: annotator_ids}
+    #     preferred_tasks["preferred_reviewers"] = {user_id_str: reviewer_ids}
+
+
+    #     # ✅ Save the updated JSON
+    #     user.preferred_task_by_json = preferred_tasks
+    #     user.save(update_fields=["preferred_task_by_json"])
+
+    #     return Response(
+    #         {
+    #             "message": "Preferred annotators and reviewers saved successfully",
+    #             "current_user_id": user.id,
+    #             "data": user.preferred_task_by_json
+    #         },
+    #         status=status.HTTP_200_OK
+        # )
+    # @action(detail=False, methods=["post"], url_path="save-preferred-users")
+    # def save_preferred_users(self, request):
+    #     """
+    #     Saves preferred annotators and reviewers separately for the current user.
+    #     Request payload:
+    #     {
+    #       "annotator_ids": [...],  # optional
+    #       "reviewer_ids": [...]    # optional
+    #     }
+    #     """
+    #     user = request.user
+    #     annotator_ids = request.data.get("annotator_ids", None)
+    #     reviewer_ids = request.data.get("reviewer_ids", None)
+
+    #     # Validate types if provided
+    #     if annotator_ids is not None and not isinstance(annotator_ids, list):
+    #         return Response({"error": "annotator_ids must be a list"}, status=400)
+    #     if reviewer_ids is not None and not isinstance(reviewer_ids, list):
+    #         return Response({"error": "reviewer_ids must be a list"}, status=400)
+
+    #     # Load existing data
+    #     preferred_tasks = user.preferred_task_by_json or {
+    #         "preferred_annotators": {},
+    #         "preferred_reviewers": {}
+    #     }
+
+    #     user_id_str = str(user.id)
+
+    #     # Update only annotators if provided
+    #     if annotator_ids is not None:
+    #         preferred_tasks["preferred_annotators"][user_id_str] = annotator_ids
+
+    #     # Update only reviewers if provided
+    #     if reviewer_ids is not None:
+    #         preferred_tasks["preferred_reviewers"][user_id_str] = reviewer_ids
+
+    #     # Save
+    #     user.preferred_task_by_json = preferred_tasks
+    #     user.save(update_fields=["preferred_task_by_json"])
+
+    #     return Response({
+    #         "message": "Preferred annotators and reviewers saved successfully",
+    #         "current_user_id": user.id,
+    #         "data": user.preferred_task_by_json
+    #     }, status=200)
+    @action(detail=False, methods=["post"], url_path="save-preferred-users")
+    def save_preferred_users(self, request):
+        """
+        Saves preferred annotators and reviewers separately for the current project.
+        Request payload:
+        {
+          "project_id": 2125,
+          "annotator_ids": [...],  # optional
+          "reviewer_ids": [...]    # optional
+        }
+        """
+        user = request.user
+        annotator_ids = request.data.get("annotator_ids", None)
+        reviewer_ids = request.data.get("reviewer_ids", None)
+        project_id = request.data.get("project_id", None)
+    
+        if project_id is None:
+            return Response({"error": "project_id is required"}, status=400)
+    
+        # Validate types if provided
+        if annotator_ids is not None and not isinstance(annotator_ids, list):
+            return Response({"error": "annotator_ids must be a list"}, status=400)
+        if reviewer_ids is not None and not isinstance(reviewer_ids, list):
+            return Response({"error": "reviewer_ids must be a list"}, status=400)
+    
+        preferred_tasks = user.preferred_task_by_json or {
+            "preferred_annotators": {},
+            "preferred_reviewers": {}
+        }
+    
+        project_id_str = str(project_id)  # ✅ use project_id instead of user.id
+    
+        if annotator_ids is not None:
+            preferred_tasks["preferred_annotators"][project_id_str] = annotator_ids
+    
+        if reviewer_ids is not None:
+            preferred_tasks["preferred_reviewers"][project_id_str] = reviewer_ids
+    
+        user.preferred_task_by_json = preferred_tasks
+        user.save(update_fields=["preferred_task_by_json"])
+    
+        return Response({
+            "message": "Preferred annotators and reviewers saved successfully",
+            "current_user_id": user.id,
+            "data": user.preferred_task_by_json
+        }, status=200)
+
+
 
     @swagger_auto_schema(request_body=UserUpdateSerializer)
     @action(detail=False, methods=["patch"], url_path="update", url_name="edit_profile")
