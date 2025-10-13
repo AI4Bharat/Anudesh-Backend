@@ -2716,67 +2716,79 @@ class ProjectViewSet(viewsets.ModelViewSet):
         },
     )
     @action(
-    detail=True,
-    methods=["POST"],
-    name="Assign new tasks for review to user",
-    url_name="assign_new_review_tasks",
+        detail=True,
+        methods=["POST"],
+        name="Assign new tasks for review to user",
+        url_name="assign_new_review_tasks",
     )
     @project_is_archived
     def assign_new_review_tasks(self, request, pk, *args, **kwargs):
-        project = Project.objects.get(pk=pk)
-        cur_user = request.user
-    
+        """
+        Pull a new batch of labeled tasks and assign to the reviewer
+        """
         try:
-            allow_unireview = project.metadata_json.get("allow_unireview", False)
-        except Exception:
+            allow_unireview = project.metadata_json["allow_unireview"]
+        except:
             allow_unireview = False
-    
-        # --- 1. Basic checks -----------------------------------------------------
+        cur_user = request.user
+        project = Project.objects.get(pk=pk)
         if not project.is_published:
             return Response(
                 {"message": "This project is not yet published"},
                 status=status.HTTP_403_FORBIDDEN,
             )
-    
-        if project.project_stage not in [REVIEW_STAGE, SUPERCHECK_STAGE]:
+        if not (
+            project.project_stage == REVIEW_STAGE
+            or project.project_stage == SUPERCHECK_STAGE
+        ):
             return Response(
                 {"message": "Task reviews are disabled for this project"},
                 status=status.HTTP_403_FORBIDDEN,
             )
-    
         serializer = ProjectUsersSerializer(project, many=False)
-        annotation_reviewers = serializer.data.get("annotation_reviewers", [])
-        reviewer_ids = {u["id"] for u in annotation_reviewers}
-    
-        if cur_user.id not in reviewer_ids:
+        annotation_reviewers = serializer.data["annotation_reviewers"]
+        reviewer_ids = set()
+        for annotation_reviewer in annotation_reviewers:
+            reviewer_ids.add(annotation_reviewer["id"])
+        # verify if user belongs in annotation_reviewers for this project
+        if not cur_user.id in reviewer_ids:
             return Response(
                 {"message": "You are not assigned to review this project"},
                 status=status.HTTP_403_FORBIDDEN,
             )
-    
-        # --- 2. Fetch preferred annotators from User model ----------------------
+        lock_set = False
+        while lock_set == False:
+            if project.is_locked(REVIEW_LOCK):
+                sleep(settings.PROJECT_LOCK_RETRY_INTERVAL)
+                continue
+            else:
+                try:
+                    project.set_lock(cur_user, REVIEW_LOCK)
+                    lock_set = True
+                except Exception as e:
+                    continue
+        # Fetch preferred annotators from User model ----------------------
         preferred_task_json = getattr(cur_user, "preferred_task_by_json", {})
         preferred_annotators = preferred_task_json.get("preferred_annotators", {})
         project_key = str(pk)
         preferred_annotator_ids = preferred_annotators.get(project_key, [])
     
         print(f"Reviewer {cur_user.id} preferred annotators for project {pk}: {preferred_annotator_ids}")
-    
-        # --- 3. Build base task queryset ----------------------------------------
-        base_tasks = Task.objects.filter(
-            project_id=pk,
-            task_status=ANNOTATED,
-            review_user__isnull=True
-        ).exclude(annotation_users=cur_user.id).distinct()
-    
-        if not base_tasks.exists():
+        # check if the project contains eligible tasks to pull
+        tasks = (
+            Task.objects.filter(project_id=pk)
+            .filter(task_status=ANNOTATED)
+            .filter(review_user__isnull=True)
+            .exclude(annotation_users=cur_user.id)
+            .distinct()
+        )
+        if not tasks:
             project.release_lock(REVIEW_LOCK)
             return Response(
                 {"message": "No tasks available for review in this project"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-    
-        # --- 4. Filter tasks based on preferred annotators ----------------------
+        # Filter tasks based on preferred annotators ----------------------
         if preferred_annotator_ids:
             annotation_filter_task_ids = Annotation_model.objects.filter(
                 annotation_type=ANNOTATOR_ANNOTATION,
@@ -2784,80 +2796,85 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task__project_id=pk
             ).values_list("task_id", flat=True).distinct()
     
-            base_tasks = base_tasks.filter(id__in=annotation_filter_task_ids)
-    
-        if not base_tasks.exists():
-            project.release_lock(REVIEW_LOCK)
-            return Response(
-                {"message": "No tasks found from preferred annotators."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-    
-        # --- 5. Determine task count -------------------------------------------
-        task_pull_count = request.data.get("num_tasks", project.tasks_pull_count_per_batch)
-        task_pull_count = int(task_pull_count)
-    
-        # --- 6. Task prioritization logic ---------------------------------------
+            tasks = tasks.filter(id__in=annotation_filter_task_ids)
+            
+        task_pull_count = project.tasks_pull_count_per_batch
+        if "num_tasks" in dict(request.data):
+            task_pull_count = request.data["num_tasks"]
+
         if project.required_annotators_per_task > 1 and allow_unireview:
             task_ids = (
-                Annotation_model.objects.filter(task__in=base_tasks)
+                Annotation_model.objects
+                .filter(task__in=tasks)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
-                .filter(annotation_status="labeled")
-                .values("task__input_data")
-                .annotate(tasks_with_labeled_count=Count("task", distinct=True))
-                .order_by("-tasks_with_labeled_count")
-                .values_list("task", flat=True)
+                .filter(annotation_status="labeled")  # focus only on labeled ones
+                .values("task__input_data")  # group by input_data
+                .annotate(tasks_with_labeled_count=Count("task", distinct=True))  # count tasks sharing this input_data
+                .order_by("-tasks_with_labeled_count")  # order by that count
+                .values_list("task", flat=True)  # get task IDs back
             )
         else:
+        # Sort by most recently updated annotation; temporary change
             task_ids = (
-                Annotation_model.objects.filter(task__in=base_tasks)
+                Annotation_model.objects.filter(task__in=tasks)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
                 .distinct()
                 .order_by("-updated_at")
                 .values_list("task", flat=True)
             )
-    
-        task_ids = list(task_ids)[:task_pull_count]
-    
+        # tasks = tasks.order_by("id")
+        task_ids = list(task_ids)
+        task_ids = task_ids[:task_pull_count]
         seen = set()
+        required_annotators_per_task = project.required_annotators_per_task
         corrupted_tasks = set()
-    
-        # --- 7. Handle multi-annotator corruption filter ------------------------
-        if project.required_annotators_per_task > 1 and allow_unireview:
+        print("Before loop: ",task_ids)
+        if required_annotators_per_task > 1 and allow_unireview:
             seen_tasks = set(task_ids)
-            for i, ti in enumerate(task_ids):
+            for i in range(len(task_ids)):
+                ti = task_ids[i]
                 t = Task.objects.get(id=ti)
-                similar_tasks = Task.objects.filter(
-                    input_data=t.input_data,
-                    project_id=project.id,
-                    task_status=ANNOTATED,
-                    review_user__isnull=True
-                ).exclude(id=t.id)
-                corrupt_tasks = Task.objects.filter(
-                    input_data=t.input_data,
-                    project_id=project.id,
-                    task_status=INCOMPLETE,
-                    review_user__isnull=True
-                ).exclude(id=t.id)
-                if corrupt_tasks.exists():
-                    corrupted_tasks.add(ti)
+                similar_tasks = (
+                    Task.objects.filter(input_data=t.input_data, project_id=project.id)
+                    .filter(task_status=ANNOTATED)
+                    .filter(review_user__isnull=True)
+                    .exclude(id=t.id)
+                )
+                corrupt_tasks = (
+                    Task.objects.filter(input_data=t.input_data, project_id=project.id)
+                    .filter(task_status=INCOMPLETE)
+                    .filter(review_user__isnull=True)
+                    .exclude(id=t.id)
+                )
+                
+                if corrupt_tasks:
+                    corrupted_tasks.add(task_ids[i])
+                    print(f"Corrupt tasks related to {ti} inside loop iteration {i}: ",corrupt_tasks)
                     continue
-                for st in similar_tasks:
+                for j in range(len(similar_tasks)):
+                    st = similar_tasks[j]
                     if st.id not in seen_tasks:
                         task_ids.append(st.id)
-    
+                print(f"Task_id inside loop iteration {i}: ",ti)
+                
+                print(f"Similar tasks inside loop iteration {i}: ",similar_tasks)
+        print("Corrupted tasks after loop: ",corrupted_tasks)
+        print("Task_ids after loop: ",task_ids)
         task_ids = [t for t in task_ids if t not in corrupted_tasks]
-    
-        if not task_ids:
+        # task_ids = task_ids[:task_pull_count]
+        # if required_annotators_per_task > 1:
+        #     task_ids = filter_tasks_for_review_filter_criteria(task_ids)
+        if len(task_ids) == 0:
             project.release_lock(REVIEW_LOCK)
             return Response(
-                {"message": "No valid tasks found for review."},
+                {"message": "No tasks available for review in this project"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-    
-        # --- 8. Assign review tasks --------------------------------------------
-        is_MultipleInteractionEvaluation = project.project_type == "MultipleInteractionEvaluation"
-    
+            
+        is_MultipleInteractionEvaluation = (
+            project.project_type == "MultipleInteractionEvaluation"
+        )
+        #print(task_ids)
         for task_id in task_ids:
             if task_id in seen:
                 continue
@@ -2865,33 +2882,32 @@ class ProjectViewSet(viewsets.ModelViewSet):
             task = Task.objects.get(pk=task_id)
             if is_MultipleInteractionEvaluation:
                 add_extra_task_data(task, project)
-    
             task.review_user = cur_user
             task.save()
-    
             rec_ann = (
                 Annotation_model.objects.filter(task_id=task_id)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
                 .order_by("updated_at")
             )
-    
-            # store current rating summary
+            curr_response = {}
+            def dict_to_string(d):
+                return "{" + ", ".join(f"{key}: {value}" for key, value in d.items()) + "}"
             try:
-                curr_response = {}
                 for qa in rec_ann[0].result[0]["model_responses_json"]:
                     curr_response[qa["model_name"]] = int(qa["questions_response"][0]["response"][0])
-                task.data["current_rating"] = "{" + ", ".join(f"{k}: {v}" for k, v in curr_response.items()) + "}"
-                task.data.pop("curr_rating", None)
+                task.data["current_rating"] = dict_to_string(curr_response)
+                if "curr_rating" in task.data:
+                    del task.data["curr_rating"]
                 task.save()
-            except Exception:
-                pass
-            
+            except:
+                True
             reviewer_anno = Annotation_model.objects.filter(
-                task_id=task_id,
-                annotation_type=REVIEWER_ANNOTATION
+                task_id=task_id, annotation_type=REVIEWER_ANNOTATION
             )
-    
-            if not reviewer_anno.exists():
+            reviewer_anno_count = Annotation_model.objects.filter(
+                task_id=task_id, annotation_type=REVIEWER_ANNOTATION
+            ).count()
+            if reviewer_anno_count == 0:
                 base_annotation_obj = Annotation_model(
                     result=rec_ann[0].result,
                     task=task,
@@ -2903,14 +2919,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 )
                 try:
                     base_annotation_obj.save()
-                except IntegrityError:
-                    print(f"Duplicate annotation creation avoided for task {task_id}")
+                except IntegrityError as e:
+                    print(
+                        f"Task, completed_by and parent_annotation fields are same while assigning new review task "
+                        f"for project id-{project.id}, user-{cur_user.email}"
+                    )
             else:
-                task.review_user = reviewer_anno.first().completed_by
+                task.review_user = reviewer_anno[i].completed_by
                 task.save()
-    
         project.release_lock(REVIEW_LOCK)
-    
         return Response(
             {
                 "message": "Tasks assigned successfully",
@@ -2918,7 +2935,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 "assigned_task_ids": task_ids,
                 "current_user_id": cur_user.id,
             },
-            status=status.HTTP_200_OK,
+            status=status.HTTP_200_OK
         )
         
     @action(
