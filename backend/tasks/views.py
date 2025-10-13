@@ -154,6 +154,56 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         ]
 
         return Response(result, status=status.HTTP_200_OK)
+    
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="unassigned-supercheck-summary",
+        url_name="unassigned_supercheck_summary",
+        permission_classes=[AllowAny],  # ✅ overrides global
+    )
+    def unassigned_supercheck_summary(self, request):
+        """
+        Returns a summary of unassigned supercheck tasks grouped by reviewer.
+        """
+        project_id = request.query_params.get("project_id")
+        if not project_id:
+            return Response(
+                {"error": "Missing required parameter: project_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = (
+            Task.objects.filter(
+                project_id=project_id,
+                annotations__isnull=False,
+                review_user__isnull=False,
+                super_check_user__isnull=True,
+            )
+            .values(
+                "review_user__id",
+                "review_user__email",
+            )
+            .annotate(
+                unassigned_count=Count("id"),
+                task_ids=ArrayAgg("id", distinct=True),
+            )
+            .order_by("-unassigned_count")
+        )
+
+        result = [
+            {
+                "reviewer_id": item["review_user__id"],
+                "reviewer_email": item["review_user__email"],
+                "unassigned_count": item["unassigned_count"],
+                "task_ids": item["task_ids"],
+            }
+            for item in data
+            if item["review_user__id"] is not None
+        ]
+
+        return Response(result, status=status.HTTP_200_OK)
+
     @swagger_auto_schema(
         method="post",
         request_body=openapi.Schema(
