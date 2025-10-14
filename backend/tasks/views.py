@@ -8,7 +8,7 @@ from rest_framework import mixins
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.core.paginator import Paginator
 
 import requests
@@ -107,10 +107,11 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         },
     )
     @action(
-        detail=False,
-        methods=["get"],
-        url_path="unassigned-review-summary",
-        url_name="unassigned_review_summary",
+    detail=False,
+    methods=["get"],
+    url_path="unassigned-review-summary",
+    url_name="unassigned_review_summary",
+    permission_classes=[AllowAny],
     )
     def unassigned_review_summary(self, request):
         """
@@ -123,14 +124,19 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                 {"error": "Missing required parameter: project_id"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
+    
+        cur_user = request.user  # current logged-in user
+    
+        tasks = (
+            Task.objects.filter(project_id=project_id)
+            .filter(task_status=ANNOTATED)
+            .filter(review_user__isnull=True)
+            .exclude(annotation_users=cur_user.id)
+            .distinct()
+        )
+    
         data = (
-            Task.objects.filter(
-                project_id=project_id,
-                annotations__isnull=False,
-                review_user__isnull=True,
-            )
-            .values(
+            tasks.values(
                 "annotations__completed_by__id",
                 "annotations__completed_by__email",
             )
@@ -140,7 +146,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
             )
             .order_by("-unassigned_count")
         )
-
+    
         result = [
             {
                 "annotator_id": item["annotations__completed_by__id"],
@@ -151,8 +157,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
             for item in data
             if item["annotations__completed_by__id"] is not None
         ]
-
+    
         return Response(result, status=status.HTTP_200_OK)
+
     
     @action(
         detail=False,
