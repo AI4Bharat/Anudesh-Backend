@@ -762,6 +762,96 @@ class GoogleLogin(viewsets.ViewSet):
 
 class UserViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated,)
+    @action(detail=False, methods=["post"], url_path="save-preferred-annotators")
+    def save_preferred_annotators(self, request):
+        """
+        Saves preferred annotators separately for the current project.
+        """
+        user = request.user
+        annotator_ids = request.data.get("annotator_ids", None)
+        project_id = request.data.get("project_id", None)
+
+        if project_id is None:
+            return Response({"error": "project_id is required"}, status=400)
+
+        if annotator_ids is not None and not isinstance(annotator_ids, list):
+            return Response({"error": "annotator_ids must be a list"}, status=400)
+
+        preferred_tasks = user.preferred_task_by_json or {}
+
+        # ✅ Ensure structure is dict-based, not list
+        if not isinstance(preferred_tasks, dict):
+            preferred_tasks = {}
+
+        if "preferred_annotators" not in preferred_tasks or not isinstance(preferred_tasks["preferred_annotators"], dict):
+            preferred_tasks["preferred_annotators"] = {}
+
+        project_id_str = str(project_id)
+        if annotator_ids is not None:
+            preferred_tasks["preferred_annotators"][project_id_str] = annotator_ids
+
+        user.preferred_task_by_json = preferred_tasks
+        user.save(update_fields=["preferred_task_by_json"])
+
+        return Response({
+            "message": "Preferred annotators saved successfully",
+            "current_user_id": user.id,
+            "data": user.preferred_task_by_json
+        }, status=200)
+
+
+    @action(detail=False, methods=["post"], url_path="save-preferred-reviewers")
+    def save_preferred_reviewers(self, request):
+        """
+        Saves preferred reviewers for the current project.
+        Request payload:
+        {
+          "project_id": 2125,
+          "reviewer_ids": [188, 189, 190]
+        }
+        """
+        user = request.user
+        project_id = request.data.get("project_id")
+        reviewer_ids = request.data.get("reviewer_ids")
+
+        # ✅ Validate project_id
+        if not project_id:
+            return Response(
+                {"error": "project_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ✅ Validate reviewer_ids
+        if reviewer_ids is not None and not isinstance(reviewer_ids, list):
+            return Response(
+                {"error": "reviewer_ids must be a list"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ✅ Ensure preferred_task_by_json is always a dict
+        preferred_tasks = user.preferred_task_by_json or {}
+
+        # ✅ If 'preferred_reviewers' exists but isn't a dict, reset it
+        if not isinstance(preferred_tasks.get("preferred_reviewers"), dict):
+            preferred_tasks["preferred_reviewers"] = {}
+
+        preferred_reviewers = preferred_tasks["preferred_reviewers"]
+
+        # ✅ Update reviewers for this project
+        preferred_reviewers[str(project_id)] = reviewer_ids or []
+
+        # ✅ Save back to the JSON field
+        user.preferred_task_by_json = preferred_tasks
+        user.save(update_fields=["preferred_task_by_json"])
+
+        return Response(
+            {
+                "message": "Preferred reviewers saved successfully",
+                "current_user_id": user.id,
+                "preferred_reviewers": preferred_reviewers
+            },
+            status=status.HTTP_200_OK
+        )
 
     @swagger_auto_schema(request_body=UserUpdateSerializer)
     @action(detail=False, methods=["patch"], url_path="update", url_name="edit_profile")
