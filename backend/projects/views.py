@@ -15,6 +15,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from users.models import LANG_CHOICES
+from users.models import *
 from users.serializers import UserEmailSerializer
 from dataset.serializers import TaskResultSerializer, DatasetInstanceSerializer
 from utils.search import process_search_query
@@ -2766,6 +2767,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     lock_set = True
                 except Exception as e:
                     continue
+        # Fetch preferred annotators from User model ----------------------
+        preferred_task_json = getattr(cur_user, "preferred_task_by_json", {})
+        preferred_annotators = preferred_task_json.get("preferred_annotators", {})
+        project_key = str(pk)
+        preferred_annotator_ids = preferred_annotators.get(project_key, [])
+    
+        print(f"Reviewer {cur_user.id} preferred annotators for project {pk}: {preferred_annotator_ids}")
         # check if the project contains eligible tasks to pull
         tasks = (
             Task.objects.filter(project_id=pk)
@@ -2780,6 +2788,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"message": "No tasks available for review in this project"},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        # Filter tasks based on preferred annotators ----------------------
+        if preferred_annotator_ids:
+            annotation_filter_task_ids = Annotation_model.objects.filter(
+                annotation_type=ANNOTATOR_ANNOTATION,
+                completed_by__in=preferred_annotator_ids,
+                task__project_id=pk
+            ).values_list("task_id", flat=True).distinct()
+    
+            tasks = tasks.filter(id__in=annotation_filter_task_ids)
+            
         task_pull_count = project.tasks_pull_count_per_batch
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
@@ -2911,9 +2929,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task.save()
         project.release_lock(REVIEW_LOCK)
         return Response(
-            {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
+            {
+                "message": "Tasks assigned successfully",
+                "filtered_by_preferred_annotators": preferred_annotator_ids,
+                "assigned_task_ids": task_ids,
+                "current_user_id": cur_user.id,
+            },
+            status=status.HTTP_200_OK
         )
-
+        
     @action(
         detail=True,
         methods=["post"],
