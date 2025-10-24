@@ -136,6 +136,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
             tasks.values(
                 "annotations__completed_by__id",
                 "annotations__completed_by__email",
+                "annotations__completed_by__username"
             )
             .annotate(
                 unassigned_count=Count("id"),
@@ -147,6 +148,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         result = [
             {
                 "annotator_id": item["annotations__completed_by__id"],
+                "annotator_username": item["annotations__completed_by__username"],
                 "annotator_email": item["annotations__completed_by__email"],
                 "unassigned_count": item["unassigned_count"],
                 "task_ids": item["task_ids"],
