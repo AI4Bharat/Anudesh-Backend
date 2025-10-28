@@ -1,7 +1,7 @@
 import ast
 import json
 import os
-
+import uuid
 from azure.storage.blob import BlobServiceClient
 
 from anudesh_backend.locks import Lock
@@ -13,7 +13,7 @@ from drf_yasg.utils import swagger_auto_schema
 from projects.models import *
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes, action
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from users.utils import (
     INDIC_TRANS_SUPPORTED_LANGUAGES,
@@ -33,7 +33,7 @@ from .tasks import (
 from .utils import (
     check_if_particular_organization_owner,
 )
-
+from datetime import timezone
 
 @api_view(["GET"])
 def get_indic_trans_supported_langs_model_codes(request):
@@ -312,7 +312,19 @@ def download_all_projects(request):
 def chat_log(request):
     try:
         interaction_json = request.data.get("interaction_json")
-        now = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+        user_data = request.data.get("user_data", {})
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        user = request.user
+        session_id = request.data.get("session_id", datetime.now(timezone.utc).strftime("%H:%M:%S %d-%m-%Y"))
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0].strip()
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        user_data["ip_address"] = ip
+        user_data["user"] = user.email
+        interaction_json["timestamp"] = datetime.now(timezone.utc).strftime("%H:%M:%S %d-%m-%Y")
+        log_entry_string = json.dumps(interaction_json) + "\n"
+        log_entry_bytes = log_entry_string.encode("utf-8")
         connection_string = os.getenv("CONNECTION_STRING_CHAT_LOG")
         container_name = os.getenv("CONTAINER_CHAT_LOG")
         if not test_container_connection(connection_string, container_name):
@@ -326,16 +338,19 @@ def chat_log(request):
             connection_string
         )
         container_client = blob_service_client.get_container_client(container_name)
-        name = f"{now} Anudesh interactions dump.log"
+        name = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/{user.email}-{session_id}.jsonl"
         blob_client = container_client.get_blob_client(name)
-        if blob_client.exists():
-            existing_data = blob_client.download_blob()
-            existing_content = existing_data.readall().decode("utf-8")
-            existing_json_data = json.loads(existing_content)
-            existing_json_data += interaction_json
-        else:
-            existing_json_data = json.dumps(interaction_json, indent=2)
-        blob_client.upload_blob(existing_json_data, overwrite=True)
+        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=name)
+
+        if not blob_client.exists():
+            blob_client.create_append_blob()
+            user_entry_string = json.dumps({'user_data': user_data}) + "\n"
+            user_entry_bytes = user_entry_string.encode("utf-8")
+            blob_client.append_block(user_entry_bytes)
+        
+        blob_client.append_block(log_entry_bytes)
+
         return Response(
             {"message": "Data stored successfully"},
             status=status.HTTP_201_CREATED,
@@ -361,7 +376,33 @@ def chat_output(request):
                 prompt,
                 history,
                 model,
-            )
+            ),
+            "model": model,
         },
         status=status.HTTP_200_OK,
     )
+
+@permission_classes([IsAuthenticated])
+@api_view(["POST"])
+def upload_chat_image(request):
+    image_file = request.FILES.get('image')
+    user = request.user
+    if image_file:
+        account_url = os.getenv("AZURE_ACCOUNT_URL_CHAT_IMAGES")
+        container_name = os.getenv("AZURE_CONTAINER_NAME_CHAT_IMAGES")
+        sas_token = os.getenv("AZURE_SAS_TOKEN_CHAT_IMAGES")
+        file_extension = os.path.splitext(image_file.name)[1]
+        blob_name = f"image-{user.email}{uuid.uuid4()}{file_extension}"
+        try:
+            blob_service_client = BlobServiceClient(account_url=account_url, credential=sas_token)
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
+            blob_client.upload_blob(image_file.read(), blob_type="BlockBlob")
+            image_url = blob_client.url
+            return Response(
+                {"image_url": image_url},
+                status=status.HTTP_201_CREATED,)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to upload image: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
