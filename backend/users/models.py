@@ -222,7 +222,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     preferred_task_by_json = models.JSONField(
         default=default_preferred_tasks,
         blank=True,
-        help_text="Stores preferred annotators and reviewers by user ID"
+        help_text="Stores preferred annotators and reviewers by user ID",
+        null=True
     )
     # languages = models.ManyToManyField(Language, related_name="user_languages", blank=True, help_text=("Languages known by the user."))
 
