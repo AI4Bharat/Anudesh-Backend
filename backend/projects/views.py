@@ -2814,12 +2814,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 .values_list("task", flat=True)  # get task IDs back
             )
         else:
-        # Sort by most recently updated annotation; temporary change
+        # Sort by oldest updated annotation; temporary change
             task_ids = (
                 Annotation_model.objects.filter(task__in=tasks)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
                 .distinct()
-                .order_by("-updated_at")
+                .order_by("updated_at")
                 .values_list("task", flat=True)
             )
         # tasks = tasks.order_by("id")
