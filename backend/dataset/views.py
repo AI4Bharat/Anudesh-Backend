@@ -332,7 +332,57 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         return StreamingHttpResponse(
             exported_items, status=status.HTTP_200_OK, content_type=content_type
         )
+        
+    @action(
+            methods=["GET"],
+            detail=True,
+            url_path="downloadsampledataset",
+            url_name="download_sample_dataset",
+            name="Download Sample Dataset in CSV format")
+    def download_sample_dataset(self, request, pk):
+        """
+        View to download a sample dataset in CSV format (temporary can add others later)
+        URL: /data/instances/<instance-id>/download/sampledataset
+        Accepted methods: GET
+        """
+        try:
+            # Get the dataset instance for the id
+            dataset_instance = DatasetInstance.objects.get(instance_id=pk)
+        except DatasetInstance.DoesNotExist:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
+        dataset_model = apps.get_model("dataset", dataset_instance.dataset_type)
+        dataset_resource = resources.RESOURCE_MAP[dataset_instance.dataset_type]
+        print('dataset_resource :', dataset_resource)
+        data_item = dataset_model.objects.filter(instance_id=pk).first()
+        if not data_item:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        dataset = dataset_resource().export([data_item])
+        
+        # These are typically fields that are auto-generated. Add here for exculding as mandatory
+        excluded_headers = ["id", "instance_id", "time_taken"]
+
+        mandatory_fields = []
+        for header in dataset.headers:
+            if header not in excluded_headers:
+                mandatory_fields.append(header)
+        
+        updated_headers = [
+            f"{header}*" if header in mandatory_fields else header
+            for header in dataset.headers
+        ]
+        dataset.headers = updated_headers
+        
+        field_instructions = ["Field Headers marked with * are mandatory."] + [''] * (len(dataset.headers) - 1)
+        dataset.insert(0, field_instructions)
+        
+        # Prepare StreamingHttpResponse
+        response = StreamingHttpResponse(dataset.csv, content_type="text/csv")
+        response["Content-Disposition"] = (
+            f'attachment; filename="{dataset_instance}_sample.csv"'
+        )
+        return response
+     
     @action(methods=["POST"], detail=True, name="Upload Dataset File")
     def upload(self, request, pk):
         """
