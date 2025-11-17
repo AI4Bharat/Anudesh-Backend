@@ -353,14 +353,16 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
 
         dataset_model = apps.get_model("dataset", dataset_instance.dataset_type)
         dataset_resource = resources.RESOURCE_MAP[dataset_instance.dataset_type]
-        print('dataset_resource :', dataset_resource)
         data_item = dataset_model.objects.filter(instance_id=pk).first()
         if not data_item:
             return Response(status=status.HTTP_404_NOT_FOUND)
         dataset = dataset_resource().export([data_item])
         
         # These are typically fields that are auto-generated. Add here for exculding as mandatory
-        excluded_headers = ["id", "instance_id", "time_taken"]
+        excluded_headers = ["id", "instance_id"]
+        for field in dataset_model._meta.fields:
+            if field.blank and field.null:
+                excluded_headers.append(field.name)
 
         mandatory_fields = []
         for header in dataset.headers:
