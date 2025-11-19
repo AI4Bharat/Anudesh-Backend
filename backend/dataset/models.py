@@ -386,7 +386,7 @@ class Instruction(DatasetBase):
         help_text="Whether the instruction has been auto-generated",
     )
     meta_info_intent = models.CharField(
-        max_length=255,
+        max_length=2048,
         verbose_name="Meta Info Intent",
         help_text="Intent information for the instruction",
     )
