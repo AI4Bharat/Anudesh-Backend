@@ -359,7 +359,33 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         dataset = dataset_resource().export([data_item])
         
         # These are typically fields that are auto-generated. Add here for exculding as mandatory
-        excluded_headers = ["id", "instance_id"]
+        excluded_headers = ["id", "instance_id", "time_taken","prompt_output_pair_id"]
+
+        # These are field which mostly have really big text length. Add here for shortening
+        shorten_fields = ["instruction_data", "interactions_json", "output", "eval_form_json", "multiple_interaction_json"]
+
+        if len(dataset) > 0:
+            row = list(dataset[0])
+            for i, header in enumerate(dataset.headers):
+                if header in excluded_headers:
+                    row[i] = ""
+                    continue
+
+                if header in shorten_fields and row[i]:
+                    value = str(row[i])
+                    cleaned_value = value.replace("!", ".").replace("?", ".")
+                    sentences = [
+                        s.strip()
+                        for s in cleaned_value.split(".")
+                        if s.strip()
+                    ]
+                    short = ". ".join(sentences[:2])
+                    if len(short) > 200:
+                        row[i] = short[:200] + "..."
+                    else:
+                        row[i] = short if short.endswith(".") else short + "."
+            dataset[0] = tuple(row)
+
         for field in dataset_model._meta.fields:
             if field.blank and field.null:
                 excluded_headers.append(field.name)
