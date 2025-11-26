@@ -269,6 +269,13 @@ class Annotation(models.Model):
         verbose_name="meta_stats",
         help_text="Meta statistics for the annotation result",
     )
+    previous_annotations_json = models.JSONField(
+        blank=True,
+        null=True,
+        default=dict,
+        verbose_name="previous_annotations_json",
+        help_text=("Stores previous versions of this annotation's result when it goes through revision/rejection cycles"),
+    )
 
     def __str__(self):
         return str(self.id)

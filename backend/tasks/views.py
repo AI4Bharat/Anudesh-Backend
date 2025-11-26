@@ -1848,6 +1848,14 @@ class AnnotationViewSet(
                     SKIPPED,
                 ]:
                     annotation_status = request.data["annotation_status"]
+                    if (
+                        annotation_obj.annotation_status == TO_BE_REVISED
+                        and annotation_status == LABELED
+                    ) : 
+                        prev = annotation_obj.result
+                        annotation_obj.previous_annotations_json.append(prev)
+                        annotation_obj.save(update_fields=["previous_annotations_json"])
+                        
                     if annotation_status == LABELED:
                         response_message = "Task Successfully Submitted"
                     elif annotation_status == DRAFT:
@@ -2114,6 +2122,18 @@ class AnnotationViewSet(
                     TO_BE_REVISED,
                 ]:
                     review_status = request.data["annotation_status"]
+                    if (
+                        annotation_obj.annotation_status == REJECTED
+                        and review_status in [
+                            ACCEPTED,
+                            ACCEPTED_WITH_MINOR_CHANGES,
+                            ACCEPTED_WITH_MAJOR_CHANGES,
+                        ]
+                    ):
+                        prev = annotation_obj.result
+                        annotation_obj.previous_annotations_json.append(prev)
+                        annotation_obj.save(update_fields=["previous_annotations_json"])
+                    
                     if review_status in [
                         ACCEPTED,
                         ACCEPTED_WITH_MINOR_CHANGES,
