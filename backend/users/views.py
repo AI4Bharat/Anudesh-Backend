@@ -627,27 +627,61 @@ class AuthViewSet(viewsets.ViewSet):
         #         {"message": "Incorrect Password."}, status=status.HTTP_400_BAD_REQUEST
         #     )
 
+        from django.contrib.auth.hashers import check_password
+
+        is_guest_user = getattr(user, 'guest_user', True)
+
+        if is_guest_user:
+            return Response(
+                {"message": "This account is a guest user. Please use Google login."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # For non-guest users, check local password
+        if hasattr(user, 'password') and user.password and check_password(password, user.password):
+            refresh = RefreshToken.for_user(user)
+            access_token = str(refresh.access_token)
+            refresh_token = str(refresh)
+            return Response(
+                {
+                    "message": "Logged in successfully.",
+                    "refresh": refresh_token,
+                    "access": access_token,
+                },
+                status=status.HTTP_200_OK,
+            )
+
         try:
             firebase = pyrebase.initialize_app(config)
             auth = firebase.auth()
             auth.sign_in_with_email_and_password(email, password)
+            print("Firebase authentication successful")
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
-        except:
+            
             return Response(
-                {"message": "Authentication failed."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "message": "Logged in successfully.",
+                    "refresh": refresh_token,
+                    "access": access_token,
+                },
+                status=status.HTTP_200_OK,
             )
+        except Exception as e:
+            if hasattr(user, 'password') and user.password:
+                # User has local password but it didn't match
+                return Response(
+                    {"message": "Incorrect password."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                # User doesn't have local password
+                return Response(
+                    {"message": "Authentication failed. Please check your credentials."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        return Response(
-            {
-                "message": "Logged in successfully.",
-                "refresh": refresh_token,
-                "access": access_token,
-            },
-            status=status.HTTP_200_OK,
-        )
 
     @permission_classes([AllowAny])
     @action(
@@ -725,7 +759,12 @@ class GoogleLogin(viewsets.ViewSet):
 
         try:
             user = User.objects.get(email=email)
-        except:
+            user.first_name = fName
+            user.last_name = lName
+            user.profile_photo = photoUrl
+            user.save()
+        
+        except User.DoesNotExist:
             user = User(
                 username=str(email).split("@")[0],
                 email=email.lower(),
@@ -744,9 +783,9 @@ class GoogleLogin(viewsets.ViewSet):
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
-        except:
+        except Exception as e:
             return Response(
-                {"message": "Token generation failed."},
+                {"message": "Token generation failed.", "error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1055,6 +1094,17 @@ class UserViewSet(viewsets.ViewSet):
             )
         user = User.objects.get(id=pk)
         serializer = UserUpdateSerializer(user, request.data, partial=True)
+        existing_guest_user = getattr(user, 'guest_user', True)
+        new_guest_user = request.data.get("guest_user", None)
+        
+        password_reset_sent = False
+        if existing_guest_user is True and new_guest_user is False:
+            try:
+                firebase = pyrebase.initialize_app(config)
+                auth = firebase.auth()
+                auth.send_password_reset_email(user.email)
+                password_reset_sent = True
+            except Exception as e:
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
