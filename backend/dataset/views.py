@@ -359,7 +359,14 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         dataset = dataset_resource().export([data_item])
         
         # These are typically fields that are auto-generated. Add here for exculding as mandatory
-        excluded_headers = ["id", "instance_id", "time_taken","prompt_output_pair_id"]
+        excluded_headers = [
+            "id", 
+            "instance_id",
+            "prompt_output_pair_id", "instruction_id", "no_of_turns", "time_taken",
+            "datetime", "meta_info_structure", "meta_info_language",
+            "interaction_id", "eval_form_output_json", "eval_time_taken",
+            "parent_interaction_ids", "multiple_interaction_json", "eval_form_json", "no_of_models",
+            ]
 
         # These are field which mostly have really big text length. Add here for shortening
         shorten_fields = ["instruction_data", "interactions_json", "output", "eval_form_json", "multiple_interaction_json"]
