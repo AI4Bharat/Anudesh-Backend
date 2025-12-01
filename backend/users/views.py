@@ -1543,8 +1543,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 ): annotated_tasks_count,
                 "Draft Tasks": draft_tasks_count,
                 "Skipped Tasks": skipped_tasks_count,
-                "To Be Revised Tasks": total_to_be_revised_tasks if review_reports else 0,
-                "Rejected Tasks": total_rejected_tasks if supercheck_reports else 0,
+                "To Be Revised Tasks": to_be_revised_tasks_count if review_reports else 0,
+                "Rejected Tasks": rejected_tasks_count if supercheck_reports else 0,
                 "Word Count": total_word_count,
                 "Total Segments Duration": total_duration,
                 
