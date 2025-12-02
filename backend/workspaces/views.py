@@ -142,7 +142,7 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         elif (int(request.user.role) == User.ORGANIZATION_OWNER) or (
             request.user.is_superuser
-        ):
+        )or (int(request.user.role) == User.ADMIN):
             data = self.queryset.filter(organization=request.user.organization)
             serializer = WorkspaceSerializer(data, many=True)
             return Response(serializer.data)
