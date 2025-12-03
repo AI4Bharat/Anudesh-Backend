@@ -8,13 +8,14 @@ import math
 
 from django.core.files import File
 from django.db import IntegrityError
-from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField
+from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField, DateTimeField, Value
 from django.forms.models import model_to_dict
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from users.models import LANG_CHOICES
+from users.models import *
 from users.serializers import UserEmailSerializer
 from dataset.serializers import TaskResultSerializer, DatasetInstanceSerializer
 from utils.search import process_search_query
@@ -83,6 +84,14 @@ from workspaces.decorators import is_particular_workspace_manager
 from users.utils import generate_random_string
 from notifications.views import createNotification
 from notifications.utils import get_userids_from_project_id
+
+from django.db.models.functions import Coalesce
+from rest_framework import generics, permissions
+from .models import Project, ProjectBookmark
+from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
+
+
 
 # Create your views here.
 
@@ -1838,10 +1847,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 ret_dict = {"message": mes}
                 ret_status = status.HTTP_400_BAD_REQUEST
                 return Response(ret_dict, status=ret_status)
+        
         project_response = super().create(request, *args, **kwargs)
         project_id = project_response.data["id"]
 
         proj = Project.objects.get(id=project_id)
+        proj.created_by = request.user
         if proj.required_annotators_per_task > 1:
             proj.project_stage = REVIEW_STAGE
         proj.save()
@@ -1968,6 +1979,303 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     @action(
         detail=True,
+        methods=["post"],
+        name="Assign selected tasks to user based on annotation_type",
+        url_name="assign_tasks_to_user",   
+    )
+    @project_is_archived
+    def assign_tasks_to_user(self, request, pk, *args, **kwargs):
+        """
+        Assign manually selected tasks to a user based on annotation_type.
+        Includes all validation and logic from auto-pull assignment endpoints.
+        """
+
+        cur_user = request.user
+        project = Project.objects.get(pk=pk)
+        data = request.data
+
+        user_id = data.get("user_id")
+        task_ids = data.get("task_ids", [])
+        annotation_type = data.get("annotation_type")
+
+        if not project.is_published:
+            return Response({"message": "Project is not yet published"}, status=403)
+
+        if not all([user_id, isinstance(task_ids, list), annotation_type in [1, 2, 3]]):
+            return Response({"message": "Invalid or missing input."}, status=400)
+
+        try:
+            target_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"message": "Target user not found"}, status=404)
+
+        serializer = ProjectUsersSerializer(project, many=False)
+
+        # Lock types
+        lock_type = {
+            1: ANNOTATION_LOCK,
+            2: REVIEW_LOCK,
+            3: SUPERCHECK_LOCK
+        }.get(annotation_type)
+
+        if lock_type and project.is_locked(lock_type):
+            while project.is_locked(lock_type):
+                sleep(settings.PROJECT_LOCK_RETRY_INTERVAL)
+
+        try:
+            project.set_lock(cur_user, lock_type)
+        except Exception:
+            return Response({"message": "Failed to acquire lock. Try again later."}, status=429)
+
+        try:
+            # Annotation (1)
+            if annotation_type == 1:
+                annotator_ids = {target_user["id"] for target_user in serializer.data["annotators"]}
+
+                if user_id not in annotator_ids:
+                    return Response({"message": "User not assigned as annotator"}, status=403)
+
+                # Find annotations already created but still pending
+                proj_annotations = Annotation_model.objects.filter(
+                    task__project_id=pk,
+                    annotation_status=UNLABELED,
+                    completed_by=target_user
+                )
+                annotation_tasks = [a.task.id for a in proj_annotations]
+
+                pending_tasks = Task.objects.filter(
+                    project_id=pk,
+                    annotation_users=user_id,
+                    task_status__in=[INCOMPLETE, UNLABELED],
+                    id__in=annotation_tasks
+                ).count()
+
+                if pending_tasks >= project.max_pending_tasks_per_user:
+                    return Response({"message": "User has too many pending tasks"}, status=403)
+
+                # Get tasks eligible for assignment
+                assignable_tasks = Task.objects.filter(
+                    id__in=task_ids,
+                    project_id=pk,
+                    task_status__in=[INCOMPLETE, UNLABELED]
+                ).exclude(annotation_users=user_id).annotate(
+                    annotator_count=Count("annotation_users")
+                ).filter(annotator_count__lt=project.required_annotators_per_task)
+
+                count = 0
+                for task in assignable_tasks:
+                    # Reject assignment if already reviewed or being reviewed
+                    if task.review_user or task.task_status in [ANNOTATED, REVIEWED]:
+                        return Response(
+                            {"message": f"Task {task.id} already reviewed or in review stage. Cannot assign to annotator."},
+                            status=400
+                        )
+
+                    # Reject if this task is already assigned to another annotator
+                    if task.annotation_users.exists() and not task.annotation_users.filter(id=target_user.id).exists():
+                        return Response(
+                            {"message": f"Task {task.id} already assigned to another annotator."},
+                            status=400
+                        )
+
+                    # ✅ Assign task to annotator
+                    task.annotation_users.add(target_user)
+                    task.save()
+
+                    # ✅ Ensure Annotation_model is created
+                    annotation, created = Annotation_model.objects.get_or_create(
+                        task=task,
+                        completed_by=target_user,
+                        annotation_type=ANNOTATOR_ANNOTATION,
+                        defaults={
+                            "result": [],
+                            "annotation_status": UNLABELED,
+                        }
+                    )
+                    if created:
+                        print(f"✅ Created Annotation for task {task.id}, user {target_user.id}")
+                    else:
+                        print(f"⚠️ Annotation already existed for task {task.id}, user {target_user.id}")
+
+                    count += 1
+
+                return Response({"message": f"{count} annotation tasks assigned."}, status=200)
+
+
+            # Review (2)
+            elif annotation_type == 2:
+
+                # Collect all reviewer IDs for this project from serializer
+                reviewer_ids = {user["id"] for user in serializer.data["annotation_reviewers"]}
+
+                # Check if current user is a valid reviewer
+                if user_id not in reviewer_ids:
+
+                    return Response({"message": "User not assigned as reviewer"}, status=403)
+
+                # Ensure project is in Review or Supercheck stage
+                if not (project.project_stage in [REVIEW_STAGE, SUPERCHECK_STAGE]):
+
+                    return Response({"message": "Review stage not active for this project"}, status=403)
+
+                assignable_tasks = Task.objects.filter(
+                    id__in=task_ids,
+                    project_id=pk,
+                    task_status=ANNOTATED,
+                    review_user__isnull=True
+                )
+
+                count = 0  # counter for assigned tasks
+
+                # Iterate over all eligible tasks
+                for task in assignable_tasks:
+
+                    # Skip tasks that are already reviewed or superchecked
+                    if task.super_check_user or task.task_status in [REVIEWED, SUPER_CHECKED]:
+
+                        continue
+
+                    # Skip tasks that already have a reviewer assigned
+                    if task.review_user:
+
+                        continue
+
+                    # Assign this task to the current reviewer
+                    task.review_user = target_user
+                    task.save()
+
+
+                    # Get the most recent annotation from an annotator for this task
+                    rec_ann = Annotation_model.objects.filter(
+                        task=task,
+                        annotation_type=ANNOTATOR_ANNOTATION
+                    ).order_by("-updated_at").first()
+
+                    if rec_ann:
+                        # Check if this reviewer already has a review annotation for this task
+                        reviewer_anno_exists = Annotation_model.objects.filter(
+                            task=task,
+                            annotation_type=REVIEWER_ANNOTATION,
+                            completed_by=target_user
+                        ).exists()
+
+                        # If no reviewer annotation exists, create one
+                        if not reviewer_anno_exists:
+                            base_annotation_obj = Annotation_model.objects.create(
+                                result=rec_ann.result,        
+                                task=task,
+                                completed_by=target_user,     
+                                annotation_status="unreviewed",
+                                parent_annotation=rec_ann,    
+                                annotation_type=REVIEWER_ANNOTATION,
+                                annotation_notes=rec_ann.annotation_notes,
+                            )
+
+                    count += 1
+
+                if count == 0:
+                     return Response(
+                         {"message": "No new tasks available. All tasks are already assigned/reviewed."},
+                         status=200
+                     )
+
+
+                # Otherwise return how many tasks got assigned
+                return Response({"message": f"{count} review tasks assigned."}, status=200)
+
+        # Supercheck (3)
+            elif annotation_type == 3:
+
+                superchecker_ids = {user["id"] for user in serializer.data["review_supercheckers"]}
+
+                if user_id not in superchecker_ids:
+                    return Response({"message": "User not assigned as superchecker"}, status=403)
+
+                if not (project.project_stage == SUPERCHECK_STAGE):
+                    return Response({"message": "Supercheck stage not active for this project"}, status=403)
+
+                # tasks that are reviewed and belong to project
+                base_qs = Task.objects.filter(
+                    id__in=task_ids,
+                    project_id=pk,
+                    task_status=REVIEWED,
+                )
+
+                # tasks already assigned to this user as superchecker
+                already_assigned = base_qs.filter(super_check_user=user_id)
+
+                # tasks that can actually be assigned now
+                assignable_tasks = base_qs.filter(super_check_user__isnull=True) \
+                    .exclude(annotation_users=user_id) \
+                    .exclude(review_user=user_id)
+
+                response_data = {"already_assigned_count": already_assigned.count()}
+                # Response(response_data, status=200)
+
+                sup_exp_rev_tasks_count = Task.objects.filter(
+                    project_id=pk,
+                    task_status__in=[REVIEWED, EXPORTED, SUPER_CHECKED]
+                ).count()
+
+                sup_exp_tasks_count = Task.objects.filter(
+                    project_id=pk,
+                    task_status__in=[SUPER_CHECKED, EXPORTED]
+                ).count()
+
+                max_super_check_tasks_count = math.ceil(
+                    project.k_value * sup_exp_rev_tasks_count / 100
+                )
+
+                if sup_exp_tasks_count >= max_super_check_tasks_count:
+                    return Response({"message": "Maximum supercheck tasks limit reached!"}, status=403)
+
+                remaining = max_super_check_tasks_count - sup_exp_tasks_count
+
+                assignable_tasks = assignable_tasks[:remaining]
+
+                count = 0
+                for task in assignable_tasks:
+                    task.super_check_user = target_user
+                    task.save()
+
+                    rec_ann = Annotation_model.objects.filter(
+                        task=task,
+                        annotation_type=REVIEWER_ANNOTATION
+                    ).order_by("-updated_at").first()
+
+                    if rec_ann:
+                        superchecker_anno_exists = Annotation_model.objects.filter(
+                            task=task,
+                            annotation_type=SUPER_CHECKER_ANNOTATION
+                        ).exists()
+
+                        if not superchecker_anno_exists:
+                            base_annotation_obj = Annotation_model(
+                                result=rec_ann.result,
+                                task=task,
+                                completed_by=target_user,
+                                annotation_status="unvalidated",
+                                parent_annotation=rec_ann,
+                                annotation_type=SUPER_CHECKER_ANNOTATION,
+                            )
+                            try:
+                                base_annotation_obj.save()
+
+                            except IntegrityError:
+                                print(
+                                    f"⚠️ IntegrityError: Task, completed_by and parent_annotation fields "
+                                    f"are same while assigning new supercheck task for project id-{project.id}, "
+                                    f"user-{target_user.email}"
+                                )
+
+                    count += 1
+
+                return Response({"message": f"{count} supercheck tasks assigned.","already_assigned_count": response_data["already_assigned_count"],}, status=200)
+        finally:
+            project.release_lock(lock_type)
+            
+    @action(
+        detail=True,
         methods=["POST"],
         name="Assign new tasks to user",
         url_name="assign_new_tasks",
@@ -2004,6 +2312,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                         },
                         status=status.HTTP_200_OK,
                     )
+                else:
+                    # Set the number of tasks to be assigned
+                    request.data["num_tasks"] = auto_assign_count - assigned_tasks_count
+
         serializer = ProjectUsersSerializer(project, many=False)
         annotators = serializer.data["annotators"]
         annotator_ids = set()
@@ -2455,6 +2767,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     lock_set = True
                 except Exception as e:
                     continue
+        # Fetch preferred annotators from User model ----------------------
+        preferred_task_json = getattr(cur_user, "preferred_task_by_json", {})
+        preferred_annotators = preferred_task_json.get("preferred_annotators", {})
+        project_key = str(pk)
+        preferred_annotator_ids = preferred_annotators.get(project_key, [])
+    
+        print(f"Reviewer {cur_user.id} preferred annotators for project {pk}: {preferred_annotator_ids}")
         # check if the project contains eligible tasks to pull
         tasks = (
             Task.objects.filter(project_id=pk)
@@ -2469,6 +2788,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"message": "No tasks available for review in this project"},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        # Filter tasks based on preferred annotators ----------------------
+        if preferred_annotator_ids:
+            annotation_filter_task_ids = Annotation_model.objects.filter(
+                annotation_type=ANNOTATOR_ANNOTATION,
+                completed_by__in=preferred_annotator_ids,
+                task__project_id=pk
+            ).values_list("task_id", flat=True).distinct()
+    
+            tasks = tasks.filter(id__in=annotation_filter_task_ids)
+            
         task_pull_count = project.tasks_pull_count_per_batch
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
@@ -2485,12 +2814,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 .values_list("task", flat=True)  # get task IDs back
             )
         else:
-        # Sort by most recently updated annotation; temporary change
+        # Sort by oldest updated annotation; temporary change
             task_ids = (
                 Annotation_model.objects.filter(task__in=tasks)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
                 .distinct()
-                .order_by("-updated_at")
+                .order_by("updated_at")
                 .values_list("task", flat=True)
             )
         # tasks = tasks.order_by("id")
@@ -2600,9 +2929,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task.save()
         project.release_lock(REVIEW_LOCK)
         return Response(
-            {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
+            {
+                "message": "Tasks assigned successfully",
+                "filtered_by_preferred_annotators": preferred_annotator_ids,
+                "assigned_task_ids": task_ids,
+                "current_user_id": cur_user.id,
+            },
+            status=status.HTTP_200_OK
         )
-
+        
     @action(
         detail=True,
         methods=["post"],
@@ -4482,6 +4817,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             try:
+                tasks = Task.objects.filter(project_id=pk)
+                print(f"Request: {request}")
+                user_id = request.data.get("user_id")
+                tasks = tasks.order_by("id")
+                tasks = (
+                    tasks.filter(task_status__in=[INCOMPLETE])
+                    .exclude(annotation_users=user_id)
+                    .annotate(annotator_count=Count("annotation_users"))
+                )
+                tasks = tasks.filter(
+                    annotator_count__lt=project.required_annotators_per_task
+                ).distinct()
+                if not tasks:
+                    project.release_lock(ANNOTATION_LOCK)
+                    return Response(
+                        {"message": "No tasks left for assignment in this project"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
                 if project.check_project_password(password):
                     current_user = request.data.get("user_id")
                     project.annotators.add(current_user)
@@ -4578,3 +4932,52 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
 
         return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
+
+class UserProjectListView(generics.ListAPIView):
+    serializer_class = ProjectSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        bookmark_qs = ProjectBookmark.objects.filter(
+            user=user, project=OuterRef("pk")
+        ).order_by("-bookmarked_at")
+
+        epoch_datetime = timezone.make_aware(datetime(1970, 1, 1))
+
+        return (
+            Project.objects.annotate(
+                is_bookmarked=Exists(bookmark_qs),
+                bookmarked_at=Subquery(
+                    bookmark_qs.values("bookmarked_at")[:1],
+                    output_field=DateTimeField(),
+                ),
+            )
+            .annotate(sort_time=Coalesce("bookmarked_at", Value(epoch_datetime)))
+                .order_by("-is_bookmarked", "-sort_time")
+                .filter(is_bookmarked=True)
+            )
+
+class BookmarkProjectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, project_id):
+        user = request.user
+        project = get_object_or_404(Project, pk=project_id)
+        bookmark, created = ProjectBookmark.objects.get_or_create(
+            user=user, project=project
+        )
+        if created:
+            return Response({"detail": "Bookmarked"}, status=status.HTTP_201_CREATED)
+        return Response({"detail": "Already bookmarked"}, status=status.HTTP_200_OK)
+
+class UnbookmarkProjectView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, project_id):
+        deleted, _ = ProjectBookmark.objects.filter(
+            user=request.user, project__id=project_id
+        ).delete()
+        if deleted:
+            return Response({"detail": "Unbookmarked"}, status=status.HTTP_200_OK)
+        return Response({"detail": "Not bookmarked"}, status=status.HTTP_200_OK)
