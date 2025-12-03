@@ -1105,6 +1105,13 @@ class UserViewSet(viewsets.ViewSet):
                 auth.send_password_reset_email(user.email)
                 password_reset_sent = True
             except Exception as e:
+                return Response(
+                    {
+                        "message": f"Failed to send password reset email. Error: {str(e)}",
+                        "error": "PASSWORD_RESET_EMAIL_FAILED"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
