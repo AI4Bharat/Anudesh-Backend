@@ -2,7 +2,7 @@ import os
 import numpy as np
 import json
 import ast
-import openai
+from openai import OpenAI
 import requests
 from pydantic import BaseModel, Field
 
@@ -11,24 +11,24 @@ from tasks.models import Annotation
 
 
 def get_response_for_domain_and_intent(prompt):
-    openai.api_type = os.getenv("LLM_INTERACTIONS_OPENAI_API_TYPE")
-    openai.api_base = os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")
-    openai.api_version = os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")
-    openai.api_key = os.getenv("LLM_INTERACTIONS_OPENAI_API_KEY")
-    engine = "prompt-chat-gpt35"
+    model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
 
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    response = openai.ChatCompletion.create(
-        engine=engine,
+    client = OpenAI(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}"
+    )
+
+    response = client.chat.completions.create(
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
         max_tokens=256,
         frequency_penalty=0,
         presence_penalty=0,
+        extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
     )
 
-    return response["choices"][0]["message"]["content"]
-
+    return response.choices[0].message.content.strip()
 
 def get_lid(text):
     """
