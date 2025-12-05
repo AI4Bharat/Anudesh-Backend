@@ -2225,13 +2225,12 @@ class AnnotationViewSet(
                         return Response(ret_dict, status=ret_status)
 
                     if review_status == TO_BE_REVISED:
-                        prev = annotation_obj.result
+                        prev = request.data["result"]
                         prev_history = annotation_obj.previous_annotations_json
-                        if isinstance(prev_history, dict):
-                            if not prev_history:
-                                annotation_obj.previous_annotations_json = []
-                            else:
-                                annotation_obj.previous_annotations_json = [prev_history]
+                        if prev_history:
+                            annotation_obj.previous_annotations_json = [prev_history]
+                        else:
+                            annotation_obj.previous_annotations_json = []
                         annotation_obj.previous_annotations_json.append(prev)
                         annotation_obj.save(update_fields=["previous_annotations_json"])
 
@@ -2557,13 +2556,12 @@ class AnnotationViewSet(
                         ret_status = status.HTTP_400_BAD_REQUEST
                         return Response(ret_dict, status=ret_status)
                     if supercheck_status == REJECTED:
-                        prev = annotation_obj.result
+                        prev = request.data["result"]
                         prev_history = annotation_obj.previous_annotations_json
-                        if isinstance(prev_history, dict):
-                            if not prev_history:
-                                annotation_obj.previous_annotations_json = []
-                            else:
-                                annotation_obj.previous_annotations_json = [prev_history]
+                        if prev_history:
+                            annotation_obj.previous_annotations_json = [prev_history]
+                        else:
+                            annotation_obj.previous_annotations_json = []
                         annotation_obj.previous_annotations_json.append(prev)
                         annotation_obj.save(update_fields=["previous_annotations_json"])
                         
