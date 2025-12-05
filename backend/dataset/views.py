@@ -409,7 +409,9 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         dataset.headers = updated_headers
         
         field_instructions = ["Field Headers marked with * are mandatory."] + [''] * (len(dataset.headers) - 1)
-        dataset.insert(0, field_instructions)
+        instructions = ["Fields with Ids are auto-generated and should be left blank."] + [''] * (len(dataset.headers) - 1)
+        dataset.insert(2, field_instructions)
+        dataset.insert(3, instructions)
         
         # Prepare StreamingHttpResponse
         response = StreamingHttpResponse(dataset.csv, content_type="text/csv")
