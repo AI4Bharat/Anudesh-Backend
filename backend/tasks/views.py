@@ -392,7 +392,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas["annotation_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
                             if("unlabeled" not in ann_status):
-                                tas["updated_at"] = utc_to_ist(task_obj["updated_at"])
+                                tas["updated_at"] = task_obj["updated_at"]
                             ordered_tasks.append(tas)
                         if page_number is not None:
                             page_object = Paginator(ordered_tasks, records)
@@ -467,7 +467,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas["annotation_status"] = task_obj["annotation_status"]
                     tas["user_mail"] = task_obj["user_mail"]
                     if("unlabeled" not in ann_status):
-                        tas["updated_at"] = utc_to_ist(task_obj["updated_at"])
+                        tas["updated_at"] = task_obj["updated_at"]
                     if (ann_status[0] in ["labeled", "draft", "to_be_revised"]) and (
                         proj_type == "ContextualTranslationEditing"
                     ):
@@ -543,7 +543,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas["review_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
                             if "unreviewed" not in rew_status:
-                                tas["updated_at"] = utc_to_ist(task_obj["updated_at"])
+                                tas["updated_at"] = task_obj["updated_at"]
                             # if required_annotators_per_task > 1:
                             #     review_ann = [
                             #         a
@@ -665,7 +665,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas["review_status"] = task_obj["annotation_status"]
                     tas["user_mail"] = task_obj["user_mail"]
                     if "unreviewed" not in rew_status:
-                        tas["updated_at"] = utc_to_ist(task_obj["updated_at"])
+                        tas["updated_at"] = task_obj["updated_at"]
                     tas["annotator_mail"] = task_obj["parent_annotator_mail"]
                     if proj_type == "ContextualTranslationEditing":
                         if rew_status[0] in [
@@ -785,7 +785,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas["supercheck_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
                             if "UNVALIDATED" not in supercheck_status:
-                                tas["updated_at"] = utc_to_ist(task_obj["updated_at"])
+                                tas["updated_at"] = task_obj["updated_at"]
                             ordered_tasks.append(tas)
 
                         if page_number is not None:
@@ -863,7 +863,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = tas.values()[0]
                     tas["supercheck_status"] = task_obj["annotation_status"]
                     if "UNVALIDATED" not in supercheck_status:
-                        tas["updated_at"] = utc_to_ist(task_obj["updated_at"])
+                        tas["updated_at"] = task_obj["updated_at"]
                     tas["user_mail"] = task_obj["user_mail"]
                     tas["reviewer_mail"] = task_obj["reviewer_mail"]
                     tas["annotator_mail"] = task_obj["annotator_mail"]
