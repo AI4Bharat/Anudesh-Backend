@@ -35,7 +35,6 @@ from tasks.models import Annotation as Annotation_model
 from tasks.models import *
 from tasks.models import Task
 from tasks.serializers import TaskSerializer
-from tasks.redaction import convert_model_names_to_ids
 from .models import *
 from .registry_helper import ProjectRegistry
 from dataset import models as dataset_models
@@ -1007,8 +1006,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             .exclude(review_user=request.user.id)
             .count()
         )
-        
-        convert_model_names_to_ids(project_response.data)
+
         return project_response
 
     def list(self, request, *args, **kwargs):
@@ -1079,9 +1077,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 projects = projects.order_by(F("published_at").desc(nulls_last=True))
 
             projects_json = self.serializer_class(projects, many=True)
-            data = projects_json.data
-            convert_model_names_to_ids(data)
-            return Response(data, status=status.HTTP_200_OK)
+            return Response(projects_json.data, status=status.HTTP_200_OK)
         except Exception:
             return Response(
                 {"message": "Please Login!"}, status=status.HTTP_400_BAD_REQUEST
@@ -1256,12 +1252,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     "included_projects": included_projects_serialized.data,
                     "excluded_projects": excluded_projects_serialized.data,
                 }
-                convert_model_names_to_ids(combined_data)
                 return Response(combined_data, status=status.HTTP_200_OK)
             projects_json = ProjectSerializerOptimized(projects, many=True)
-            data = projects_json.data
-            convert_model_names_to_ids(data)
-            return Response(data, status=status.HTTP_200_OK)
+            return Response(projects_json.data, status=status.HTTP_200_OK)
         except Exception:
             return Response(
                 {"message": "Please Login!"}, status=status.HTTP_400_BAD_REQUEST
