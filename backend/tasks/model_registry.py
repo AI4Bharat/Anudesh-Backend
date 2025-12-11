@@ -30,13 +30,11 @@ def _load() -> Dict[str, Dict[str, Any]]:
 
     for internal_name, entry in data.items():
         by_internal[internal_name] = entry.copy()
-        # Save the internal name on the entry copy for convenience
         if "internal_name" not in by_internal[internal_name]:
             by_internal[internal_name]["internal_name"] = internal_name
 
         model_id = entry.get("model_id")
         if model_id:
-            # store a copy that includes the internal name for reverse lookup
             by_id[model_id] = {**entry, "internal_name": internal_name}
 
     return {"by_internal": by_internal, "by_id": by_id}
