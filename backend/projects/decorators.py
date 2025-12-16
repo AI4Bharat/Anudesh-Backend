@@ -53,7 +53,7 @@ def project_is_published(f):
     @wraps(f)
     def wrapper(self, request, pk, *args, **kwargs):
         project = Project.objects.get(pk=pk)
-        if project.is_published:
+        if project.is_published and not request.user.is_superuser:
             return Response(
                 PROJECT_IS_PUBLISHED_ERROR, status=status.HTTP_403_FORBIDDEN
             )
