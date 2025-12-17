@@ -1543,7 +1543,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 ): annotated_tasks_count,
                 "Draft Tasks": draft_tasks_count,
                 "Skipped Tasks": skipped_tasks_count,
-                "To Be Revised Tasks": to_be_revised_tasks_count if review_reports else 0,
                 "Word Count": total_word_count,
                 "Total Segments Duration": total_duration,
                 
@@ -1557,6 +1556,14 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     )
                 ): avg_lead_time,
             }
+            # Role-specific fields (IMPORTANT)
+            # ----------------------------
+            if review_reports:
+                result["To Be Revised Tasks"] = to_be_revised_tasks_count
+
+            if supercheck_reports:
+                result["Rejected Tasks"] = rejected_tasks_count
+                
             print("result", result)
 
             if project_type in get_audio_project_types():
