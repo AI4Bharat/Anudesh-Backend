@@ -65,7 +65,13 @@ from dotenv import load_dotenv
 import pyrebase
 from workspaces.views import WorkspaceusersViewSet
 from utils.email_template import send_email_template
+import firebase_admin
+from firebase_admin import auth as firebase_admin_auth
+from firebase_admin import credentials
+from firebase_admin.exceptions import FirebaseError
+import logging
 
+logger = logging.getLogger(__name__)
 regex = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
 load_dotenv()
 
@@ -1208,6 +1214,67 @@ class UserViewSet(viewsets.ViewSet):
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
+        # Function to initialize Firebase Admin SDK
+        def initialize_firebase_admin():
+            try:
+                if not firebase_admin._apps:
+                    from django.conf import settings
+                    service_account_path = getattr(settings, 'FIREBASE_SERVICE_ACCOUNT_KEY_PATH', None)
+                    
+                    if not service_account_path:
+                        logger.error("FIREBASE_SERVICE_ACCOUNT_KEY_PATH not configured in settings")
+                        return False
+                    
+                    cred = credentials.Certificate(service_account_path)
+                    firebase_admin.initialize_app(cred)
+                    logger.info("Firebase Admin SDK initialized successfully")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to initialize Firebase Admin SDK: {str(e)}")
+                return False
+        
+        # Function to disable/enable Firebase user
+        def update_firebase_user_status(email, disabled_status):
+            try:
+                if not initialize_firebase_admin():
+                    return {"success": False, "error": "Failed to initialize Firebase Admin SDK"}
+                firebase_user = firebase_admin_auth.get_user_by_email(email)
+                
+                firebase_admin_auth.update_user(
+                    firebase_user.uid,
+                    disabled=disabled_status
+                )
+                
+                action = "disabled" if disabled_status else "enabled"
+                logger.info(f"Successfully {action} Firebase user: {email}")
+                return {"success": True, "message": f"User {action} in Firebase"}
+                
+            except firebase_admin_auth.UserNotFoundError:
+                logger.warning(f"User not found in Firebase: {email}")
+                return {"success": False, "error": "User not found in Firebase"}
+            except FirebaseError as e:
+                logger.error(f"Firebase error while updating user {email}: {str(e)}")
+                return {"success": False, "error": f"Firebase error: {str(e)}"}
+            except Exception as e:
+                logger.error(f"Unexpected error while updating Firebase user {email}: {str(e)}")
+                return {"success": False, "error": f"Unexpected error: {str(e)}"}
+        
+        # Disable Firebase auth when user is marked inactive
+        firebase_update_result = None
+        if is_active_payload is False :
+            firebase_update_result = update_firebase_user_status(user.email, disabled_status=True)
+            
+            if not firebase_update_result.get("success"):
+                # Log the error but continue with other operations
+                logger.warning(f"Failed to disable Firebase user {user.email}: {firebase_update_result.get('error')}")
+    
+        # Re-enable Firebase auth when user is marked active
+        elif is_active_payload is True :
+            firebase_update_result = update_firebase_user_status(user.email, disabled_status=False)
+            
+            if not firebase_update_result.get("success"):
+                # Log the error but continue with other operations
+                logger.warning(f"Failed to enable Firebase user {user.email}: {firebase_update_result.get('error')}")
         if existing_is_active == is_active_payload:
             pass
         else:
