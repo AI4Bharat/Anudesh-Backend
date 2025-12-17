@@ -103,14 +103,18 @@ class InviteViewSet(viewsets.ViewSet):
             return Response(
                 {"message": "Organization not found"}, status=status.HTTP_404_NOT_FOUND
             )
+        already_registered_emails = []
         already_existing_emails = []
         valid_user_emails = []
         invalid_emails = []
-        existing_emails_set = set(Invite.objects.values_list("user__email", flat=True))
+        existing_emails_set = set(User.objects.values_list("email", flat=True))
+        existing_emails_db = set(Invite.objects.values_list("user__email", flat=True))
+        print(f"users:{existing_emails_set}")
         for email in distinct_emails:
-            # Checking if the email is in valid format.
+            # Checking if the email is in valid format.           
             if re.fullmatch(regex, email):
-                if email in existing_emails_set:
+                user = User.objects.filter(email=email).first()
+                if user and not user.has_accepted_invite:  
                     already_existing_emails.append(email)
                     continue
                 try:
@@ -123,7 +127,7 @@ class InviteViewSet(viewsets.ViewSet):
                     user.is_approved = True
                     user.set_password(generate_random_string(10))
                     valid_user_emails.append(email)
-                    users.append(user)
+                    users.append(user)                  
                 except:
                     return Response(
                         {"message": "Error in creating user"},
@@ -140,6 +144,10 @@ class InviteViewSet(viewsets.ViewSet):
         if already_existing_emails:
             additional_message_for_existing_emails += (
                 f", Invites already sent to: {','.join(already_existing_emails)}"
+            )
+        if already_registered_emails:
+            additional_message_for_existing_emails += (
+                f", Email id present in db : {','.join(already_registered_emails)}"
             )
         if invalid_emails:
             additional_message_for_invalid_emails += (
@@ -177,10 +185,11 @@ class InviteViewSet(viewsets.ViewSet):
             return Response(ret_dict, status=status.HTTP_201_CREATED)
         except IntegrityError as e:
             return Response(
-                {"message": "Email Id already present in database"},
+                {
+                    "message": ret_dict["message"],
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
     @swagger_auto_schema(request_body=InviteGenerationSerializer)
     @permission_classes((IsAuthenticated,))
     @is_organization_owner
@@ -263,6 +272,76 @@ class InviteViewSet(viewsets.ViewSet):
             return Response(
                 {"message": message_for_already_invited}, status=status.HTTP_201_CREATED
             )
+
+    @swagger_auto_schema(request_body=InviteGenerationSerializer)
+    @permission_classes((IsAuthenticated,))
+    @is_organization_owner
+    @action(detail=False, methods=["post"], url_path="bulk_reset_guest_passwords", url_name="bulk_reset_guest_passwords")
+    def bulk_reset_guest_passwords(self, request):
+        """
+        Bulk reset passwords for guest users.
+        Takes a list of emails, filters guest users, updates them to regular users,
+        and sends password reset links.
+        """
+        # Check if user has admin privileges
+        if not request.user.is_superuser and request.user.role != User.ADMIN:
+            return Response(
+                {"message": "You don't have permission to perform this action"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        emails = request.data.get('emails', [])
+        if not emails:
+            return Response(
+                {"message": "No emails provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        guest_users = User.objects.filter(
+            email__in=emails,
+            guest_user=True
+        )
+
+        print(f"guest: {emails}")
+
+        if not guest_users.exists():
+            return Response(
+                {"message": "No valid guest users found with the provided emails"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        firebase = pyrebase.initialize_app(config)
+        auth = firebase.auth()
+
+        successful_resets = []
+        failed_resets = []
+
+        for user in guest_users:
+            try:
+                # Update user to non-guest
+                user.guest_user = False
+                user.is_approved = True
+                user.has_accepted_invite = True
+                user.save()
+
+                # Send password reset email
+                auth.send_password_reset_email(user.email)
+                successful_resets.append(user.email)
+            except Exception as e:
+                failed_resets.append({
+                    'email': user.email,
+                    'error': str(e)
+                })
+
+        response_data = {
+            "message": "Password reset process completed",
+            "successful_resets": successful_resets,
+            "failed_resets": failed_resets,
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
 
     @permission_classes([AllowAny])
     @swagger_auto_schema(request_body=UserSignUpSerializer)
@@ -548,27 +627,61 @@ class AuthViewSet(viewsets.ViewSet):
         #         {"message": "Incorrect Password."}, status=status.HTTP_400_BAD_REQUEST
         #     )
 
+        from django.contrib.auth.hashers import check_password
+
+        is_guest_user = getattr(user, 'guest_user', True)
+
+        if is_guest_user:
+            return Response(
+                {"message": "This account is a guest user. Please use Google login."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # For non-guest users, check local password
+        if hasattr(user, 'password') and user.password and check_password(password, user.password):
+            refresh = RefreshToken.for_user(user)
+            access_token = str(refresh.access_token)
+            refresh_token = str(refresh)
+            return Response(
+                {
+                    "message": "Logged in successfully.",
+                    "refresh": refresh_token,
+                    "access": access_token,
+                },
+                status=status.HTTP_200_OK,
+            )
+
         try:
             firebase = pyrebase.initialize_app(config)
             auth = firebase.auth()
             auth.sign_in_with_email_and_password(email, password)
+            print("Firebase authentication successful")
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
-        except:
+            
             return Response(
-                {"message": "Authentication failed."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "message": "Logged in successfully.",
+                    "refresh": refresh_token,
+                    "access": access_token,
+                },
+                status=status.HTTP_200_OK,
             )
+        except Exception as e:
+            if hasattr(user, 'password') and user.password:
+                # User has local password but it didn't match
+                return Response(
+                    {"message": "Incorrect password."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                # User doesn't have local password
+                return Response(
+                    {"message": "Authentication failed. Please check your credentials."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        return Response(
-            {
-                "message": "Logged in successfully.",
-                "refresh": refresh_token,
-                "access": access_token,
-            },
-            status=status.HTTP_200_OK,
-        )
 
     @permission_classes([AllowAny])
     @action(
@@ -646,7 +759,12 @@ class GoogleLogin(viewsets.ViewSet):
 
         try:
             user = User.objects.get(email=email)
-        except:
+            user.first_name = fName
+            user.last_name = lName
+            user.profile_photo = photoUrl
+            user.save()
+        
+        except User.DoesNotExist:
             user = User(
                 username=str(email).split("@")[0],
                 email=email.lower(),
@@ -665,9 +783,9 @@ class GoogleLogin(viewsets.ViewSet):
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
-        except:
+        except Exception as e:
             return Response(
-                {"message": "Token generation failed."},
+                {"message": "Token generation failed.", "error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -683,6 +801,99 @@ class GoogleLogin(viewsets.ViewSet):
 
 class UserViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated,)
+    @action(detail=False, methods=["post"], url_path="save-preferred-annotators")
+    def save_preferred_annotators(self, request):
+        """
+        Saves preferred annotators separately for the current project.
+        """
+        user = request.user
+        annotator_ids = request.data.get("annotator_ids", None)
+        project_id = request.data.get("project_id", None)
+
+        if project_id is None:
+            return Response({"error": "project_id is required"}, status=400)
+
+        if annotator_ids is not None and not isinstance(annotator_ids, list):
+            return Response({"error": "annotator_ids must be a list"}, status=400)
+
+        preferred_tasks = user.preferred_task_by_json or {}
+
+        # ✅ Ensure structure is dict-based, not list
+        if not isinstance(preferred_tasks, dict):
+            preferred_tasks = {}
+
+        if "preferred_annotators" not in preferred_tasks or not isinstance(preferred_tasks["preferred_annotators"], dict):
+            preferred_tasks["preferred_annotators"] = {}
+
+        project_id_str = str(project_id)
+        if annotator_ids is not None:
+            preferred_tasks["preferred_annotators"][project_id_str] = annotator_ids
+
+        user.preferred_task_by_json = preferred_tasks
+        user.save(update_fields=["preferred_task_by_json"])
+
+        return Response({
+            "message": "Preferred annotators saved successfully",
+            "current_user_id": user.id,
+            "data": user.preferred_task_by_json
+        }, status=200)
+
+        
+    @action(detail=False, methods=["post"], url_path="save-preferred-reviewers")
+    def save_preferred_reviewers(self, request):
+        """
+        Saves preferred reviewers for the current project.
+        Request payload:
+        {
+          "project_id": 2125,
+          "reviewer_ids": [188, 189, 190]
+        }
+        """
+        user = request.user
+        project_id = request.data.get("project_id")
+        reviewer_ids = request.data.get("reviewer_ids")
+    
+        # ✅ Validate project_id
+        if not project_id:
+            return Response(
+                {"error": "project_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+        # ✅ Validate reviewer_ids
+        if reviewer_ids is not None and not isinstance(reviewer_ids, list):
+            return Response(
+                {"error": "reviewer_ids must be a list"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+        # ✅ Ensure preferred_task_by_json is always a dict
+        preferred_tasks = user.preferred_task_by_json or {}
+    
+        # ✅ If 'preferred_reviewers' exists but isn't a dict, reset it
+        if not isinstance(preferred_tasks.get("preferred_reviewers"), dict):
+            preferred_tasks["preferred_reviewers"] = {}
+    
+        preferred_reviewers = preferred_tasks["preferred_reviewers"]
+    
+        # ✅ Update reviewers for this project
+        preferred_reviewers[str(project_id)] = reviewer_ids or []
+    
+        # ✅ Save back to the JSON field
+        user.preferred_task_by_json = preferred_tasks
+        user.save(update_fields=["preferred_task_by_json"])
+    
+        return Response(
+            {
+                "message": "Preferred reviewers saved successfully",
+                "current_user_id": user.id,
+                "preferred_reviewers": preferred_reviewers
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+
 
     @swagger_auto_schema(request_body=UserUpdateSerializer)
     @action(detail=False, methods=["patch"], url_path="update", url_name="edit_profile")
@@ -976,6 +1187,24 @@ class UserViewSet(viewsets.ViewSet):
             )
         user = User.objects.get(id=pk)
         serializer = UserUpdateSerializer(user, request.data, partial=True)
+        existing_guest_user = getattr(user, 'guest_user', True)
+        new_guest_user = request.data.get("guest_user", None)
+        
+        password_reset_sent = False
+        if existing_guest_user is True and new_guest_user is False:
+            try:
+                firebase = pyrebase.initialize_app(config)
+                auth = firebase.auth()
+                auth.send_password_reset_email(user.email)
+                password_reset_sent = True
+            except Exception as e:
+                return Response(
+                    {
+                        "message": f"Failed to send password reset email. Error: {str(e)}",
+                        "error": "PASSWORD_RESET_EMAIL_FAILED"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
