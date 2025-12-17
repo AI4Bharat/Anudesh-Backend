@@ -3,7 +3,7 @@ import json
 import re
 from base64 import b64encode
 from urllib.parse import parse_qsl
-
+from validatemod import MultiModelInteractionValidator
 from django.apps import apps
 from django.db.models import Q
 from django.http import StreamingHttpResponse, JsonResponse, HttpResponse
@@ -469,7 +469,17 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
+        
+        # Conditionally apply MultiModelInteractionValidator based on dataset type
+        if dataset_type == "MultiModelInteraction":
+              # Replace with the specific type identifier for MultiModelInteraction
+            validator = MultiModelInteractionValidator()
+            validation_errors = validator.validate_data(dataset_string)
+            if validation_errors:
+                return Response(
+                {"message": "Validation failed", "errors": validation_errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # Uplod the dataset to the dataset instance
         upload_data_to_data_instance.delay(
             pk=pk,
