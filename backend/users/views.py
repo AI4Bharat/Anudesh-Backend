@@ -29,6 +29,7 @@ from .serializers import (
     OrganizationSerializer,
     ChangePasswordWithoutOldPassword,
 )
+from tasks.models import Annotation as Annotation_model
 from organizations.models import Invite, Organization
 from organizations.serializers import InviteGenerationSerializer
 from organizations.decorators import is_organization_owner
@@ -1362,6 +1363,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
         total_skipped_tasks = 0
         total_to_be_revised_tasks = 0
         total_rejected_tasks = 0
+        total_rejected_task_by_reviewer = 0
+        
         project_wise_summary = []
         for proj in project_objs:
             project_name = proj.title
@@ -1461,6 +1464,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
             print("skipped_tasks_count", skipped_tasks_count)
 
             to_be_revised_tasks_count = 0
+            rejected_tasks_count_by_reviewer = 0
             if review_reports:
                 to_be_revised_tasks_count = Annotation.objects.filter(
                     task__project_id=proj.id,
@@ -1469,6 +1473,37 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     annotation_type=REVIEWER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                 ).count()
+                
+                superchecker_rejected_annos = Annotation_model.objects.filter(
+                    task__project_id=proj.id,
+                    annotation_status="rejected",
+                    annotation_type=SUPER_CHECKER_ANNOTATION,
+                    parent_annotation__updated_at__range=[start_date, end_date],
+                )
+                print("STEP 1 → superchecker_rejected_annos count:",
+                      superchecker_rejected_annos.count())
+                print("STEP 1 → superchecker_rejected_annos IDs:",
+                      list(superchecker_rejected_annos.values_list("id", flat=True)))
+                print("STEP 1 → parent_annotation_ids:",
+                      list(superchecker_rejected_annos.values_list("parent_annotation_id", flat=True)))
+
+                parent_anno_ids = [
+                    ann.parent_annotation_id for ann in superchecker_rejected_annos
+                ]
+                print("STEP 2 → parent_anno_ids (reviewer annotation IDs):",
+                    parent_anno_ids)
+
+                rejected_tasks_count_by_reviewer = Annotation_model.objects.filter(
+                    id__in=parent_anno_ids, completed_by=user_id, annotation_status="rejected"
+                ).count()
+                print("STEP 3 → rejected reviewer annotation IDs:",
+                    rejected_tasks_count_by_reviewer)
+
+
+                print("rejected_tasks_count =", rejected_tasks_count_by_reviewer)
+
+                        # print("accepted_rejected_tasks", accepted_rejected_tasks)
+
                 print("to_be_revised_tasks_count = ", to_be_revised_tasks_count)
 
             rejected_tasks_count = 0
@@ -1487,6 +1522,9 @@ class AnalyticsViewSet(viewsets.ViewSet):
             total_draft_tasks += draft_tasks_count
             total_skipped_tasks += skipped_tasks_count
             total_to_be_revised_tasks += to_be_revised_tasks_count
+            # By Reviewer
+            total_rejected_task_by_reviewer += rejected_tasks_count_by_reviewer
+            # By Super Checker
             total_rejected_tasks += rejected_tasks_count
 
             # Lead Time
@@ -1560,9 +1598,10 @@ class AnalyticsViewSet(viewsets.ViewSet):
             # ----------------------------
             if review_reports:
                 result["To Be Revised Tasks"] = to_be_revised_tasks_count
+                result["Rejected Tasks"] = rejected_tasks_count_by_reviewer
 
             if supercheck_reports:
-                result["Rejected Tasks"] = rejected_tasks_count
+                result["Rejected"] = rejected_tasks_count
                 
             print("result", result)
 
