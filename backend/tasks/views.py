@@ -2156,6 +2156,12 @@ class AnnotationViewSet(
                         return Response(ret_dict, status=ret_status)
 
                     if review_status == TO_BE_REVISED:
+                        prev = request.data["result"]
+                        if not annotation_obj.previous_annotations_json:
+                            annotation_obj.previous_annotations_json = []
+                        annotation_obj.previous_annotations_json.append(prev)
+                        annotation_obj.save(update_fields=["previous_annotations_json"])
+
                         rev_loop_count = task.revision_loop_count
                         if (
                             rev_loop_count["review_count"]
@@ -2478,6 +2484,12 @@ class AnnotationViewSet(
                         ret_status = status.HTTP_400_BAD_REQUEST
                         return Response(ret_dict, status=ret_status)
                     if supercheck_status == REJECTED:
+                        prev = request.data["result"]
+                        if not annotation_obj.previous_annotations_json:
+                            annotation_obj.previous_annotations_json = []
+                        annotation_obj.previous_annotations_json.append(prev)
+                        annotation_obj.save(update_fields=["previous_annotations_json"])
+                        
                         rev_loop_count = task.revision_loop_count
                         if (
                             rev_loop_count["super_check_count"]
