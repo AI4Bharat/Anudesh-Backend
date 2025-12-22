@@ -2226,10 +2226,7 @@ class AnnotationViewSet(
 
                     if review_status == TO_BE_REVISED:
                         prev = request.data["result"]
-                        prev_history = annotation_obj.previous_annotations_json
-                        if prev_history:
-                            annotation_obj.previous_annotations_json = [prev_history]
-                        else:
+                        if not annotation_obj.previous_annotations_json:
                             annotation_obj.previous_annotations_json = []
                         annotation_obj.previous_annotations_json.append(prev)
                         annotation_obj.save(update_fields=["previous_annotations_json"])
@@ -2557,10 +2554,7 @@ class AnnotationViewSet(
                         return Response(ret_dict, status=ret_status)
                     if supercheck_status == REJECTED:
                         prev = request.data["result"]
-                        prev_history = annotation_obj.previous_annotations_json
-                        if prev_history:
-                            annotation_obj.previous_annotations_json = [prev_history]
-                        else:
+                        if not annotation_obj.previous_annotations_json:
                             annotation_obj.previous_annotations_json = []
                         annotation_obj.previous_annotations_json.append(prev)
                         annotation_obj.save(update_fields=["previous_annotations_json"])
