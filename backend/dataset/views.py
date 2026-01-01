@@ -332,7 +332,94 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         return StreamingHttpResponse(
             exported_items, status=status.HTTP_200_OK, content_type=content_type
         )
+        
+    @action(
+            methods=["GET"],
+            detail=True,
+            url_path="downloadsampledataset",
+            url_name="download_sample_dataset",
+            name="Download Sample Dataset in CSV format")
+    def download_sample_dataset(self, request, pk):
+        """
+        View to download a sample dataset in CSV format (temporary can add others later)
+        URL: /data/instances/<instance-id>/download/sampledataset
+        Accepted methods: GET
+        """
+        try:
+            # Get the dataset instance for the id
+            dataset_instance = DatasetInstance.objects.get(instance_id=pk)
+        except DatasetInstance.DoesNotExist:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
+        dataset_model = apps.get_model("dataset", dataset_instance.dataset_type)
+        dataset_resource = resources.RESOURCE_MAP[dataset_instance.dataset_type]
+        data_item = dataset_model.objects.filter(instance_id=pk).first()
+        if not data_item:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        dataset = dataset_resource().export([data_item])
+        
+        # These are typically fields that are auto-generated. Add here for exculding as mandatory
+        excluded_headers = [
+            "id", 
+            "instance_id",
+            "prompt_output_pair_id", "instruction_id", "no_of_turns", "time_taken",
+            "datetime", "meta_info_structure", "meta_info_language",
+            "interaction_id", "eval_form_output_json", "eval_time_taken",
+            "parent_interaction_ids", "multiple_interaction_json", "eval_form_json", "no_of_models",
+            ]
+
+        # These are field which mostly have really big text length. Add here for shortening
+        shorten_fields = ["instruction_data", "interactions_json", "output", "eval_form_json", "multiple_interaction_json"]
+
+        if len(dataset) > 0:
+            row = list(dataset[0])
+            for i, header in enumerate(dataset.headers):
+                if header in excluded_headers:
+                    row[i] = ""
+                    continue
+
+                if header in shorten_fields and row[i]:
+                    value = str(row[i])
+                    cleaned_value = value.replace("!", ".").replace("?", ".")
+                    sentences = [
+                        s.strip()
+                        for s in cleaned_value.split(".")
+                        if s.strip()
+                    ]
+                    short = ". ".join(sentences[:2])
+                    if len(short) > 200:
+                        row[i] = short[:200] + "..."
+                    else:
+                        row[i] = short if short.endswith(".") else short + "."
+            dataset[0] = tuple(row)
+
+        for field in dataset_model._meta.fields:
+            if field.blank and field.null:
+                excluded_headers.append(field.name)
+
+        mandatory_fields = []
+        for header in dataset.headers:
+            if header not in excluded_headers:
+                mandatory_fields.append(header)
+        
+        updated_headers = [
+            f"{header}*" if header in mandatory_fields else header
+            for header in dataset.headers
+        ]
+        dataset.headers = updated_headers
+        
+        field_instructions = ["Field Headers marked with * are mandatory."] + [''] * (len(dataset.headers) - 1)
+        instructions = ["Fields instance_id & id are auto-generated and should be left blank."] + [''] * (len(dataset.headers) - 1)
+        dataset.insert(2, field_instructions)
+        dataset.insert(3, instructions)
+        
+        # Prepare StreamingHttpResponse
+        response = StreamingHttpResponse(dataset.csv, content_type="text/csv")
+        response["Content-Disposition"] = (
+            f'attachment; filename="{dataset_instance}_sample.csv"'
+        )
+        return response
+     
     @action(methods=["POST"], detail=True, name="Upload Dataset File")
     def upload(self, request, pk):
         """
@@ -847,10 +934,12 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         final_result = []
         if projects_objs.count() != 0:
             for proj in projects_objs:
-                proj_manager = [
-                    manager.get_username()
-                    for manager in proj.workspace_id.managers.all()
-                ]
+                proj_manager = []
+                if proj.workspace_id is not None:
+                    proj_manager = [
+                        manager.get_username()
+                        for manager in proj.workspace_id.managers.all()
+                    ]
                 try:
                     org_owner = proj.organization_id.created_by.get_username()
                     proj_manager.append(org_owner)

@@ -8,7 +8,7 @@ from rest_framework import mixins
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.core.paginator import Paginator
 
 import requests
@@ -48,7 +48,8 @@ import sacrebleu
 
 from utils.date_time_conversions import utc_to_ist
 from rest_framework.views import APIView
-
+from django.db.models import Count
+from django.contrib.postgres.aggregates import ArrayAgg
 
 # Create your views here.
 
@@ -77,6 +78,138 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated]
+
+    # 🔹 Swagger docs for the unassigned review summary endpoint
+    @swagger_auto_schema(
+        method='get',
+        operation_summary="Get Unassigned Review Summary",
+        operation_description="""
+        Returns the number of **unassigned review tasks** grouped by annotator 
+        for a specific project.  
+
+        Use this to display a popup summary of pending review assignments 
+        per annotator in the Review Tasks tab.
+        """,
+        manual_parameters=[
+            openapi.Parameter(
+                'project_id',
+                openapi.IN_QUERY,
+                description="The ID of the project for which to fetch unassigned review task summary",
+                type=openapi.TYPE_INTEGER,
+                required=True,
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="List of annotators with their unassigned review task count",
+            ),
+            400: openapi.Response(description="Missing or invalid parameters"),
+        },
+    )
+    @action(
+    detail=False,
+    methods=["get"],
+    url_path="unassigned-review-summary",
+    url_name="unassigned_review_summary",
+    permission_classes=[AllowAny],
+    )
+    def unassigned_review_summary(self, request):
+        """
+        Returns a summary of unassigned review tasks grouped by annotator,
+        including the list of unassigned task IDs.
+        """
+        project_id = request.query_params.get("project_id")
+        if not project_id:
+            return Response(
+                {"error": "Missing required parameter: project_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    
+        cur_user = request.user  # current logged-in user
+    
+        tasks = (
+            Task.objects.filter(project_id=project_id)
+            .filter(task_status=ANNOTATED)
+            .filter(review_user__isnull=True)
+            .exclude(annotation_users=cur_user.id)
+            .distinct()
+        )
+    
+        data = (
+            tasks.values(
+                "annotations__completed_by__id",
+                "annotations__completed_by__email",
+                "annotations__completed_by__username"
+            )
+            .annotate(
+                unassigned_count=Count("id"),
+                task_ids=ArrayAgg("id", distinct=True),
+            )
+            .order_by("-unassigned_count")
+        )
+    
+        result = [
+            {
+                "annotator_id": item["annotations__completed_by__id"],
+                "annotator_email": item["annotations__completed_by__email"],
+                "annotator_username": item["annotations__completed_by__username"],
+                "unassigned_count": item["unassigned_count"],
+                "task_ids": item["task_ids"],
+            }
+            for item in data
+            if item["annotations__completed_by__id"] is not None
+        ]
+    
+        return Response(result, status=status.HTTP_200_OK)
+
+    
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="unassigned-supercheck-summary",
+        url_name="unassigned_supercheck_summary",
+    )
+    def unassigned_supercheck_summary(self, request):
+        """
+        Returns a summary of unassigned supercheck tasks grouped by reviewer.
+        """
+        project_id = request.query_params.get("project_id")
+        if not project_id:
+            return Response(
+                {"error": "Missing required parameter: project_id"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = (
+            Task.objects.filter(
+                project_id=project_id,
+                annotations__isnull=False,
+                review_user__isnull=False,
+                super_check_user__isnull=True,
+            )
+            .values(
+                "review_user__id",
+                "review_user__email",
+            )
+            .annotate(
+                unassigned_count=Count("id"),
+                task_ids=ArrayAgg("id", distinct=True),
+            )
+            .order_by("-unassigned_count")
+        )
+
+        result = [
+            {
+                "reviewer_id": item["review_user__id"],
+                "reviewer_email": item["review_user__email"],
+                "unassigned_count": item["unassigned_count"],
+                "task_ids": item["task_ids"],
+            }
+            for item in data
+            if item["review_user__id"] is not None
+        ]
+
+        return Response(result, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
         method="post",
@@ -247,6 +380,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             task_obj["id"] = an.task_id
                             task_obj["annotation_status"] = an.annotation_status
                             task_obj["user_mail"] = an.completed_by.email
+                            if("unlabeled" not in ann_status):
+                                task_obj["updated_at"] = utc_to_ist(an.updated_at)
                             task_objs.append(task_obj)
                         task_objs.sort(key=lambda x: x["id"])
                         final_dict = {}
@@ -256,6 +391,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas = tas.values()[0]
                             tas["annotation_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            if("unlabeled" not in ann_status):
+                                tas["updated_at"] = task_obj["updated_at"]
                             ordered_tasks.append(tas)
                         if page_number is not None:
                             page_object = Paginator(ordered_tasks, records)
@@ -317,6 +454,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_obj["annotation_status"] = an.annotation_status
                     task_obj["user_mail"] = an.completed_by.email
                     task_obj["annotation_result_json"] = an.result
+                    if("unlabeled" not in ann_status):
+                        task_obj["updated_at"] = utc_to_ist(an.updated_at)
                     task_objs.append(task_obj)
                 task_objs.sort(key=lambda x: x["id"])
                 final_dict = {}
@@ -327,6 +466,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = tas.values()[0]
                     tas["annotation_status"] = task_obj["annotation_status"]
                     tas["user_mail"] = task_obj["user_mail"]
+                    if("unlabeled" not in ann_status):
+                        tas["updated_at"] = task_obj["updated_at"]
                     if (ann_status[0] in ["labeled", "draft", "to_be_revised"]) and (
                         proj_type == "ContextualTranslationEditing"
                     ):
@@ -386,6 +527,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             task_obj["id"] = an.task_id
                             task_obj["annotation_status"] = an.annotation_status
                             task_obj["user_mail"] = an.completed_by.email
+                            if "unreviewed" not in rew_status:
+                                task_obj["updated_at"] = utc_to_ist(an.updated_at)
                             task_objs.append(task_obj)
                         task_objs.sort(key=lambda x: x["id"])
                         ordered_tasks = []
@@ -399,6 +542,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas = tas.values()[0]
                             tas["review_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            if "unreviewed" not in rew_status:
+                                tas["updated_at"] = task_obj["updated_at"]
                             # if required_annotators_per_task > 1:
                             #     review_ann = [
                             #         a
@@ -489,6 +634,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_obj["annotation_status"] = an.annotation_status
                     task_obj["user_mail"] = an.completed_by.email
                     task_obj["reviewer_annotation"] = an.result
+                    if "unreviewed" not in rew_status:
+                        task_obj["updated_at"] = utc_to_ist(an.updated_at)
                     task_obj["first_annotator_annotation"] = (
                         parent_annotator_object[0].result
                         if first_annotator_object
@@ -517,6 +664,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = tas.values()[0]
                     tas["review_status"] = task_obj["annotation_status"]
                     tas["user_mail"] = task_obj["user_mail"]
+                    if "unreviewed" not in rew_status:
+                        tas["updated_at"] = task_obj["updated_at"]
                     tas["annotator_mail"] = task_obj["parent_annotator_mail"]
                     if proj_type == "ContextualTranslationEditing":
                         if rew_status[0] in [
@@ -624,6 +773,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             task_obj["id"] = an.task_id
                             task_obj["annotation_status"] = an.annotation_status
                             task_obj["user_mail"] = an.completed_by.email
+                            if "UNVALIDATED" not in supercheck_status:
+                                task_obj["updated_at"] = utc_to_ist(an.updated_at)
                             task_objs.append(task_obj)
                         task_objs.sort(key=lambda x: x["id"])
                         ordered_tasks = []
@@ -633,6 +784,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas = tas.values()[0]
                             tas["supercheck_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            if "UNVALIDATED" not in supercheck_status:
+                                tas["updated_at"] = task_obj["updated_at"]
                             ordered_tasks.append(tas)
 
                         if page_number is not None:
@@ -684,6 +837,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_obj["annotation_status"] = an.annotation_status
                     task_obj["user_mail"] = an.completed_by.email
                     task_obj["superchecker_annotation"] = an.result
+                    if "UNVALIDATED" not in supercheck_status:
+                        task_obj["updated_at"] = utc_to_ist(an.updated_at)
                     task_obj["reviewer_mail"] = (
                         reviewer_object[0].completed_by.email
                         if reviewer_object
@@ -707,6 +862,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = Task.objects.filter(id=task_obj["id"])
                     tas = tas.values()[0]
                     tas["supercheck_status"] = task_obj["annotation_status"]
+                    if "UNVALIDATED" not in supercheck_status:
+                        tas["updated_at"] = task_obj["updated_at"]
                     tas["user_mail"] = task_obj["user_mail"]
                     tas["reviewer_mail"] = task_obj["reviewer_mail"]
                     tas["annotator_mail"] = task_obj["annotator_mail"]
@@ -1569,21 +1726,50 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if(request.data["result"]==""):
-                            preferred_model = request.data.get("preferred_response")
+                        if request.data["result"]=="":
+                            # preferred_model = request.data.get("preferred_response")
+                            # preferred_id = request.data.get("prompt_output_pair_id")
+                            # for model_entry in annotation_obj.result:
+                            #     model_name = model_entry.get("model_name")
+                            #     for interaction in model_entry.get("interaction_json", []):
+                            #         if interaction.get("prompt_output_pair_id") == preferred_id:
+                            #             interaction["preferred_response"] = (model_name == preferred_model)
+                            eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
-                            for model_entry in annotation_obj.result:
-                                model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                            eval_form_entry = next(
+                                (entry for entry in annotation_obj.result if "eval_form" in entry),
+                                None
+                            )
+                            if eval_form_entry is None:
+                                eval_form_entry = {"eval_form": []}
+                                annotation_obj.result.insert(0, eval_form_entry)
+                            existing_entry = next(
+                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
+                                None
+                            )
+                            if existing_entry:
+                                existing_entry["model_responses_json"] = eval_form_vals
+                            else:
+                                eval_form_entry["eval_form"].append({
+                                    "prompt_output_pair_id": preferred_id,
+                                    "model_responses_json": eval_form_vals
+                                })
                         else:
+                            if not annotation_obj.result:
+                                annotation_obj.result.append({
+                                    "eval_form": [],
+                                    "model_interactions": []
+                                })
+                            result_entry = annotation_obj.result[0]
+                            if "model_interactions" not in result_entry:
+                                result_entry["model_interactions"] = []
+
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                annotation_obj.task.data['model'],
+                                task.data["model"]
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -1604,7 +1790,7 @@ class AnnotationViewSet(
                                 }
 
                                 model_found = False
-                                for model_entry in annotation_obj.result:
+                                for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
                                         model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
@@ -1612,7 +1798,7 @@ class AnnotationViewSet(
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
+                                    result_entry["model_interactions"].append({
                                         "model_name": model_name,
                                         "interaction_json": [new_interaction]
 
@@ -1810,20 +1996,42 @@ class AnnotationViewSet(
                 ):
                     if isinstance(request.data["result"], str):
                         if(request.data["result"]==""):
-                            preferred_model = request.data.get("preferred_response")
+                            eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
-                            for model_entry in annotation_obj.result:
-                                model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                            eval_form_entry = next(
+                                (entry for entry in annotation_obj.result if "eval_form" in entry),
+                                None
+                            )
+                            if eval_form_entry is None:
+                                eval_form_entry = {"eval_form": []}
+                                annotation_obj.result.insert(0, eval_form_entry)
+                            existing_entry = next(
+                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
+                                None
+                            )
+                            if existing_entry:
+                                existing_entry["model_responses_json"] = eval_form_vals
+                            else:
+                                eval_form_entry["eval_form"].append({
+                                    "prompt_output_pair_id": preferred_id,
+                                    "model_responses_json": eval_form_vals
+                                })
                         else:
+                            if not annotation_obj.result:
+                                annotation_obj.result.append({
+                                    "eval_form": [],
+                                    "model_interactions": []
+                                })
+                            result_entry = annotation_obj.result[0]
+                            if "model_interactions" not in result_entry:
+                                result_entry["model_interactions"] = []
+
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                annotation_obj.task.data['model'],
+                                task.data["model"]
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -1836,8 +2044,6 @@ class AnnotationViewSet(
                             # store the result of all checks as well
                             prompt_text = request.data["result"]
                             for model_name, model_output in output_result.items():
-                                if isinstance(model_output, Response):
-                                    model_output = model_output.data 
                                 new_interaction = {
                                     "prompt": prompt_text,
                                     "output": model_output,
@@ -1846,7 +2052,7 @@ class AnnotationViewSet(
                                 }
 
                                 model_found = False
-                                for model_entry in annotation_obj.result:
+                                for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
                                         model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
@@ -1854,7 +2060,7 @@ class AnnotationViewSet(
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
+                                    result_entry["model_interactions"].append({
                                         "model_name": model_name,
                                         "interaction_json": [new_interaction]
 
@@ -2121,28 +2327,42 @@ class AnnotationViewSet(
                 ):
                     if isinstance(request.data["result"], str):
                         if(request.data["result"]==""):
-                            preferred_model = request.data.get("preferred_response")
+                            eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
-                            for model_entry in annotation_obj.result:
-                                # if model_entry.get("model_name") == preferred_model:
-                                #     for interaction in model_entry.get("interaction_json", []):
-                                #         if interaction.get("prompt_output_pair_id") == preferred_id:
-                                #             interaction["preferred_response"] = True
-                                # else:
-                                #     for interaction in model_entry.get("interaction_json", []):
-                                #         if interaction.get("prompt_output_pair_id") == preferred_id:
-                                #             interaction["preferred_response"] = False
-                                model_name = model_entry.get("model_name")
-                                for interaction in model_entry.get("interaction_json", []):
-                                    if interaction.get("prompt_output_pair_id") == preferred_id:
-                                        interaction["preferred_response"] = (model_name == preferred_model)
+                            eval_form_entry = next(
+                                (entry for entry in annotation_obj.result if "eval_form" in entry),
+                                None
+                            )
+                            if eval_form_entry is None:
+                                eval_form_entry = {"eval_form": []}
+                                annotation_obj.result.insert(0, eval_form_entry)
+                            existing_entry = next(
+                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
+                                None
+                            )
+                            if existing_entry:
+                                existing_entry["model_responses_json"] = eval_form_vals
+                            else:
+                                eval_form_entry["eval_form"].append({
+                                    "prompt_output_pair_id": preferred_id,
+                                    "model_responses_json": eval_form_vals
+                                })
                         else:
+                            if not annotation_obj.result:
+                                annotation_obj.result.append({
+                                    "eval_form": [],
+                                    "model_interactions": []
+                                })
+                            result_entry = annotation_obj.result[0]
+                            if "model_interactions" not in result_entry:
+                                result_entry["model_interactions"] = []
+
                             output_result = get_all_llm_output(
                                 request.data["result"],
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                annotation_obj.task.data['model'],
+                                task.data["model"]
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2163,7 +2383,7 @@ class AnnotationViewSet(
                                 }
 
                                 model_found = False
-                                for model_entry in annotation_obj.result:
+                                for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
                                         model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
@@ -2171,7 +2391,7 @@ class AnnotationViewSet(
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    annotation_obj.result.append({
+                                    result_entry["model_interactions"].append({
                                         "model_name": model_name,
                                         "interaction_json": [new_interaction]
 
@@ -2776,7 +2996,7 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
         dup_check = duplicate_check(ann_result, prompt)
 
     # GET MODEL OUTPUT
-    history = ann_result
+    history = ann_result[0]
 
 
     model_output = get_all_model_output(
