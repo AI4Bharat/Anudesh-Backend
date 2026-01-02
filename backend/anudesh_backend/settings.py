@@ -15,10 +15,6 @@ import os
 from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
-import os
-
-# Firebase configuration
-FIREBASE_SERVICE_ACCOUNT_KEY_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'firebase-service-account.json')
 
 load_dotenv()
 
