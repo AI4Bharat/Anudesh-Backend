@@ -44,6 +44,13 @@ else:
         "backend.anudesh.ai4bharat.org",
     ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://backend.anudesh.ai4bharat.org",
+    "https://anudesh.ai4bharat.org",
+    "https://backend.dev.anudesh.ai4bharat.org",
+    "https://dev.anudesh.ai4bharat.org",
+]
+
 # Application definition
 
 INSTALLED_APPS = [
