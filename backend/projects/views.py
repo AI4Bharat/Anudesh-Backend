@@ -3383,9 +3383,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 result = {"message": "disabled task supercheck for this project "}
                 return Response(result)
 
-        managers = [
-            user1.get_username() for user1 in proj_obj.workspace_id.managers.all()
-        ]
+        # managers = [
+        #     user1.get_username() for user1 in proj_obj.workspace_id.managers.all()
+        # ]
 
         final_result = []
         users_ids = []
