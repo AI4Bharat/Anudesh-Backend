@@ -29,6 +29,7 @@ from .serializers import (
     OrganizationSerializer,
     ChangePasswordWithoutOldPassword,
 )
+from tasks.models import Annotation as Annotation_model
 from organizations.models import Invite, Organization
 from organizations.serializers import InviteGenerationSerializer
 from organizations.decorators import is_organization_owner
@@ -1449,7 +1450,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        project_type_lower = project_type.lower()
+        project_type_lower = (project_type or " ").lower()
+        print("project_type_lower", project_type_lower)
         is_textual_project = (
             False if project_type in get_audio_project_types() else True
         )  # flag for distinguishing between textual and audio projects
@@ -1471,16 +1473,19 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     annotation_reviewers=user_id,
                     project_type=project_type,
                 )
+                print("project_objs", project_objs)
         elif supercheck_reports:
             if project_type == "all":
                 project_objs = Project.objects.filter(  # Not using the project_type filter if it is set to "all"
                     review_supercheckers=user_id,
                 )
+                print("project_objs", project_objs)
             else:
                 project_objs = Project.objects.filter(
                     review_supercheckers=user_id,
                     project_type=project_type,
                 )
+                print("project_objs", project_objs)
         else:
             if project_type == "all":
                 project_objs = Project.objects.filter(
@@ -1497,6 +1502,15 @@ class AnalyticsViewSet(viewsets.ViewSet):
         total_annotated_tasks_count = 0
         all_tasks_word_count = 0
         all_projects_total_duration = 0
+        
+        # New total counters
+        total_draft_tasks = 0
+        total_skipped_tasks = 0
+        total_to_be_revised_tasks = 0
+        total_rejected_tasks = 0
+        total_rejected_task_by_reviewer = 0
+        
+        
         project_wise_summary = []
         for proj in project_objs:
             project_name = proj.title
@@ -1505,6 +1519,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 False if project_type in get_audio_project_types() else True
             )
             annotated_labeled_tasks = []
+            # for reviwer reports
             if review_reports:
                 labeld_tasks_objs = Task.objects.filter(
                     Q(project_id=proj.id)
@@ -1517,16 +1532,20 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         ]
                     )
                 )
+                print("labeld_tasks_objs", labeld_tasks_objs)
 
                 annotated_task_ids = list(
                     labeld_tasks_objs.values_list("id", flat=True)
                 )
+                print("annotated_task_ids", annotated_task_ids)
                 annotated_labeled_tasks = Annotation.objects.filter(
                     task_id__in=annotated_task_ids,
                     annotation_type=REVIEWER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
                 ).exclude(annotation_status__in=["to_be_revised", "draft", "skipped"])
+                print("annotated_labeled_tasks", annotated_labeled_tasks)
+            # for super_checker reports
             elif supercheck_reports:
                 labeld_tasks_objs = Task.objects.filter(
                     Q(project_id=proj.id)
@@ -1538,17 +1557,22 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         ]
                     )
                 )
+                print("labeld_tasks_objs", labeld_tasks_objs)
+
 
                 annotated_task_ids = list(
                     labeld_tasks_objs.values_list("id", flat=True)
                 )
+                print("annotated_task_ids", annotated_task_ids)
                 annotated_labeled_tasks = Annotation.objects.filter(
                     task_id__in=annotated_task_ids,
                     annotation_type=SUPER_CHECKER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
                 )
+                print("annotated_labeled_tasks", annotated_labeled_tasks)
             else:
+                # for annotaotor reports
                 labeld_tasks_objs = Task.objects.filter(
                     Q(project_id=proj.id)
                     & Q(annotation_users=user_id)
@@ -1561,19 +1585,112 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         ]
                     )
                 )
+                print("labeld_tasks_objs", labeld_tasks_objs)
                 annotated_task_ids = list(
                     labeld_tasks_objs.values_list("id", flat=True)
                 )
+                print("annotated_task_ids", annotated_task_ids)
                 annotated_labeled_tasks = Annotation.objects.filter(
                     task_id__in=annotated_task_ids,
                     annotation_type=ANNOTATOR_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
                 )
-
+                print("annotated_labeled_tasks", annotated_labeled_tasks)
             annotated_tasks_count = annotated_labeled_tasks.count()
             total_annotated_tasks_count += annotated_tasks_count
 
+            # Draft, Skipped, To Be Revised, Rejected counts
+            # -----------------------------
+            annotation_type = (
+                REVIEWER_ANNOTATION if review_reports else
+                SUPER_CHECKER_ANNOTATION if supercheck_reports else
+                ANNOTATOR_ANNOTATION
+            )
+
+
+            draft_tasks_count = Annotation.objects.filter(
+                task__project_id=proj.id,
+                annotation_type=annotation_type,
+                updated_at__range=[start_date, end_date],
+                completed_by=user_id,
+                annotation_status="draft",
+            ).count()
+            print("draft_tasks_count", draft_tasks_count)
+
+            skipped_tasks_count = Annotation.objects.filter(
+                task__project_id=proj.id,
+                annotation_type=annotation_type,
+                updated_at__range=[start_date, end_date],
+                completed_by=user_id,
+                annotation_status="skipped",
+            ).count()
+            print("skipped_tasks_count", skipped_tasks_count)
+
+            to_be_revised_tasks_count = 0
+            rejected_tasks_count_by_reviewer = 0
+            if review_reports:
+                to_be_revised_tasks_count = Annotation.objects.filter(
+                    task__project_id=proj.id,
+                    task__review_user=user_id,
+                    annotation_status="to_be_revised",
+                    annotation_type=REVIEWER_ANNOTATION,
+                    updated_at__range=[start_date, end_date],
+                ).count()
+
+                superchecker_rejected_annos = Annotation_model.objects.filter(
+                    task__project_id=proj.id,
+                    annotation_status="rejected",
+                    annotation_type=SUPER_CHECKER_ANNOTATION,
+                    parent_annotation__updated_at__range=[start_date, end_date],
+                )
+                print("STEP 1 → superchecker_rejected_annos count:",
+                      superchecker_rejected_annos.count())
+                print("STEP 1 → superchecker_rejected_annos IDs:",
+                      list(superchecker_rejected_annos.values_list("id", flat=True)))
+                print("STEP 1 → parent_annotation_ids:",
+                      list(superchecker_rejected_annos.values_list("parent_annotation_id", flat=True)))
+
+                parent_anno_ids = [
+                    ann.parent_annotation_id for ann in superchecker_rejected_annos
+                ]
+                print("STEP 2 → parent_anno_ids (reviewer annotation IDs):",
+                    parent_anno_ids)
+
+                rejected_tasks_count_by_reviewer = Annotation_model.objects.filter(
+                    id__in=parent_anno_ids, completed_by=user_id, annotation_status="rejected"
+                ).count()
+                print("STEP 3 → rejected reviewer annotation IDs:",
+                    rejected_tasks_count_by_reviewer)
+                
+                print("rejected_tasks_count =", rejected_tasks_count_by_reviewer)
+
+                # print("accepted_rejected_tasks", accepted_rejected_tasks)
+
+                print("to_be_revised_tasks_count = ", to_be_revised_tasks_count)
+
+            rejected_tasks_count = 0
+            if supercheck_reports:
+                rejected_tasks_count = Annotation.objects.filter(
+                    task__project_id=proj.id,
+                    task__super_check_user=user_id,
+                    annotation_type=SUPER_CHECKER_ANNOTATION,
+                    updated_at__range=[start_date, end_date],
+                    completed_by=user_id,
+                    annotation_status="rejected",
+                ).count()
+                print("rejected_tasks_count = ", rejected_tasks_count)
+
+            # Update totals
+            total_draft_tasks += draft_tasks_count
+            total_skipped_tasks += skipped_tasks_count
+            total_to_be_revised_tasks += to_be_revised_tasks_count
+            # By Reviewer
+            total_rejected_task_by_reviewer += rejected_tasks_count_by_reviewer
+            # By Super Checker
+            total_rejected_tasks += rejected_tasks_count
+            
+            # Lead Time
             avg_lead_time = 0
             lead_time_annotated_tasks = [
                 eachtask.lead_time for eachtask in annotated_labeled_tasks
@@ -1584,7 +1701,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     lead_time_annotated_tasks
                 )
                 avg_lead_time = round(avg_lead_time, 2)
-
+                
+            # Word Count / Audio Duration
             total_word_count = 0
             if "OCRTranscription" in project_type:
                 for each_anno in annotated_labeled_tasks:
@@ -1624,6 +1742,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         else "Annotated Tasks"
                     )
                 ): annotated_tasks_count,
+                "Draft Tasks": draft_tasks_count,
+                "Skipped Tasks": skipped_tasks_count,
                 "Word Count": total_word_count,
                 "Total Segments Duration": total_duration,
                 (
@@ -1636,6 +1756,16 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     )
                 ): avg_lead_time,
             }
+            # Role-specific fields (IMPORTANT)
+            # ----------------------------
+            if review_reports:
+                result["To Be Revised Tasks"] = to_be_revised_tasks_count
+                result["Rejected Tasks"] = rejected_tasks_count_by_reviewer
+
+            if supercheck_reports:
+                result["Rejected"] = rejected_tasks_count
+
+            print("result", result)
 
             if project_type in get_audio_project_types():
                 del result["Word Count"]
@@ -1660,7 +1790,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 > 0
             ):
                 project_wise_summary.append(result)
-
+        
+        # Sort project summary
         project_wise_summary = sorted(
             project_wise_summary,
             key=lambda x: x[
@@ -1685,7 +1816,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
 
         # total_summary = {}
         # if is_translation_project or project_type == "SemanticTextualSimilarity_Scale5":
-
+        
+        # Total summary 
         total_result = {
             (
                 "Reviewed Tasks"
@@ -1706,6 +1838,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 )
             ): round(all_annotated_lead_time_count, 2),
         }
+        print("total_result", total_result)
         if project_type_lower != "all" and project_type in get_audio_project_types():
             del total_result["Word Count"]
         elif project_type_lower != "all" and is_textual_project:
@@ -1715,11 +1848,12 @@ class AnalyticsViewSet(viewsets.ViewSet):
             del total_result["Total Segments Duration"]
 
         total_summary = [total_result]
-
+        print("total_summary", total_summary)
         final_result = {
             "total_summary": total_summary,
             "project_summary": project_wise_summary,
         }
+        print("final_result", final_result)
         return Response(final_result)
 
     @action(
