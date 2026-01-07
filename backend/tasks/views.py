@@ -1865,6 +1865,13 @@ class AnnotationViewSet(
                     ret_dict = {"message": "Missing param : annotation_status!"}
                     ret_status = status.HTTP_400_BAD_REQUEST
                     return Response(ret_dict, status=ret_status)
+                
+                if annotation_status == LABELED:
+                    prev = request.data["result"]
+                    if not annotation_obj.previous_annotations_json:
+                        annotation_obj.previous_annotations_json = []
+                    annotation_obj.previous_annotations_json.append(prev)
+                    annotation_obj.save(update_fields=["previous_annotations_json"])
 
                 if update_annotated_at:
                     annotation_obj.annotated_at = datetime.now(timezone.utc)
