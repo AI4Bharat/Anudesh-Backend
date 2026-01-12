@@ -312,6 +312,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         user_id = request.user.id
         user = request.user
         page_number = None
+        start_date = None
+        end_date = None
         if "page" in dict(request.query_params):
             page_number = request.query_params["page"]
         records = 10
