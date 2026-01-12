@@ -1865,13 +1865,6 @@ class AnnotationViewSet(
                     ret_dict = {"message": "Missing param : annotation_status!"}
                     ret_status = status.HTTP_400_BAD_REQUEST
                     return Response(ret_dict, status=ret_status)
-                
-                if annotation_status == LABELED:
-                    prev = request.data["result"]
-                    if not annotation_obj.previous_annotations_json:
-                        annotation_obj.previous_annotations_json = []
-                    annotation_obj.previous_annotations_json.append(prev)
-                    annotation_obj.save(update_fields=["previous_annotations_json"])
 
                 if update_annotated_at:
                     annotation_obj.annotated_at = datetime.now(timezone.utc)
@@ -2163,11 +2156,26 @@ class AnnotationViewSet(
                         return Response(ret_dict, status=ret_status)
 
                     if review_status == TO_BE_REVISED:
-                        prev = request.data["result"]
+                        parent_annotation = annotation_obj.parent_annotation
+                        current_time = datetime.now(timezone.utc)
+                        prev_result = parent_annotation.result
+                        
+                        prev_annotation_entry = {
+                            "result": prev_result,
+                            "revised_at": current_time.isoformat().replace("+00:00", "Z"),
+                        }
+                        
+                        # Update reviewer's previous_annotations_json
                         if not annotation_obj.previous_annotations_json:
                             annotation_obj.previous_annotations_json = []
-                        annotation_obj.previous_annotations_json.append(prev)
+                        annotation_obj.previous_annotations_json.append(prev_annotation_entry)
                         annotation_obj.save(update_fields=["previous_annotations_json"])
+                        
+                        # Update annotator annotation's previous_annotations_json
+                        if not parent_annotation.previous_annotations_json:
+                            parent_annotation.previous_annotations_json = []
+                        parent_annotation.previous_annotations_json.append(prev_annotation_entry)
+                        parent_annotation.save(update_fields=["previous_annotations_json"])
 
                         rev_loop_count = task.revision_loop_count
                         if (
@@ -2491,11 +2499,26 @@ class AnnotationViewSet(
                         ret_status = status.HTTP_400_BAD_REQUEST
                         return Response(ret_dict, status=ret_status)
                     if supercheck_status == REJECTED:
-                        prev = request.data["result"]
+                        parent_annotation = annotation_obj.parent_annotation
+                        current_time = datetime.now(timezone.utc)
+                        prev_result = parent_annotation.result
+                        
+                        prev_annotation_entry ={
+                            "result": prev_result,
+                            "rejected_at": current_time.isoformat(),
+                        }
+                        
+                        # Update superchecker's previous_annotations_json
                         if not annotation_obj.previous_annotations_json:
                             annotation_obj.previous_annotations_json = []
-                        annotation_obj.previous_annotations_json.append(prev)
+                        annotation_obj.previous_annotations_json.append(prev_annotation_entry)
                         annotation_obj.save(update_fields=["previous_annotations_json"])
+                        
+                        # Update reviewer's previous_annotations_json
+                        if not parent_annotation.previous_annotations_json:
+                            parent_annotation.previous_annotations_json = []
+                        parent_annotation.previous_annotations_json.append(prev_annotation_entry)
+                        parent_annotation.save(update_fields=["previous_annotations_json"])
                         
                         rev_loop_count = task.revision_loop_count
                         if (
