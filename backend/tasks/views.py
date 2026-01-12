@@ -2505,7 +2505,7 @@ class AnnotationViewSet(
                         
                         prev_annotation_entry ={
                             "result": prev_result,
-                            "rejected_at": current_time.isoformat(),
+                            "rejected_at": current_time.isoformat().replace("+00:00", "Z"),
                         }
                         
                         # Update superchecker's previous_annotations_json
