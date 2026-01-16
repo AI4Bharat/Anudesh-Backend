@@ -309,11 +309,17 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         user_id = request.user.id
         user = request.user
         page_number = None
+        start_date = None
+        end_date = None
         if "page" in dict(request.query_params):
             page_number = request.query_params["page"]
         records = 10
         if "records" in dict(request.query_params):
             records = request.query_params["records"]
+        if "start_date" in dict(request.query_params):
+            start_date = request.query_params.get("start_date")
+        if "end_date" in dict(request.query_params):
+            end_date = request.query_params.get("end_date")
 
         if "project_id" in dict(request.query_params):
             proj_id = request.query_params["project_id"]
@@ -359,6 +365,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             annotation_status__in=ann_status,
                             annotation_type=ANNOTATOR_ANNOTATION,
                         )
+                        if start_date and end_date:
+                            ann = ann.filter(updated_at__range=[start_date, end_date])
 
                         tasks = Task.objects.filter(annotations__in=ann)
                         tasks = tasks.distinct()
@@ -414,6 +422,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     annotation_type=ANNOTATOR_ANNOTATION,
                     completed_by=user_id,
                 )
+                if start_date and end_date:
+                    ann = ann.filter(updated_at__range=[start_date, end_date])
 
                 tasks = Task.objects.filter(annotations__in=ann)
                 tasks = tasks.distinct()
@@ -507,6 +517,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             annotation_status__in=rew_status,
                             annotation_type=REVIEWER_ANNOTATION,
                         )
+                        if start_date and end_date:
+                            ann = ann.filter(updated_at__range=[start_date, end_date])
                         tasks = Task.objects.filter(annotations__in=ann)
                         tasks = tasks.distinct()
                         # Handle search query (if any)
@@ -585,6 +597,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     annotation_type=REVIEWER_ANNOTATION,
                     completed_by=user_id,
                 )
+                if start_date and end_date:
+                    ann = ann.filter(updated_at__range=[start_date, end_date])
                 tasks = Task.objects.filter(annotations__in=ann)
                 tasks = tasks.distinct()
                 tasks = tasks.order_by("id")
@@ -754,6 +768,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             annotation_status__in=supercheck_status,
                             annotation_type=SUPER_CHECKER_ANNOTATION,
                         )
+                        if start_date and end_date:
+                            ann = ann.filter(updated_at__range=[start_date, end_date])
                         tasks = Task.objects.filter(annotations__in=ann)
                         tasks = tasks.distinct()
                         # Handle search query (if any)
@@ -810,6 +826,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     annotation_type=SUPER_CHECKER_ANNOTATION,
                     completed_by=user_id,
                 )
+                if start_date and end_date:
+                    ann = ann.filter(updated_at__range=[start_date, end_date])
                 tasks = Task.objects.filter(annotations__in=ann)
                 tasks = tasks.distinct()
                 # Handle search query (if any)
@@ -919,6 +937,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         project_id__exact=proj_id,
                         task_status__in=tas_status,
                     )
+                    if start_date and end_date:
+                        tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
 
                     # Handle search query (if any)
                     if len(tasks):
@@ -958,6 +978,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_status__in=tas_status,
                     annotation_users=user_id,
                 )
+                if start_date and end_date:
+                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
 
                 # Handle search query (if any)
                 if len(tasks):
@@ -994,6 +1016,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_status__in=tas_status,
                     review_user_id=user_id,
                 )
+                if start_date and end_date:
+                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
 
                 # Handle search query (if any)
                 if len(tasks):
@@ -1030,6 +1054,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_status__in=tas_status,
                     super_checker_user_id=user_id,
                 )
+                if start_date and end_date:
+                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
                 tasks = tasks.order_by("id")
 
                 # Handle search query (if any)
