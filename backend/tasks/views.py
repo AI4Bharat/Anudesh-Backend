@@ -2206,6 +2206,27 @@ class AnnotationViewSet(
                         return Response(ret_dict, status=ret_status)
 
                     if review_status == TO_BE_REVISED:
+                        parent_annotation = annotation_obj.parent_annotation
+                        current_time = datetime.now(timezone.utc)
+                        prev_result = parent_annotation.result
+                        
+                        prev_annotation_entry = {
+                            "result": prev_result,
+                            "revised_at": current_time.isoformat().replace("+00:00", "Z"),
+                        }
+                        
+                        # Update reviewer's previous_annotations_json
+                        if not annotation_obj.previous_annotations_json:
+                            annotation_obj.previous_annotations_json = []
+                        annotation_obj.previous_annotations_json.append(prev_annotation_entry)
+                        annotation_obj.save(update_fields=["previous_annotations_json"])
+                        
+                        # Update annotator annotation's previous_annotations_json
+                        if not parent_annotation.previous_annotations_json:
+                            parent_annotation.previous_annotations_json = []
+                        parent_annotation.previous_annotations_json.append(prev_annotation_entry)
+                        parent_annotation.save(update_fields=["previous_annotations_json"])
+
                         rev_loop_count = task.revision_loop_count
                         if (
                             rev_loop_count["review_count"]
@@ -2528,6 +2549,27 @@ class AnnotationViewSet(
                         ret_status = status.HTTP_400_BAD_REQUEST
                         return Response(ret_dict, status=ret_status)
                     if supercheck_status == REJECTED:
+                        parent_annotation = annotation_obj.parent_annotation
+                        current_time = datetime.now(timezone.utc)
+                        prev_result = parent_annotation.result
+                        
+                        prev_annotation_entry ={
+                            "result": prev_result,
+                            "rejected_at": current_time.isoformat().replace("+00:00", "Z"),
+                        }
+                        
+                        # Update superchecker's previous_annotations_json
+                        if not annotation_obj.previous_annotations_json:
+                            annotation_obj.previous_annotations_json = []
+                        annotation_obj.previous_annotations_json.append(prev_annotation_entry)
+                        annotation_obj.save(update_fields=["previous_annotations_json"])
+                        
+                        # Update reviewer's previous_annotations_json
+                        if not parent_annotation.previous_annotations_json:
+                            parent_annotation.previous_annotations_json = []
+                        parent_annotation.previous_annotations_json.append(prev_annotation_entry)
+                        parent_annotation.save(update_fields=["previous_annotations_json"])
+                        
                         rev_loop_count = task.revision_loop_count
                         if (
                             rev_loop_count["super_check_count"]
