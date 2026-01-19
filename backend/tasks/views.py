@@ -1716,7 +1716,7 @@ class AnnotationViewSet(
                 update_notification(annotation_obj, task)
                 is_revised = True
                 print(annotation_obj)
-                if "ids" in dict(request.data):
+                if "task_id" in dict(request.data):
                     pass
 
                 else:
