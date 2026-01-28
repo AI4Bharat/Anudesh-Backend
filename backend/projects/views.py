@@ -61,6 +61,7 @@ from .tasks import (
     export_project_in_place,
     export_project_new_record,
     filter_data_items,
+    extract_prompts_from_json
 )
 
 from .decorators import (
@@ -4428,6 +4429,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     task["data"]["form_output_json"] = complete_result
                 else:
                     task["data"]["interactions_json"] = complete_result
+                    
+                    all_prompts = []
+                    for interaction in complete_result:
+                        annotation_result = interaction.get("annotation_result", {})
+                        extract_prompts_from_json(annotation_result, all_prompts)
+                    task["data"]["Prompts"] = " | ".join(all_prompts)
+                    
                 task["data"]["notes_json"] = notes
                 del task["annotations"]
             return DataExport.generate_export_file(project, tasks_list, export_type)

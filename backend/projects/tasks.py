@@ -38,6 +38,20 @@ def stringify_json(json):
         string += f"{key}: {value}, "
     return string[0:-1]
 
+def extract_prompts_from_json(obj, prompts):
+    """
+    Recursively traverse JSON and collect all 'prompt' values
+    """
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == "prompt" and isinstance(value, str):
+                prompts.append(value)
+            extract_prompts_from_json(value, prompts)
+
+    elif isinstance(obj, list):
+        for item in obj:
+            extract_prompts_from_json(item, prompts)
+
 
 def create_automatic_annotations(tasks, automatic_annotation_creation_mode):
     user = User.objects.get(id=1)
