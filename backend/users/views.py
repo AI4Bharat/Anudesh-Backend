@@ -1742,8 +1742,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
             if supercheck_reports:
                 result["Rejected"] = rejected_tasks_count
 
-            print("result", result)
-
             if project_type in get_audio_project_types():
                 del result["Word Count"]
             elif is_textual_project:
@@ -1752,20 +1750,15 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 del result["Word Count"]
                 del result["Total Segments Duration"]
 
-            if (
-                result[
-                    (
-                        "Reviewed Tasks"
-                        if review_reports
-                        else (
-                            "SuperChecked Tasks"
-                            if supercheck_reports
-                            else "Annotated Tasks"
-                        )
-                    )
-                ]
-                > 0
-            ):
+            has_activity = (
+                annotated_tasks_count > 0
+                or draft_tasks_count > 0
+                or skipped_tasks_count > 0
+                or to_be_revised_tasks_count > 0
+                or rejected_tasks_count > 0
+                or rejected_tasks_count_by_reviewer > 0
+            )
+            if has_activity:
                 project_wise_summary.append(result)
         
         
