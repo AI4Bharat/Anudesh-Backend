@@ -4429,12 +4429,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     task["data"]["form_output_json"] = complete_result
                 else:
                     task["data"]["interactions_json"] = complete_result
-                    
-                    all_prompts = []
+                    user_prompts_map = {}
                     for interaction in complete_result:
-                        annotation_result = interaction.get("annotation_result", {})
-                        extract_prompts_from_json(annotation_result, all_prompts)
-                    task["data"]["Prompts"] = " | ".join(all_prompts)
+                        user_id = interaction.get("user_id", "unknown_user")
+                        annotation_result = interaction.get("annotation_result", [])
+                        if user_id not in user_prompts_map:
+                            user_prompts_map[user_id] = []
+                        for block in annotation_result:
+                            model_interactions = block.get("model_interactions", [])
+                            for model in model_interactions:
+                                interaction_json = model.get("interaction_json", [])
+                                for turn in interaction_json:
+                                    prompt = turn.get("prompt")
+                                    if prompt:
+                                        user_prompts_map[user_id].append(prompt)
+                    formatted_prompts = []
+                    for user_id, prompts in user_prompts_map.items():
+                        formatted_prompts.append(
+                            f"{user_id}: {', '.join(prompts)}"
+                        )
+                    task["data"]["Prompts"] = " | ".join(formatted_prompts)
                     
                 task["data"]["notes_json"] = notes
                 del task["annotations"]
