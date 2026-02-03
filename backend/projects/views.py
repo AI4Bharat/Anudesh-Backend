@@ -4345,21 +4345,26 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     correct_annotation = task.annotations.all().filter(
                         annotation_type=ANNOTATOR_ANNOTATION
                     )[0]
-                if correct_annotation is None and task.task_status in [
-                    REVIEWED,
-                ]:
-                    correct_annotation = task.annotations.all().filter(
-                        annotation_type=REVIEWER_ANNOTATION
-                    )[0]
+                if correct_annotation is None and task.task_status == REVIEWED:
+                    correct_annotations_list = list(task.annotations.filter(
+                        annotation_type__in=[REVIEWER_ANNOTATION, ANNOTATOR_ANNOTATION]
+                    ))
+                    
+                    correct_annotation = correct_annotations_list
 
                 annotator_email = ""
-                # if correct_annotation is not None and required_annotators_per_task < 2:
-                if correct_annotation is not None:
-                    try:
+                if correct_annotation:
+                    if isinstance(correct_annotation, list):
+                        task_dict["annotations"] = correct_annotation
+                        emails = []
+                        for ann in correct_annotation:
+                            if ann.completed_by and ann.completed_by.email:
+                                emails.append(ann.completed_by.email)
+                        annotator_email = " | ".join(emails)
+                    else:
+                        task_dict["annotations"] = [correct_annotation]
                         annotator_email = correct_annotation.completed_by.email
-                    except:
-                        pass
-                    task_dict["annotations"] = [correct_annotation]
+               
                 # elif required_annotators_per_task >= 2:
                 #     all_ann = Annotation.objects.filter(task=task)
                 #     for a in all_ann:
