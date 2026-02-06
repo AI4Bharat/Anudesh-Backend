@@ -61,7 +61,6 @@ from .tasks import (
     export_project_in_place,
     export_project_new_record,
     filter_data_items,
-    extract_prompts_from_json,
 )
 
 from .decorators import (
