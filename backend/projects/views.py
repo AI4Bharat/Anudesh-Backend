@@ -4340,53 +4340,32 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 # del task_dict['task_id']
                
                 correct_annotation = task.correct_annotation
-                if task.task_status == SUPER_CHECKED:
-                    correct_annotations_list = list(task.annotations.filter(
-                        annotation_type__in=[
-                            ANNOTATOR_ANNOTATION,
-                            REVIEWER_ANNOTATION,
-                            SUPER_CHECKER_ANNOTATION,
-                        ]
-                    ).order_by('id'))
+                if correct_annotation is None and task.task_status in [
+                    ANNOTATED,
+                ]:
+                    correct_annotation = task.annotations.all().filter(
+                        annotation_type=ANNOTATOR_ANNOTATION
+                    )[0]
+                if correct_annotation is None and task.task_status in [
+                    REVIEWED,
+                ]:
+                    correct_annotation = task.annotations.all().filter(
+                        annotation_type=REVIEWER_ANNOTATION
+                    )[0]
                     
-                    correct_annotation = correct_annotations_list
-                   
-                elif task.task_status == REVIEWED:
-                    correct_annotations_list = list(task.annotations.filter(
-                        annotation_type__in=[
-                            ANNOTATOR_ANNOTATION,
-                            REVIEWER_ANNOTATION,
-                        ]
-                    ).order_by('id'))
-                    
-                    correct_annotation = correct_annotations_list
-                  
-                elif task.task_status == ANNOTATED:
-                    if correct_annotation is None:
-                        correct_annotation = task.annotations.filter(
-                            annotation_type=ANNOTATOR_ANNOTATION
-                        ).first()
-
                 annotator_email = ""
-                if correct_annotation:
-                    if isinstance(correct_annotation, list):
-                        task_dict["annotations"] = correct_annotation
-                        
-                        emails = []
-                        for ann in correct_annotation:
-                            if ann.completed_by and ann.completed_by.email:
-                                emails.append(ann.completed_by.email)
-                        
-                        annotator_email = " | ".join(emails)
-                    else:
-                        task_dict["annotations"] = [correct_annotation]
+                # if correct_annotation is not None and required_annotators_per_task < 2:
+                if correct_annotation is not None:
+                    try:
                         annotator_email = correct_annotation.completed_by.email
-                    # elif required_annotators_per_task >= 2:
+                    except:
+                        pass
+                    task_dict["annotations"] = [correct_annotation]
+                # elif required_annotators_per_task >= 2:
                 #     all_ann = Annotation.objects.filter(task=task)
                 #     for a in all_ann:
                 #         ann_list.append(a)
                 #     task_dict["annotations"] = ann_list
-                
                 else:
                     task_dict["annotations"] = []
 
