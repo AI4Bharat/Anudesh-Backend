@@ -61,6 +61,7 @@ from .tasks import (
     export_project_in_place,
     export_project_new_record,
     filter_data_items,prompt_data_annotation,
+    prompt_data_annotation_InstructionDrivenChat,
 )
 
 from .decorators import (
@@ -4323,6 +4324,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task_status = task_status.split(",")
                 tasks = tasks.filter(task_status__in=task_status)
             prompt_map = prompt_data_annotation(tasks)
+            prompt_map_InstructionDrivenChat = prompt_data_annotation_InstructionDrivenChat(tasks)
             
             
             if len(tasks) == 0:
@@ -4389,6 +4391,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
             is_ModelOutputEvaluation = project_type == "ModelOutputEvaluation"
             is_ModelInteractionEvaluation = project_type == "ModelInteractionEvaluation"
+            is_InstructionDrivenChat = project_type == "InstructionDrivenChat"
             for task in tasks_list:
                 complete_result, notes = [], []
                 for i in range(len(task["annotations"])):
@@ -4428,6 +4431,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     task["data"]["eval_form_output_json"] = complete_result
                 elif is_ModelOutputEvaluation:
                     task["data"]["form_output_json"] = complete_result
+                elif is_InstructionDrivenChat:
+                    task["data"]["interactions_json"] = complete_result
+                    task["data"]["Prompts"] = prompt_map_InstructionDrivenChat.get(task["id"], "")
+                    
                 else:
                     task["data"]["interactions_json"] = complete_result
                     
