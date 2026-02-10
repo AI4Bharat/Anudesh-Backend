@@ -61,6 +61,7 @@ from .tasks import (
     export_project_in_place,
     export_project_new_record,
     filter_data_items,
+    prompt_data_annotation,
 )
 
 from .decorators import (
@@ -4323,6 +4324,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task_status = request.query_params["task_status"]
                 task_status = task_status.split(",")
                 tasks = tasks.filter(task_status__in=task_status)
+                
+            prompt_map = prompt_data_annotation(tasks)
 
             if len(tasks) == 0:
                 ret_dict = {"message": "No tasks in project!"}
@@ -4430,35 +4433,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     task["data"]["form_output_json"] = complete_result
                 else:
                     task["data"]["interactions_json"] = complete_result
-
-                    user_prompts_map = {}
-                    user_prompts_seen = {}
-                    
-                    for interaction in complete_result:
-                        user_id = interaction.get("user_id", "unknown_user")
-                        annotation_result = interaction.get("annotation_result", [])
-                    
-                        if user_id not in user_prompts_map:
-                            user_prompts_map[user_id] = []
-                            user_prompts_seen[user_id] = set()
-                    
-                        for block in annotation_result:
-                            model_interactions = block.get("model_interactions", [])
-                            for model in model_interactions:
-                                interaction_json = model.get("interaction_json", [])
-                                for turn in interaction_json:
-                                    prompt = turn.get("prompt")
-                                    if prompt and prompt not in user_prompts_seen[user_id]:
-                                        user_prompts_map[user_id].append(prompt)
-                                        user_prompts_seen[user_id].add(prompt)
-                    
-                    formatted_prompts = []
-                    for user_id, prompts in user_prompts_map.items():
-                        formatted_prompts.append(
-                            f"{user_id}: {', '.join(prompts)}"
-                        )
-                    
-                    task["data"]["Prompts"] = " | ".join(formatted_prompts)
+                    task["data"]["Prompts"] = prompt_map.get(task["id"], "")
 
                     
                 task["data"]["notes_json"] = notes
