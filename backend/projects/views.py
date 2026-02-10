@@ -61,6 +61,7 @@ from .tasks import (
     export_project_in_place,
     export_project_new_record,
     filter_data_items,
+    prompt_data_annotation,
 )
 
 from .decorators import (
@@ -4323,6 +4324,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task_status = request.query_params["task_status"]
                 task_status = task_status.split(",")
                 tasks = tasks.filter(task_status__in=task_status)
+                
+            prompt_map = prompt_data_annotation(tasks)
 
             if len(tasks) == 0:
                 ret_dict = {"message": "No tasks in project!"}
@@ -4338,6 +4341,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 # Rename keys to match label studio converter
                 # task_dict['id'] = task_dict['task_id']
                 # del task_dict['task_id']
+               
                 correct_annotation = task.correct_annotation
                 if correct_annotation is None and task.task_status in [
                     ANNOTATED,
@@ -4351,7 +4355,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     correct_annotation = task.annotations.all().filter(
                         annotation_type=REVIEWER_ANNOTATION
                     )[0]
-
+                    
                 annotator_email = ""
                 # if correct_annotation is not None and required_annotators_per_task < 2:
                 if correct_annotation is not None:
@@ -4429,6 +4433,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     task["data"]["form_output_json"] = complete_result
                 else:
                     task["data"]["interactions_json"] = complete_result
+                    task["data"]["Prompts"] = prompt_map.get(task["id"], "")
+
+                    
                 task["data"]["notes_json"] = notes
                 del task["annotations"]
             return DataExport.generate_export_file(project, tasks_list, export_type)
