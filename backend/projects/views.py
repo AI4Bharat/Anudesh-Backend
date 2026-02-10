@@ -60,7 +60,7 @@ from .tasks import (
     add_new_data_items_into_project,
     export_project_in_place,
     export_project_new_record,
-    filter_data_items,
+    filter_data_items,prompt_data_annotation,
 )
 
 from .decorators import (
@@ -4322,7 +4322,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task_status = request.query_params["task_status"]
                 task_status = task_status.split(",")
                 tasks = tasks.filter(task_status__in=task_status)
-
+            prompt_map = prompt_data_annotation(tasks)
+            
+            
             if len(tasks) == 0:
                 ret_dict = {"message": "No tasks in project!"}
                 ret_status = status.HTTP_200_OK
@@ -4428,6 +4430,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     task["data"]["form_output_json"] = complete_result
                 else:
                     task["data"]["interactions_json"] = complete_result
+                    
+                    task["data"]["Prompts"] = prompt_map.get(task["id"], "")
+
+                    
                 task["data"]["notes_json"] = notes
                 del task["annotations"]
             return DataExport.generate_export_file(project, tasks_list, export_type)
