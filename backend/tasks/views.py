@@ -312,11 +312,17 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         user_id = request.user.id
         user = request.user
         page_number = None
+        start_date = None
+        end_date = None
         if "page" in dict(request.query_params):
             page_number = request.query_params["page"]
         records = 10
         if "records" in dict(request.query_params):
             records = request.query_params["records"]
+        if "start_date" in dict(request.query_params):
+            start_date = request.query_params.get("start_date")
+        if "end_date" in dict(request.query_params):
+            end_date = request.query_params.get("end_date")
 
         if "project_id" in dict(request.query_params):
             proj_id = request.query_params["project_id"]
@@ -362,6 +368,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             annotation_status__in=ann_status,
                             annotation_type=ANNOTATOR_ANNOTATION,
                         )
+                        if start_date and end_date:
+                            ann = ann.filter(updated_at__range=[start_date, end_date])
 
                         tasks = Task.objects.filter(annotations__in=ann)
                         tasks = tasks.distinct()
@@ -380,6 +388,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             task_obj["id"] = an.task_id
                             task_obj["annotation_status"] = an.annotation_status
                             task_obj["user_mail"] = an.completed_by.email
+                            if("unlabeled" not in ann_status):
+                                task_obj["updated_at"] = utc_to_ist(an.updated_at)
                             task_objs.append(task_obj)
                         task_objs.sort(key=lambda x: x["id"])
                         final_dict = {}
@@ -389,6 +399,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas = tas.values()[0]
                             tas["annotation_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            if("unlabeled" not in ann_status):
+                                tas["updated_at"] = task_obj["updated_at"]
                             ordered_tasks.append(tas)
                         if page_number is not None:
                             page_object = Paginator(ordered_tasks, records)
@@ -413,6 +425,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     annotation_type=ANNOTATOR_ANNOTATION,
                     completed_by=user_id,
                 )
+                if start_date and end_date:
+                    ann = ann.filter(updated_at__range=[start_date, end_date])
 
                 tasks = Task.objects.filter(annotations__in=ann)
                 tasks = tasks.distinct()
@@ -450,6 +464,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_obj["annotation_status"] = an.annotation_status
                     task_obj["user_mail"] = an.completed_by.email
                     task_obj["annotation_result_json"] = an.result
+                    if("unlabeled" not in ann_status):
+                        task_obj["updated_at"] = utc_to_ist(an.updated_at)
                     task_objs.append(task_obj)
                 task_objs.sort(key=lambda x: x["id"])
                 final_dict = {}
@@ -460,6 +476,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = tas.values()[0]
                     tas["annotation_status"] = task_obj["annotation_status"]
                     tas["user_mail"] = task_obj["user_mail"]
+                    if("unlabeled" not in ann_status):
+                        tas["updated_at"] = task_obj["updated_at"]
                     if (ann_status[0] in ["labeled", "draft", "to_be_revised"]) and (
                         proj_type == "ContextualTranslationEditing"
                     ):
@@ -502,6 +520,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             annotation_status__in=rew_status,
                             annotation_type=REVIEWER_ANNOTATION,
                         )
+                        if start_date and end_date:
+                            ann = ann.filter(updated_at__range=[start_date, end_date])
                         tasks = Task.objects.filter(annotations__in=ann)
                         tasks = tasks.distinct()
                         # Handle search query (if any)
@@ -519,6 +539,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             task_obj["id"] = an.task_id
                             task_obj["annotation_status"] = an.annotation_status
                             task_obj["user_mail"] = an.completed_by.email
+                            if "unreviewed" not in rew_status:
+                                task_obj["updated_at"] = utc_to_ist(an.updated_at)
                             task_objs.append(task_obj)
                         task_objs.sort(key=lambda x: x["id"])
                         ordered_tasks = []
@@ -532,6 +554,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas = tas.values()[0]
                             tas["review_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            if "unreviewed" not in rew_status:
+                                tas["updated_at"] = task_obj["updated_at"]
                             # if required_annotators_per_task > 1:
                             #     review_ann = [
                             #         a
@@ -576,6 +600,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     annotation_type=REVIEWER_ANNOTATION,
                     completed_by=user_id,
                 )
+                if start_date and end_date:
+                    ann = ann.filter(updated_at__range=[start_date, end_date])
                 tasks = Task.objects.filter(annotations__in=ann)
                 tasks = tasks.distinct()
                 tasks = tasks.order_by("id")
@@ -622,6 +648,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_obj["annotation_status"] = an.annotation_status
                     task_obj["user_mail"] = an.completed_by.email
                     task_obj["reviewer_annotation"] = an.result
+                    if "unreviewed" not in rew_status:
+                        task_obj["updated_at"] = utc_to_ist(an.updated_at)
                     task_obj["first_annotator_annotation"] = (
                         parent_annotator_object[0].result
                         if first_annotator_object
@@ -650,6 +678,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = tas.values()[0]
                     tas["review_status"] = task_obj["annotation_status"]
                     tas["user_mail"] = task_obj["user_mail"]
+                    if "unreviewed" not in rew_status:
+                        tas["updated_at"] = task_obj["updated_at"]
                     tas["annotator_mail"] = task_obj["parent_annotator_mail"]
                     if proj_type == "ContextualTranslationEditing":
                         if rew_status[0] in [
@@ -741,6 +771,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             annotation_status__in=supercheck_status,
                             annotation_type=SUPER_CHECKER_ANNOTATION,
                         )
+                        if start_date and end_date:
+                            ann = ann.filter(updated_at__range=[start_date, end_date])
                         tasks = Task.objects.filter(annotations__in=ann)
                         tasks = tasks.distinct()
                         # Handle search query (if any)
@@ -757,6 +789,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             task_obj["id"] = an.task_id
                             task_obj["annotation_status"] = an.annotation_status
                             task_obj["user_mail"] = an.completed_by.email
+                            if "UNVALIDATED" not in supercheck_status:
+                                task_obj["updated_at"] = utc_to_ist(an.updated_at)
                             task_objs.append(task_obj)
                         task_objs.sort(key=lambda x: x["id"])
                         ordered_tasks = []
@@ -766,6 +800,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas = tas.values()[0]
                             tas["supercheck_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
+                            if "UNVALIDATED" not in supercheck_status:
+                                tas["updated_at"] = task_obj["updated_at"]
                             ordered_tasks.append(tas)
 
                         if page_number is not None:
@@ -793,6 +829,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     annotation_type=SUPER_CHECKER_ANNOTATION,
                     completed_by=user_id,
                 )
+                if start_date and end_date:
+                    ann = ann.filter(updated_at__range=[start_date, end_date])
                 tasks = Task.objects.filter(annotations__in=ann)
                 tasks = tasks.distinct()
                 # Handle search query (if any)
@@ -817,6 +855,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_obj["annotation_status"] = an.annotation_status
                     task_obj["user_mail"] = an.completed_by.email
                     task_obj["superchecker_annotation"] = an.result
+                    if "UNVALIDATED" not in supercheck_status:
+                        task_obj["updated_at"] = utc_to_ist(an.updated_at)
                     task_obj["reviewer_mail"] = (
                         reviewer_object[0].completed_by.email
                         if reviewer_object
@@ -840,6 +880,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = Task.objects.filter(id=task_obj["id"])
                     tas = tas.values()[0]
                     tas["supercheck_status"] = task_obj["annotation_status"]
+                    if "UNVALIDATED" not in supercheck_status:
+                        tas["updated_at"] = task_obj["updated_at"]
                     tas["user_mail"] = task_obj["user_mail"]
                     tas["reviewer_mail"] = task_obj["reviewer_mail"]
                     tas["annotator_mail"] = task_obj["annotator_mail"]
@@ -898,6 +940,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         project_id__exact=proj_id,
                         task_status__in=tas_status,
                     )
+                    if start_date and end_date:
+                        tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
 
                     # Handle search query (if any)
                     if len(tasks):
@@ -937,6 +981,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_status__in=tas_status,
                     annotation_users=user_id,
                 )
+                if start_date and end_date:
+                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
 
                 # Handle search query (if any)
                 if len(tasks):
@@ -973,6 +1019,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_status__in=tas_status,
                     review_user_id=user_id,
                 )
+                if start_date and end_date:
+                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
 
                 # Handle search query (if any)
                 if len(tasks):
@@ -1009,6 +1057,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_status__in=tas_status,
                     super_checker_user_id=user_id,
                 )
+                if start_date and end_date:
+                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
                 tasks = tasks.order_by("id")
 
                 # Handle search query (if any)
