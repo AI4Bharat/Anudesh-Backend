@@ -62,6 +62,7 @@ from .tasks import (
     export_project_new_record,
     filter_data_items,
     prompt_data_annotation,
+    prompt_data_annotation_InstructionDrivenChat,
 )
 
 from .decorators import (
@@ -4326,6 +4327,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 tasks = tasks.filter(task_status__in=task_status)
                 
             prompt_map = prompt_data_annotation(tasks)
+            prompt_map_InstructionDrivenChat = prompt_data_annotation_InstructionDrivenChat(tasks)
 
             if len(tasks) == 0:
                 ret_dict = {"message": "No tasks in project!"}
@@ -4336,8 +4338,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             for task in tasks:
                 ann_list = []
                 task_dict = model_to_dict(task)
-                if export_type != "JSON":
-                    task_dict["data"]["task_status"] = task.task_status
+                # if export_type != "JSON":
+                #     task_dict["data"]["task_status"] = task.task_status
                 # Rename keys to match label studio converter
                 # task_dict['id'] = task_dict['task_id']
                 # del task_dict['task_id']
@@ -4392,6 +4394,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
             is_ModelOutputEvaluation = project_type == "ModelOutputEvaluation"
             is_ModelInteractionEvaluation = project_type == "ModelInteractionEvaluation"
+            is_InstructionDrivenChat = project_type == "InstructionDrivenChat"
             for task in tasks_list:
                 complete_result, notes = [], []
                 for i in range(len(task["annotations"])):
@@ -4431,6 +4434,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     task["data"]["eval_form_output_json"] = complete_result
                 elif is_ModelOutputEvaluation:
                     task["data"]["form_output_json"] = complete_result
+                elif is_InstructionDrivenChat:
+                    task["data"]["interactions_json"] = complete_result
+                    task["data"]["Prompts"] = prompt_map_InstructionDrivenChat.get(task["id"], "")
                 else:
                     task["data"]["interactions_json"] = complete_result
                     task["data"]["Prompts"] = prompt_map.get(task["id"], "")

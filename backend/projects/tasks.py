@@ -40,7 +40,85 @@ def stringify_json(json):
         string += f"{key}: {value}, "
     return string[0:-1]
 
+def prompt_data_annotation_InstructionDrivenChat(tasks):
+    """
+    Extract prompts per task for InstructionDrivenChat projects.
+    Returns: { task_id: "user@email: prompt1, prompt2" }
+    """
 
+    task_prompt_map = {}
+
+    for task in tasks:
+        correct_annotation = task.correct_annotation
+
+        if task.task_status == SUPER_CHECKED:
+            correct_annotation = list(
+                task.annotations.filter(
+                    annotation_type__in=[
+                        ANNOTATOR_ANNOTATION,
+                        REVIEWER_ANNOTATION,
+                        SUPER_CHECKER_ANNOTATION,
+                    ]
+                ).order_by("id")
+            )
+
+        elif task.task_status == REVIEWED:
+            correct_annotation = list(
+                task.annotations.filter(
+                    annotation_type__in=[
+                        ANNOTATOR_ANNOTATION,
+                        REVIEWER_ANNOTATION,
+                    ]
+                ).order_by("id")
+            )
+
+        elif task.task_status == ANNOTATED and correct_annotation is None:
+            correct_annotation = task.annotations.filter(
+                annotation_type=ANNOTATOR_ANNOTATION
+            ).first()
+
+        # normalize to list
+        annotations = (
+            correct_annotation
+            if isinstance(correct_annotation, list)
+            else [correct_annotation] if correct_annotation else []
+        )
+
+        user_prompts = {}
+        seen = {}
+
+        for a in annotations:
+            user = (
+                a.completed_by.email
+                if a.completed_by and a.completed_by.email
+                else "unknown_user"
+            )
+
+            annotation_result = a.result
+            annotation_result = (
+                json.loads(annotation_result)
+                if isinstance(annotation_result, str)
+                else annotation_result
+            )
+
+            user_prompts.setdefault(user, [])
+            seen.setdefault(user, set())
+
+            for turn in annotation_result or []:
+                prompt = turn.get("prompt")
+                if prompt and prompt not in seen[user]:
+                    user_prompts[user].append(prompt)
+                    seen[user].add(prompt)
+
+        formatted = [
+            f"{user}: {', '.join(prompts)}"
+            for user, prompts in user_prompts.items()
+            if prompts
+        ]
+
+        task_prompt_map[task.id] = " | ".join(formatted)
+
+    return task_prompt_map
 def prompt_data_annotation(tasks):
     """
     Runs correct_annotation logic on Task models
