@@ -4336,8 +4336,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             for task in tasks:
                 ann_list = []
                 task_dict = model_to_dict(task)
-                if export_type != "JSON":
-                    task_dict["data"]["task_status"] = task.task_status
+                # if export_type != "JSON":
+                #     task_dict["data"]["task_status"] = task.task_status
                 # Rename keys to match label studio converter
                 # task_dict['id'] = task_dict['task_id']
                 # del task_dict['task_id']
