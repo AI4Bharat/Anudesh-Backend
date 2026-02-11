@@ -99,10 +99,13 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        elif "Error code: 404" in err_msg:
+            message = "The API deployment for this resource does not exist"
+            st = status.HTTP_404_NOT_FOUND
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return Response({"message": message}, status=st)
+        return {"message": message, "status": st}
 
 def get_gpt3_output(system_prompt, user_prompt, history):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
@@ -139,10 +142,13 @@ def get_gpt3_output(system_prompt, user_prompt, history):
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        elif "Error code: 404" in err_msg:
+            message = "The API deployment for this resource does not exist"
+            st = status.HTTP_404_NOT_FOUND
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return Response({"message": message}, status=st)
+        return {"message": message, "status": st}
 
 def get_llama2_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
@@ -161,9 +167,27 @@ def get_llama2_output(system_prompt, conv_history, user_prompt):
         "max_new_tokens": 500,
         "top_p": 1,
     }
-    s = requests.Session()
-    result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
-    return result.json()["choices"][0]["message"]["content"].strip()
+    
+    try:
+        s = requests.Session()
+        result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
+        return result.json()["choices"][0]["message"]["content"].strip()
+        
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        elif "Error code: 404" in err_msg:
+            message = "The API deployment for this resource does not exist"
+            st = status.HTTP_404_NOT_FOUND
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return {'message': message, 'status': st}
 
 def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("SARVAM_M_API_BASE")
@@ -236,10 +260,13 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        elif "Error code: 404" in err_msg:
+            message = "The API deployment for this resource does not exist"
+            st = status.HTTP_404_NOT_FOUND
         else:
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
-        return Response({"message": message}, status=st)
+        return {'message': message, 'status': st}
     
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
@@ -258,6 +285,12 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
 
 def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
     results = {}
+
+    if isinstance(models_to_run, str):
+        if "," in models_to_run:
+            models_to_run = [m.strip() for m in models_to_run.split(",")]
+        else:
+            models_to_run = [models_to_run]
 
     for model in models_to_run:
         # print("history:", history)
