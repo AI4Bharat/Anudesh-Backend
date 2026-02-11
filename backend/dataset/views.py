@@ -602,13 +602,46 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
             )
 
         else:
-            # Create the keyword argument for dataset instance ID
-            instance_id_keyword_arg = "{'pk': " + "'" + str(pk) + "'" + ","
+            # Prefer meta-based search (meta is TextField; use substring patterns)
+            meta_patterns = [
+                f'"pk": {pk}',
+                f"'pk': {pk}",
+                f'"pk": "{pk}"',
+                f"'pk': '{pk}'",
+            ]
+            meta_query = Q()
+            for p in meta_patterns:
+                meta_query |= Q(meta__contains=p)
 
-            # Check the celery project export status
             task_queryset = TaskResult.objects.filter(
-                task_name=task_name,
-                task_kwargs__contains=instance_id_keyword_arg,
+                task_name=task_name
+            ).filter(meta_query)
+
+            # Fallback to task_kwargs patterns if meta not populated
+            if not task_queryset.exists():
+                kw_patterns = [
+                    f"'pk': '{pk}'",
+                    f'"pk": "{pk}"',
+                    f"'pk': {pk}",
+                    f'"pk": {pk}',
+                    f"{{'pk': '{pk}',",
+                    f'{{"pk": {pk},',
+                    f"'pk': {pk},",
+                    f'"pk": {pk},',
+                ]
+                kw_query = Q()
+                for p in kw_patterns:
+                    kw_query |= Q(task_kwargs__contains=p)
+
+                task_queryset = TaskResult.objects.filter(
+                    task_name=task_name
+                ).filter(kw_query)
+
+        # If still nothing, return 204
+        if not task_queryset.exists():
+            return Response(
+                {"message": "No task results found for this instance and task."},
+                status=status.HTTP_204_NO_CONTENT,
             )
 
         # Sort the task queryset by date and time
@@ -635,9 +668,19 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
             serializer.data[i]["status"] = status_list[i]
 
             # displaying user friendly error messages
-            result_data = json.loads(serializer.data[i]["result"])
-            error_msg_list = result_data.get("exc_message", [])
-            error_type = result_data.get("exc_type")
+            raw_result = serializer.data[i].get("result")
+            error_type = None
+            error_msg_list = []
+            try:
+                parsed = json.loads(raw_result)
+                if isinstance(parsed, dict):
+                    error_msg_list = parsed.get("exc_message", [])
+                    error_type = parsed.get("exc_type")
+                else:
+                    serializer.data[i]["result"] = parsed
+                    continue
+            except Exception:
+                continue
 
             if error_type == "InvalidDimensions":
                 serializer.data[i][
@@ -645,6 +688,7 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
                 ] = "The data type of some value does not match the required data type or the dimensions of the dataset that you have uploaded are incorrect"
             elif (
                 error_type == "EncodeError"
+                and error_msg_list
                 and error_msg_list[0]
                 == "TypeError('Object of type set is not JSON serializable')"
             ):
@@ -652,10 +696,10 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
                     "result"
                 ] = "The dataset that you have uploaded is empty"
             else:
-                serializer.data[i]["result"] = "Type of error : " + error_type + "\n"
+                serializer.data[i]["result"] = "Type of error : " + str(error_type) + "\n"
                 if len(error_msg_list) > 0:
                     serializer.data[i]["result"] += (
-                        "Error message : " + error_msg_list[0]
+                        "Error message : " + str(error_msg_list[0])
                     )
 
         # Add the project ID from the task kwargs to the serializer data
