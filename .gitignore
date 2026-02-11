@@ -1,6 +1,7 @@
 config.env
 all_data
 vhosts
+.env.example
 # Ignore all json and csv files
 *.json
 *.csv
@@ -19,6 +20,8 @@ frontend/
 
 # Env
 .env*
+.env.dev*
+.env.example*
 virtualenv/
 myvenv/
 venv/
