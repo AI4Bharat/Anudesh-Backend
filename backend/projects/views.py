@@ -4359,7 +4359,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     )[0]
                     
                 annotator_email = ""
-                
+                # if correct_annotation is not None and required_annotators_per_task < 2:
                 if correct_annotation is not None:
                     try:
                         annotator_email = correct_annotation.completed_by.email
