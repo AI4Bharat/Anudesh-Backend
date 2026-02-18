@@ -1901,7 +1901,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """
         Delete a project
         """
-        return super().delete(request, *args, **kwargs)
+        return super().destroy(request, *args, **kwargs)
 
     # TODO : add exceptions
     @action(detail=True, methods=["POST", "GET"], name="Archive Project")
