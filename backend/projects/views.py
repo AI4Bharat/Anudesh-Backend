@@ -5,7 +5,7 @@ from time import sleep
 import pandas as pd
 import ast
 import math
-
+from django.core.mail import EmailMessage
 from django.core.files import File
 from django.db import IntegrityError
 from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField, DateTimeField, Value
@@ -4318,15 +4318,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
             else:
                 export_type = "CSV"
             tasks = Task.objects.filter(project_id__exact=project)
-
+            
+            email_flag = request.query_params.get("email", "false").lower() == "true"
+            
             if "task_status" in dict(request.query_params):
                 task_status = request.query_params["task_status"]
                 task_status = task_status.split(",")
                 tasks = tasks.filter(task_status__in=task_status)
+                
             prompt_map = prompt_data_annotation(tasks)
             prompt_map_InstructionDrivenChat = prompt_data_annotation_InstructionDrivenChat(tasks)
-            
-            
+
             if len(tasks) == 0:
                 ret_dict = {"message": "No tasks in project!"}
                 ret_status = status.HTTP_200_OK
@@ -4341,6 +4343,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 # Rename keys to match label studio converter
                 # task_dict['id'] = task_dict['task_id']
                 # del task_dict['task_id']
+               
                 correct_annotation = task.correct_annotation
                 if correct_annotation is None and task.task_status in [
                     ANNOTATED,
@@ -4354,7 +4357,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     correct_annotation = task.annotations.all().filter(
                         annotation_type=REVIEWER_ANNOTATION
                     )[0]
-
+                    
                 annotator_email = ""
                 # if correct_annotation is not None and required_annotators_per_task < 2:
                 if correct_annotation is not None:
@@ -4383,6 +4386,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     )
                 del task_dict["annotation_users"]
                 del task_dict["review_user"]
+                
                 tasks_list.append(OrderedDict(task_dict))
 
             dataset_type = project.dataset_id.all()[0].dataset_type
@@ -4434,16 +4438,41 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 elif is_InstructionDrivenChat:
                     task["data"]["interactions_json"] = complete_result
                     task["data"]["Prompts"] = prompt_map_InstructionDrivenChat.get(task["id"], "")
-                    
                 else:
                     task["data"]["interactions_json"] = complete_result
-                    
                     task["data"]["Prompts"] = prompt_map.get(task["id"], "")
 
                     
                 task["data"]["notes_json"] = notes
                 del task["annotations"]
-            return DataExport.generate_export_file(project, tasks_list, export_type)
+                
+            export_response = DataExport.generate_export_file(
+            project, tasks_list, export_type
+        )   
+
+            if email_flag:
+                user_email = request.user.email
+
+                email = EmailMessage(
+                    subject=f"Project Export: {project.title}",
+                    body="Please find the attached project export file.",
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    to=[user_email],
+                )
+
+                if hasattr(export_response, "content"):
+                    filename = f"{project.title}_export.{export_type.lower()}"
+                    email.attach(filename, export_response.content)
+
+                email.send(fail_silently=False)
+
+                return Response(
+                    {"message": "Export generated and emailed successfully."},
+                    status=status.HTTP_200_OK,
+                )
+
+            return export_response
+        
         except Project.DoesNotExist:
             ret_dict = {"message": "Project does not exist!"}
             ret_status = status.HTTP_404_NOT_FOUND
