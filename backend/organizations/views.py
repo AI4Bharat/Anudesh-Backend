@@ -1590,7 +1590,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 general_lang, key=lambda x: x["language"], reverse=False
             )
         except:
-            final_result = []
+            final_result = [] 
         if metainfo == True and not (
             (project_type in get_audio_project_types())
             or (
@@ -2230,6 +2230,7 @@ class OrganizationPublicViewSet(viewsets.ModelViewSet):
             "InstructionDrivenChat",
             "ModelInteractionEvaluation",
             "ModelOutputEvaluation",
+            "MultipleLLMInstructionDrivenChat"
         ]
         if "project_type" in dict(request.query_params):
             project_type = request.query_params["project_type"]
