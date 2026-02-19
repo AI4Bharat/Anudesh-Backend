@@ -96,6 +96,9 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
             st = status.HTTP_400_BAD_REQUEST
+        elif "maximum context length" in err_msg or "context_length_exceeded" in err_msg:
+            message = "The conversation is too long and exceeds the model's context limit. Please start a new chat or reduce the conversation history."
+            st = status.HTTP_400_BAD_REQUEST
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -135,6 +138,9 @@ def get_gpt3_output(system_prompt, user_prompt, history):
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "maximum context length" in err_msg or "context_length_exceeded" in err_msg:
+            message = "The conversation is too long and exceeds the model's context limit. Please start a new chat or reduce the conversation history."
             st = status.HTTP_400_BAD_REQUEST
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
@@ -232,6 +238,9 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "maximum context length" in err_msg or "context_length_exceeded" in err_msg:
+            message = "The conversation is too long and exceeds the model's context limit. Please start a new chat or reduce the conversation history."
             st = status.HTTP_400_BAD_REQUEST
         elif "KeyError" in err_msg:
             message = "Invalid response from the LLM"
