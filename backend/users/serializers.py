@@ -120,6 +120,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "participation_type",
             "prefer_cl_ui",
             "is_active",
+            "preferred_task_by_json",
         ]
         read_only_fields = [
             "id",
