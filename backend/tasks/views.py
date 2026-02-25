@@ -145,9 +145,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
             .distinct()
         )
 
-        from tasks.models import Annotation as Annotation_model, ANNOTATOR_ANNOTATION
         annotator_task_counts = (
-            Annotation_model.objects.filter(
+            Annotation.objects.filter(
                 task__in=unassigned_tasks,
                 annotation_type=ANNOTATOR_ANNOTATION,
                 completed_by__in=all_annotators,
