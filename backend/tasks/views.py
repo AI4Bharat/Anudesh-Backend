@@ -115,8 +115,8 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
     )
     def unassigned_review_summary(self, request):
         """
-        Returns a summary of unassigned review tasks grouped by annotator,
-        including the list of unassigned task IDs.
+        Returns a summary of unassigned review tasks grouped by annotator.
+        Shows ALL annotators in the project, even those with 0 unassigned tasks.
         """
         project_id = request.query_params.get("project_id")
         if not project_id:
@@ -124,42 +124,60 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                 {"error": "Missing required parameter: project_id"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-    
-        cur_user = request.user  # current logged-in user
-    
-        tasks = (
+
+        try:
+            project = Project.objects.get(pk=project_id)
+        except Project.DoesNotExist:
+            return Response(
+                {"error": "Project not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        cur_user = request.user
+
+        all_annotators = project.annotators.all()
+
+        unassigned_tasks = (
             Task.objects.filter(project_id=project_id)
             .filter(task_status=ANNOTATED)
             .filter(review_user__isnull=True)
             .exclude(annotation_users=cur_user.id)
             .distinct()
         )
-    
-        data = (
-            tasks.values(
-                "annotations__completed_by__id",
-                "annotations__completed_by__email",
-                "annotations__completed_by__username"
+
+        annotator_task_counts = (
+            Annotation.objects.filter(
+                task__in=unassigned_tasks,
+                annotation_type=ANNOTATOR_ANNOTATION,
+                completed_by__in=all_annotators,
             )
+            .values("completed_by__id")
             .annotate(
-                unassigned_count=Count("id"),
-                task_ids=ArrayAgg("id", distinct=True),
+                unassigned_count=Count("task", distinct=True),
+                task_ids=ArrayAgg("task_id", distinct=True),
             )
-            .order_by("-unassigned_count")
         )
-    
-        result = [
-            {
-                "annotator_id": item["annotations__completed_by__id"],
-                "annotator_email": item["annotations__completed_by__email"],
-                "annotator_username": item["annotations__completed_by__username"],
+
+        count_lookup = {}
+        for item in annotator_task_counts:
+            count_lookup[item["completed_by__id"]] = {
                 "unassigned_count": item["unassigned_count"],
                 "task_ids": item["task_ids"],
             }
-            for item in data
-            if item["annotations__completed_by__id"] is not None
-        ]
-    
+
+        result = []
+        for annotator in all_annotators:
+            counts = count_lookup.get(annotator.id, {"unassigned_count": 0, "task_ids": []})
+            result.append({
+                "annotator_id": annotator.id,
+                "annotator_email": annotator.email,
+                "annotator_username": annotator.username,
+                "unassigned_count": counts["unassigned_count"],
+                "task_ids": counts["task_ids"],
+            })
+
+        result.sort(key=lambda x: x["unassigned_count"], reverse=True)
+
         return Response(result, status=status.HTTP_200_OK)
 
     
