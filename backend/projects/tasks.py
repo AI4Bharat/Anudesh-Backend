@@ -1,8 +1,9 @@
 import random
+import json
 from copy import deepcopy
 from collections import OrderedDict
 from urllib.parse import parse_qsl
-
+from collections import deque
 from celery import shared_task
 from celery.utils.log import get_task_logger
 from dataset import models as dataset_models
@@ -39,6 +40,178 @@ def stringify_json(json):
     return string[0:-1]
 
 
+def prompt_data_annotation_InstructionDrivenChat(tasks):
+    """
+    Extract prompts per task for InstructionDrivenChat projects.
+    Returns: { task_id: "user@email: prompt1, prompt2" }
+    """
+
+    task_prompt_map = {}
+
+    for task in tasks:
+        correct_annotation = task.correct_annotation
+
+        if task.task_status == SUPER_CHECKED:
+            correct_annotation = list(
+                task.annotations.filter(
+                    annotation_type__in=[
+                        ANNOTATOR_ANNOTATION,
+                        REVIEWER_ANNOTATION,
+                        SUPER_CHECKER_ANNOTATION,
+                    ]
+                ).order_by("id")
+            )
+
+        elif task.task_status == REVIEWED:
+            correct_annotation = list(
+                task.annotations.filter(
+                    annotation_type__in=[
+                        ANNOTATOR_ANNOTATION,
+                        REVIEWER_ANNOTATION,
+                    ]
+                ).order_by("id")
+            )
+
+        elif task.task_status == ANNOTATED and correct_annotation is None:
+            correct_annotation = task.annotations.filter(
+                annotation_type=ANNOTATOR_ANNOTATION
+            ).first()
+
+        # normalize to list
+        annotations = (
+            correct_annotation
+            if isinstance(correct_annotation, list)
+            else [correct_annotation] if correct_annotation else []
+        )
+
+        user_prompts = {}
+        seen = {}
+
+        for a in annotations:
+            user = (
+                a.completed_by.email
+                if a.completed_by and a.completed_by.email
+                else "unknown_user"
+            )
+
+            annotation_result = a.result
+            annotation_result = (
+                json.loads(annotation_result)
+                if isinstance(annotation_result, str)
+                else annotation_result
+            )
+
+            user_prompts.setdefault(user, [])
+            seen.setdefault(user, set())
+
+            # 🔑 InstructionDrivenChat: direct turns
+            for turn in annotation_result or []:
+                prompt = turn.get("prompt")
+                if prompt and prompt not in seen[user]:
+                    user_prompts[user].append(prompt)
+                    seen[user].add(prompt)
+
+        formatted = [
+            f"{user}: {', '.join(prompts)}"
+            for user, prompts in user_prompts.items()
+            if prompts
+        ]
+
+        task_prompt_map[task.id] = " | ".join(formatted)
+
+    return task_prompt_map
+
+
+
+def prompt_data_annotation(tasks):
+    """
+    Runs correct_annotation logic on Task models
+    and returns {task_id: formatted_prompts}
+    """
+
+    task_prompt_map = {}
+
+    for task in tasks:
+        correct_annotation = task.correct_annotation
+
+        if task.task_status == SUPER_CHECKED:
+            correct_annotation = list(
+                task.annotations.filter(
+                    annotation_type__in=[
+                        ANNOTATOR_ANNOTATION,
+                        REVIEWER_ANNOTATION,
+                        SUPER_CHECKER_ANNOTATION,
+                    ]
+                ).order_by("id")
+            )
+
+        elif task.task_status == REVIEWED:
+            correct_annotation = list(
+                task.annotations.filter(
+                    annotation_type__in=[
+                        ANNOTATOR_ANNOTATION,
+                        REVIEWER_ANNOTATION,
+                    ]
+                ).order_by("id")
+            )
+
+        elif task.task_status == ANNOTATED:
+            if correct_annotation is None:
+                correct_annotation = task.annotations.filter(
+                    annotation_type=ANNOTATOR_ANNOTATION
+                ).first()
+
+        
+        annotations = (
+            correct_annotation
+            if isinstance(correct_annotation, list)
+            else [correct_annotation] if correct_annotation else []
+        )
+        
+        user_prompts = {}
+        seen = {}
+
+        for a in annotations:
+            user = (
+                a.completed_by.email
+                if a.completed_by and a.completed_by.email
+                else "unknown_user"
+            )
+            annotation_result = a.result
+            annotation_result = (
+                json.loads(annotation_result)
+                if isinstance(annotation_result, str)
+                else annotation_result
+            )
+
+            user = (
+                a.completed_by.email
+                if a.completed_by and a.completed_by.email
+                else "unknown_user"
+            )
+
+            user_prompts.setdefault(user, [])
+            seen.setdefault(user, set())
+
+            for block in annotation_result:
+                for model in block.get("model_interactions", []):
+                    for turn in model.get("interaction_json", []):
+                        prompt = turn.get("prompt")
+                        if prompt and prompt not in seen[user]:
+                            user_prompts[user].append(prompt)
+                            seen[user].add(prompt)
+
+        formatted = [
+            f"{user}: {', '.join(prompts)}"
+            for user, prompts in user_prompts.items()
+            if prompts
+        ]
+
+        task_prompt_map[task.id] = " | ".join(formatted)
+
+    return task_prompt_map
+            
+            
 def create_automatic_annotations(tasks, automatic_annotation_creation_mode):
     user = User.objects.get(id=1)
     project = tasks[0].project_id
@@ -250,6 +423,19 @@ def create_tasks_from_dataitems(items, project):
                 interaction_data[i]["prompt_output_pair_id"] = i + 1
             task.data["interactions_json"] = interaction_data
             task.save()
+    if project_type == "MultipleLLMInstructionDrivenChat":
+        llm_sets=project.metadata_json["models_set"]
+        fixed_llms=project.metadata_json["fixed_models"]
+        num_llms=project.metadata_json["num_models"]
+        num_extra_llms = num_llms - len(fixed_llms)
+        rotating_llms = deque([m for m in llm_sets if m not in fixed_llms])
+        for task in tasks:
+            extra_llms = [rotating_llms.popleft() for _ in range(num_extra_llms)]
+            selected_llms = fixed_llms + extra_llms
+            task.data["model"] = selected_llms
+            task.save()
+            rotating_llms.extend(extra_llms)
+            
     return tasks
 
 

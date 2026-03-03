@@ -142,7 +142,7 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
             return Response(serializer.data)
         elif (int(request.user.role) == User.ORGANIZATION_OWNER) or (
             request.user.is_superuser
-        ):
+        ) or (int(request.user.role) == User.ADMIN):
             data = self.queryset.filter(organization=request.user.organization)
             serializer = WorkspaceSerializer(data, many=True)
             return Response(serializer.data)
@@ -1751,6 +1751,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                 "InstructionDrivenChat",
                 "ModelInteractionEvaluation",
                 "ModelOutputEvaluation",
+                "MultipleLLMInstructionDrivenChat"
             ]
         if "project_type" in dict(request.query_params):
             project_type = request.query_params["project_type"]

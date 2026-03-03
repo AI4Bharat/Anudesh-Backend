@@ -29,6 +29,7 @@ from .serializers import (
     OrganizationSerializer,
     ChangePasswordWithoutOldPassword,
 )
+from tasks.models import Annotation as Annotation_model
 from organizations.models import Invite, Organization
 from organizations.serializers import InviteGenerationSerializer
 from organizations.decorators import is_organization_owner
@@ -103,14 +104,18 @@ class InviteViewSet(viewsets.ViewSet):
             return Response(
                 {"message": "Organization not found"}, status=status.HTTP_404_NOT_FOUND
             )
+        already_registered_emails = []
         already_existing_emails = []
         valid_user_emails = []
         invalid_emails = []
-        existing_emails_set = set(Invite.objects.values_list("user__email", flat=True))
+        existing_emails_set = set(User.objects.values_list("email", flat=True))
+        existing_emails_db = set(Invite.objects.values_list("user__email", flat=True))
+        print(f"users:{existing_emails_set}")
         for email in distinct_emails:
-            # Checking if the email is in valid format.
+            # Checking if the email is in valid format.           
             if re.fullmatch(regex, email):
-                if email in existing_emails_set:
+                user = User.objects.filter(email=email).first()
+                if user and not user.has_accepted_invite:  
                     already_existing_emails.append(email)
                     continue
                 try:
@@ -123,7 +128,7 @@ class InviteViewSet(viewsets.ViewSet):
                     user.is_approved = True
                     user.set_password(generate_random_string(10))
                     valid_user_emails.append(email)
-                    users.append(user)
+                    users.append(user)                  
                 except:
                     return Response(
                         {"message": "Error in creating user"},
@@ -140,6 +145,10 @@ class InviteViewSet(viewsets.ViewSet):
         if already_existing_emails:
             additional_message_for_existing_emails += (
                 f", Invites already sent to: {','.join(already_existing_emails)}"
+            )
+        if already_registered_emails:
+            additional_message_for_existing_emails += (
+                f", Email id present in db : {','.join(already_registered_emails)}"
             )
         if invalid_emails:
             additional_message_for_invalid_emails += (
@@ -177,10 +186,11 @@ class InviteViewSet(viewsets.ViewSet):
             return Response(ret_dict, status=status.HTTP_201_CREATED)
         except IntegrityError as e:
             return Response(
-                {"message": "Email Id already present in database"},
+                {
+                    "message": ret_dict["message"],
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
     @swagger_auto_schema(request_body=InviteGenerationSerializer)
     @permission_classes((IsAuthenticated,))
     @is_organization_owner
@@ -263,6 +273,76 @@ class InviteViewSet(viewsets.ViewSet):
             return Response(
                 {"message": message_for_already_invited}, status=status.HTTP_201_CREATED
             )
+
+    @swagger_auto_schema(request_body=InviteGenerationSerializer)
+    @permission_classes((IsAuthenticated,))
+    @is_organization_owner
+    @action(detail=False, methods=["post"], url_path="bulk_reset_guest_passwords", url_name="bulk_reset_guest_passwords")
+    def bulk_reset_guest_passwords(self, request):
+        """
+        Bulk reset passwords for guest users.
+        Takes a list of emails, filters guest users, updates them to regular users,
+        and sends password reset links.
+        """
+        # Check if user has admin privileges
+        if not request.user.is_superuser and request.user.role != User.ADMIN:
+            return Response(
+                {"message": "You don't have permission to perform this action"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        emails = request.data.get('emails', [])
+        if not emails:
+            return Response(
+                {"message": "No emails provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        guest_users = User.objects.filter(
+            email__in=emails,
+            guest_user=True
+        )
+
+        print(f"guest: {emails}")
+
+        if not guest_users.exists():
+            return Response(
+                {"message": "No valid guest users found with the provided emails"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        firebase = pyrebase.initialize_app(config)
+        auth = firebase.auth()
+
+        successful_resets = []
+        failed_resets = []
+
+        for user in guest_users:
+            try:
+                # Update user to non-guest
+                user.guest_user = False
+                user.is_approved = True
+                user.has_accepted_invite = True
+                user.save()
+
+                # Send password reset email
+                auth.send_password_reset_email(user.email)
+                successful_resets.append(user.email)
+            except Exception as e:
+                failed_resets.append({
+                    'email': user.email,
+                    'error': str(e)
+                })
+
+        response_data = {
+            "message": "Password reset process completed",
+            "successful_resets": successful_resets,
+            "failed_resets": failed_resets,
+        }
+
+        return Response(response_data, status=status.HTTP_200_OK)
+
+
 
     @permission_classes([AllowAny])
     @swagger_auto_schema(request_body=UserSignUpSerializer)
@@ -548,27 +628,61 @@ class AuthViewSet(viewsets.ViewSet):
         #         {"message": "Incorrect Password."}, status=status.HTTP_400_BAD_REQUEST
         #     )
 
+        from django.contrib.auth.hashers import check_password
+
+        is_guest_user = getattr(user, 'guest_user', True)
+
+        if is_guest_user:
+            return Response(
+                {"message": "This account is a guest user. Please use Google login."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # For non-guest users, check local password
+        if hasattr(user, 'password') and user.password and check_password(password, user.password):
+            refresh = RefreshToken.for_user(user)
+            access_token = str(refresh.access_token)
+            refresh_token = str(refresh)
+            return Response(
+                {
+                    "message": "Logged in successfully.",
+                    "refresh": refresh_token,
+                    "access": access_token,
+                },
+                status=status.HTTP_200_OK,
+            )
+
         try:
             firebase = pyrebase.initialize_app(config)
             auth = firebase.auth()
             auth.sign_in_with_email_and_password(email, password)
+            print("Firebase authentication successful")
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
-        except:
+            
             return Response(
-                {"message": "Authentication failed."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "message": "Logged in successfully.",
+                    "refresh": refresh_token,
+                    "access": access_token,
+                },
+                status=status.HTTP_200_OK,
             )
+        except Exception as e:
+            if hasattr(user, 'password') and user.password:
+                # User has local password but it didn't match
+                return Response(
+                    {"message": "Incorrect password."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                # User doesn't have local password
+                return Response(
+                    {"message": "Authentication failed. Please check your credentials."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
-        return Response(
-            {
-                "message": "Logged in successfully.",
-                "refresh": refresh_token,
-                "access": access_token,
-            },
-            status=status.HTTP_200_OK,
-        )
 
     @permission_classes([AllowAny])
     @action(
@@ -646,7 +760,12 @@ class GoogleLogin(viewsets.ViewSet):
 
         try:
             user = User.objects.get(email=email)
-        except:
+            user.first_name = fName
+            user.last_name = lName
+            user.profile_photo = photoUrl
+            user.save()
+        
+        except User.DoesNotExist:
             user = User(
                 username=str(email).split("@")[0],
                 email=email.lower(),
@@ -665,9 +784,9 @@ class GoogleLogin(viewsets.ViewSet):
             refresh = RefreshToken.for_user(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
-        except:
+        except Exception as e:
             return Response(
-                {"message": "Token generation failed."},
+                {"message": "Token generation failed.", "error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -683,6 +802,99 @@ class GoogleLogin(viewsets.ViewSet):
 
 class UserViewSet(viewsets.ViewSet):
     permission_classes = (IsAuthenticated,)
+    @action(detail=False, methods=["post"], url_path="save-preferred-annotators")
+    def save_preferred_annotators(self, request):
+        """
+        Saves preferred annotators separately for the current project.
+        """
+        user = request.user
+        annotator_ids = request.data.get("annotator_ids", None)
+        project_id = request.data.get("project_id", None)
+
+        if project_id is None:
+            return Response({"error": "project_id is required"}, status=400)
+
+        if annotator_ids is not None and not isinstance(annotator_ids, list):
+            return Response({"error": "annotator_ids must be a list"}, status=400)
+
+        preferred_tasks = user.preferred_task_by_json or {}
+
+        # ✅ Ensure structure is dict-based, not list
+        if not isinstance(preferred_tasks, dict):
+            preferred_tasks = {}
+
+        if "preferred_annotators" not in preferred_tasks or not isinstance(preferred_tasks["preferred_annotators"], dict):
+            preferred_tasks["preferred_annotators"] = {}
+
+        project_id_str = str(project_id)
+        if annotator_ids is not None:
+            preferred_tasks["preferred_annotators"][project_id_str] = annotator_ids
+
+        user.preferred_task_by_json = preferred_tasks
+        user.save(update_fields=["preferred_task_by_json"])
+
+        return Response({
+            "message": "Preferred annotators saved successfully",
+            "current_user_id": user.id,
+            "data": user.preferred_task_by_json
+        }, status=200)
+
+        
+    @action(detail=False, methods=["post"], url_path="save-preferred-reviewers")
+    def save_preferred_reviewers(self, request):
+        """
+        Saves preferred reviewers for the current project.
+        Request payload:
+        {
+          "project_id": 2125,
+          "reviewer_ids": [188, 189, 190]
+        }
+        """
+        user = request.user
+        project_id = request.data.get("project_id")
+        reviewer_ids = request.data.get("reviewer_ids")
+    
+        # ✅ Validate project_id
+        if not project_id:
+            return Response(
+                {"error": "project_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+        # ✅ Validate reviewer_ids
+        if reviewer_ids is not None and not isinstance(reviewer_ids, list):
+            return Response(
+                {"error": "reviewer_ids must be a list"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+        # ✅ Ensure preferred_task_by_json is always a dict
+        preferred_tasks = user.preferred_task_by_json or {}
+    
+        # ✅ If 'preferred_reviewers' exists but isn't a dict, reset it
+        if not isinstance(preferred_tasks.get("preferred_reviewers"), dict):
+            preferred_tasks["preferred_reviewers"] = {}
+    
+        preferred_reviewers = preferred_tasks["preferred_reviewers"]
+    
+        # ✅ Update reviewers for this project
+        preferred_reviewers[str(project_id)] = reviewer_ids or []
+    
+        # ✅ Save back to the JSON field
+        user.preferred_task_by_json = preferred_tasks
+        user.save(update_fields=["preferred_task_by_json"])
+    
+        return Response(
+            {
+                "message": "Preferred reviewers saved successfully",
+                "current_user_id": user.id,
+                "preferred_reviewers": preferred_reviewers
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+
 
     @swagger_auto_schema(request_body=UserUpdateSerializer)
     @action(detail=False, methods=["patch"], url_path="update", url_name="edit_profile")
@@ -976,6 +1188,24 @@ class UserViewSet(viewsets.ViewSet):
             )
         user = User.objects.get(id=pk)
         serializer = UserUpdateSerializer(user, request.data, partial=True)
+        existing_guest_user = getattr(user, 'guest_user', True)
+        new_guest_user = request.data.get("guest_user", None)
+        
+        password_reset_sent = False
+        if existing_guest_user is True and new_guest_user is False:
+            try:
+                firebase = pyrebase.initialize_app(config)
+                auth = firebase.auth()
+                auth.send_password_reset_email(user.email)
+                password_reset_sent = True
+            except Exception as e:
+                return Response(
+                    {
+                        "message": f"Failed to send password reset email. Error: {str(e)}",
+                        "error": "PASSWORD_RESET_EMAIL_FAILED"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         existing_is_active = user.is_active
         is_active_payload = request.data.get("is_active", None)
@@ -1225,7 +1455,8 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        project_type_lower = project_type.lower()
+        project_type_lower = (project_type or " ").lower()
+        print("project_type_lower", project_type_lower)
         is_textual_project = (
             False if project_type in get_audio_project_types() else True
         )  # flag for distinguishing between textual and audio projects
@@ -1247,16 +1478,19 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     annotation_reviewers=user_id,
                     project_type=project_type,
                 )
+                print("project_objs", project_objs)
         elif supercheck_reports:
             if project_type == "all":
                 project_objs = Project.objects.filter(  # Not using the project_type filter if it is set to "all"
                     review_supercheckers=user_id,
                 )
+                print("project_objs", project_objs)
             else:
                 project_objs = Project.objects.filter(
                     review_supercheckers=user_id,
                     project_type=project_type,
                 )
+                print("project_objs", project_objs)
         else:
             if project_type == "all":
                 project_objs = Project.objects.filter(
@@ -1273,6 +1507,14 @@ class AnalyticsViewSet(viewsets.ViewSet):
         total_annotated_tasks_count = 0
         all_tasks_word_count = 0
         all_projects_total_duration = 0
+        
+        # New total counters
+        total_draft_tasks = 0
+        total_skipped_tasks = 0
+        total_to_be_revised_tasks = 0
+        total_rejected_tasks = 0
+        total_rejected_task_by_reviewer = 0
+        
         project_wise_summary = []
         for proj in project_objs:
             project_name = proj.title
@@ -1281,75 +1523,161 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 False if project_type in get_audio_project_types() else True
             )
             annotated_labeled_tasks = []
+            # for reviwer reports
             if review_reports:
                 labeld_tasks_objs = Task.objects.filter(
                     Q(project_id=proj.id)
                     & Q(review_user=user_id)
-                    & Q(
-                        task_status__in=[
-                            "reviewed",
-                            "exported",
-                            "super_checked",
-                        ]
-                    )
+                    & Q(task_status__in=["reviewed","exported","super_checked",])
                 )
+                print("labeld_tasks_objs", labeld_tasks_objs)
 
                 annotated_task_ids = list(
                     labeld_tasks_objs.values_list("id", flat=True)
                 )
+                print("annotated_task_ids", annotated_task_ids)
                 annotated_labeled_tasks = Annotation.objects.filter(
                     task_id__in=annotated_task_ids,
                     annotation_type=REVIEWER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
                 ).exclude(annotation_status__in=["to_be_revised", "draft", "skipped"])
+                print("annotated_labeled_tasks", annotated_labeled_tasks)
+            # for super_checker reports
             elif supercheck_reports:
                 labeld_tasks_objs = Task.objects.filter(
                     Q(project_id=proj.id)
                     & Q(super_check_user=user_id)
-                    & Q(
-                        task_status__in=[
-                            "exported",
-                            "super_checked",
-                        ]
-                    )
+                    & Q(task_status__in=["exported","super_checked",])
                 )
+                print("labeld_tasks_objs", labeld_tasks_objs)
 
                 annotated_task_ids = list(
                     labeld_tasks_objs.values_list("id", flat=True)
                 )
+                print("annotated_task_ids", annotated_task_ids)
                 annotated_labeled_tasks = Annotation.objects.filter(
                     task_id__in=annotated_task_ids,
                     annotation_type=SUPER_CHECKER_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
                 )
+                print("annotated_labeled_tasks", annotated_labeled_tasks)
             else:
+                # for annotaotor reports
                 labeld_tasks_objs = Task.objects.filter(
                     Q(project_id=proj.id)
                     & Q(annotation_users=user_id)
-                    & Q(
-                        task_status__in=[
-                            "annotated",
-                            "reviewed",
-                            "exported",
-                            "super_checked",
-                        ]
-                    )
+                    & Q(task_status__in=["annotated","reviewed","exported","super_checked",])
                 )
+                print("labeld_tasks_objs", labeld_tasks_objs)
                 annotated_task_ids = list(
                     labeld_tasks_objs.values_list("id", flat=True)
                 )
+                print("annotated_task_ids", annotated_task_ids)
                 annotated_labeled_tasks = Annotation.objects.filter(
                     task_id__in=annotated_task_ids,
                     annotation_type=ANNOTATOR_ANNOTATION,
                     updated_at__range=[start_date, end_date],
                     completed_by=user_id,
                 )
+                print("annotated_labeled_tasks", annotated_labeled_tasks)
 
             annotated_tasks_count = annotated_labeled_tasks.count()
             total_annotated_tasks_count += annotated_tasks_count
+            
+            # Draft, Skipped, To Be Revised, Rejected counts
+            # -----------------------------
+            annotation_type = (
+                REVIEWER_ANNOTATION if review_reports else
+                SUPER_CHECKER_ANNOTATION if supercheck_reports else
+                ANNOTATOR_ANNOTATION
+            )
+            
 
+            draft_tasks_count = Annotation.objects.filter(
+                task__project_id=proj.id,
+                annotation_type=annotation_type,
+                updated_at__range=[start_date, end_date],
+                completed_by=user_id,
+                annotation_status="draft",
+            ).count()
+            print("draft_tasks_count", draft_tasks_count)
+
+            skipped_tasks_count = Annotation.objects.filter(
+                task__project_id=proj.id,
+                annotation_type=annotation_type,
+                updated_at__range=[start_date, end_date],
+                completed_by=user_id,
+                annotation_status="skipped",
+            ).count()
+            print("skipped_tasks_count", skipped_tasks_count)
+
+            to_be_revised_tasks_count = 0
+            rejected_tasks_count_by_reviewer = 0
+            if review_reports:
+                to_be_revised_tasks_count = Annotation.objects.filter(
+                    task__project_id=proj.id,
+                    task__review_user=user_id,
+                    annotation_status="to_be_revised",
+                    annotation_type=REVIEWER_ANNOTATION,
+                    updated_at__range=[start_date, end_date],
+                ).count()
+                
+                superchecker_rejected_annos = Annotation_model.objects.filter(
+                    task__project_id=proj.id,
+                    annotation_status="rejected",
+                    annotation_type=SUPER_CHECKER_ANNOTATION,
+                    parent_annotation__updated_at__range=[start_date, end_date],
+                )
+                print("STEP 1 → superchecker_rejected_annos count:",
+                      superchecker_rejected_annos.count())
+                print("STEP 1 → superchecker_rejected_annos IDs:",
+                      list(superchecker_rejected_annos.values_list("id", flat=True)))
+                print("STEP 1 → parent_annotation_ids:",
+                      list(superchecker_rejected_annos.values_list("parent_annotation_id", flat=True)))
+
+                parent_anno_ids = [
+                    ann.parent_annotation_id for ann in superchecker_rejected_annos
+                ]
+                print("STEP 2 → parent_anno_ids (reviewer annotation IDs):",
+                    parent_anno_ids)
+
+                rejected_tasks_count_by_reviewer = Annotation_model.objects.filter(
+                    id__in=parent_anno_ids, completed_by=user_id, annotation_status="rejected"
+                ).count()
+                print("STEP 3 → rejected reviewer annotation IDs:",
+                    rejected_tasks_count_by_reviewer)
+
+
+                print("rejected_tasks_count =", rejected_tasks_count_by_reviewer)
+
+                        # print("accepted_rejected_tasks", accepted_rejected_tasks)
+
+                print("to_be_revised_tasks_count = ", to_be_revised_tasks_count)
+
+            rejected_tasks_count = 0
+            if supercheck_reports:
+                rejected_tasks_count = Annotation.objects.filter(
+                    task__project_id=proj.id,
+                    task__super_check_user=user_id,
+                    annotation_type=SUPER_CHECKER_ANNOTATION,
+                    updated_at__range=[start_date, end_date],
+                    completed_by=user_id,
+                    annotation_status="rejected",
+                ).count()
+                print("rejected_tasks_count = ", rejected_tasks_count)
+
+            # Update totals
+            total_draft_tasks += draft_tasks_count
+            total_skipped_tasks += skipped_tasks_count
+            total_to_be_revised_tasks += to_be_revised_tasks_count
+            # By Reviewer
+            total_rejected_task_by_reviewer += rejected_tasks_count_by_reviewer
+            # By Super Checker
+            total_rejected_tasks += rejected_tasks_count
+
+            # Lead Time
             avg_lead_time = 0
             lead_time_annotated_tasks = [
                 eachtask.lead_time for eachtask in annotated_labeled_tasks
@@ -1361,6 +1689,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 )
                 avg_lead_time = round(avg_lead_time, 2)
 
+            # Word Count / Audio Duration
             total_word_count = 0
             if "OCRTranscription" in project_type:
                 for each_anno in annotated_labeled_tasks:
@@ -1372,7 +1701,6 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         total_word_count_list.append(each_task.task.data["word_count"])
                     except:
                         pass
-
                 total_word_count = sum(total_word_count_list)
             all_tasks_word_count += total_word_count
 
@@ -1389,6 +1717,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 total_duration = convert_seconds_to_hours(sum(total_duration_list))
                 all_projects_total_duration += sum(total_duration_list)
 
+            # Each-project result
             result = {
                 "Project Name": project_name,
                 (
@@ -1400,8 +1729,11 @@ class AnalyticsViewSet(viewsets.ViewSet):
                         else "Annotated Tasks"
                     )
                 ): annotated_tasks_count,
+                "Draft Tasks": draft_tasks_count,
+                "Skipped Tasks": skipped_tasks_count,
                 "Word Count": total_word_count,
                 "Total Segments Duration": total_duration,
+                
                 (
                     "Avg Review Time (sec)"
                     if review_reports
@@ -1412,6 +1744,16 @@ class AnalyticsViewSet(viewsets.ViewSet):
                     )
                 ): avg_lead_time,
             }
+            # Role-specific fields (IMPORTANT)
+            # ----------------------------
+            if review_reports:
+                result["To Be Revised Tasks"] = to_be_revised_tasks_count
+                result["Rejected Tasks"] = rejected_tasks_count_by_reviewer
+
+            if supercheck_reports:
+                result["Rejected"] = rejected_tasks_count
+                
+            print("result", result)
 
             if project_type in get_audio_project_types():
                 del result["Word Count"]
@@ -1437,6 +1779,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
             ):
                 project_wise_summary.append(result)
 
+        # Sort project summary
         project_wise_summary = sorted(
             project_wise_summary,
             key=lambda x: x[
@@ -1462,6 +1805,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
         # total_summary = {}
         # if is_translation_project or project_type == "SemanticTextualSimilarity_Scale5":
 
+        # Total summary 
         total_result = {
             (
                 "Reviewed Tasks"
@@ -1482,6 +1826,7 @@ class AnalyticsViewSet(viewsets.ViewSet):
                 )
             ): round(all_annotated_lead_time_count, 2),
         }
+        print("total_result", total_result)
         if project_type_lower != "all" and project_type in get_audio_project_types():
             del total_result["Word Count"]
         elif project_type_lower != "all" and is_textual_project:
@@ -1491,11 +1836,13 @@ class AnalyticsViewSet(viewsets.ViewSet):
             del total_result["Total Segments Duration"]
 
         total_summary = [total_result]
+        print("total_summary", total_summary)
 
         final_result = {
             "total_summary": total_summary,
             "project_summary": project_wise_summary,
         }
+        print("final_result", final_result)
         return Response(final_result)
 
     @action(
