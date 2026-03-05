@@ -308,7 +308,16 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         default=2,
     )
-
+    
+    Prefered_Workspace = models.JSONField(
+        verbose_name="workspace_prefered",
+        default=dict,
+        help_text=("Indicates the preferred workspace of the user"),
+        blank=True,
+        null=True,
+    )
+    
+    
     class Meta:
         db_table = "user"
         indexes = [

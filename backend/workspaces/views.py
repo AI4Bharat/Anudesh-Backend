@@ -3,7 +3,7 @@ import os
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated,AllowAny
 from projects.serializers import ProjectSerializer
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -151,6 +151,22 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
                 {"message": "Not authorized!"}, status=status.HTTP_403_FORBIDDEN
             )
 
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="prefered_workspaces",
+        url_name="prefered_workspaces",
+        permission_classes=[IsAuthenticated],
+    )
+    def prefered_workspaces(self, request):
+        if request.user.is_anonymous:
+            return Response({"message": "Access Denied."})
+        workspaces = Workspace.objects.all()
+        workspaces_serializer = WorkspaceNameSerializer(workspaces, many=True)
+        return Response(workspaces_serializer.data)
+    
+    
+    
     @action(
         detail=False,
         methods=["GET"],
