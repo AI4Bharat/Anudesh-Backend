@@ -805,9 +805,10 @@ class UserViewSet(viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="save-preferred-annotators")
     def save_preferred_annotators(self, request):
         """
-        Saves preferred annotators separately for the current project.
+        Saves preferred annotators at the project level.
         """
-        user = request.user
+        from projects.models import Project
+
         annotator_ids = request.data.get("annotator_ids", None)
         project_id = request.data.get("project_id", None)
 
@@ -817,26 +818,41 @@ class UserViewSet(viewsets.ViewSet):
         if annotator_ids is not None and not isinstance(annotator_ids, list):
             return Response({"error": "annotator_ids must be a list"}, status=400)
 
-        preferred_tasks = user.preferred_task_by_json or {}
+        try:
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            return Response({"error": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # ✅ Ensure structure is dict-based, not list
-        if not isinstance(preferred_tasks, dict):
-            preferred_tasks = {}
-
-        if "preferred_annotators" not in preferred_tasks or not isinstance(preferred_tasks["preferred_annotators"], dict):
-            preferred_tasks["preferred_annotators"] = {}
-
-        project_id_str = str(project_id)
         if annotator_ids is not None:
-            preferred_tasks["preferred_annotators"][project_id_str] = annotator_ids
-
-        user.preferred_task_by_json = preferred_tasks
-        user.save(update_fields=["preferred_task_by_json"])
+            project.preferred_annotators = annotator_ids
+            project.save(update_fields=["preferred_annotators"])
 
         return Response({
             "message": "Preferred annotators saved successfully",
-            "current_user_id": user.id,
-            "data": user.preferred_task_by_json
+            "project_id": project_id,
+            "preferred_annotators": project.preferred_annotators
+        }, status=200)
+
+    @action(detail=False, methods=["get"], url_path="get-preferred-annotators")
+    def get_preferred_annotators(self, request):
+        """
+        Fetches preferred annotators for a project.
+        """
+        from projects.models import Project
+
+        project_id = request.query_params.get("project_id", None)
+
+        if project_id is None:
+            return Response({"error": "project_id is required"}, status=400)
+
+        try:
+            project = Project.objects.get(id=project_id)
+        except Project.DoesNotExist:
+            return Response({"error": "Project not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "project_id": project_id,
+            "preferred_annotators": project.preferred_annotators
         }, status=200)
 
         

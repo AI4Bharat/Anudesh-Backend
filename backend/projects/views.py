@@ -1545,6 +1545,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
             for user_id in ids:
                 user = User.objects.get(pk=user_id)
                 project.frozen_users.remove(user)
+                # Auto-add unfrozen annotator to preferred_annotators
+                current_preferred = project.preferred_annotators
+                if current_preferred is not None and user_id not in current_preferred:
+                    project.preferred_annotators = current_preferred + [user_id]
                 project.save()
             return Response(
                 {"message": "Frozen User removed from the project"},
@@ -1888,7 +1892,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             project_manager_bool=True,
         )
         createNotification(title, notification_type, notification_ids, pk)
-        return super().update(request, *args, **kwargs)
+        response = super().update(request, *args, **kwargs)
+        return response
 
     @is_project_editor
     @project_is_archived
@@ -2768,11 +2773,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     lock_set = True
                 except Exception as e:
                     continue
-        # Fetch preferred annotators from User model ----------------------
-        preferred_task_json = getattr(cur_user, "preferred_task_by_json", {})
-        preferred_annotators = preferred_task_json.get("preferred_annotators", {})
-        project_key = str(pk)
-        preferred_annotator_ids = preferred_annotators.get(project_key, [])
+        # Fetch preferred annotators from Project model ----------------------
+        preferred_annotator_ids = project.preferred_annotators
+        if preferred_annotator_ids is None:
+            # Never set — fall back to all active annotators
+            preferred_annotator_ids = list(
+                project.annotators.filter(is_active=True)
+                .exclude(id__in=project.frozen_users.all() if hasattr(project, "frozen_users") else [])
+                .values_list('id', flat=True)
+            )
     
         print(f"Reviewer {cur_user.id} preferred annotators for project {pk}: {preferred_annotator_ids}")
         # check if the project contains eligible tasks to pull
@@ -3858,6 +3867,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 )
 
                 createNotification(title, notification_type, notification_ids, pk)
+
+            # Auto-add newly added annotators to preferred_annotators
+            current_preferred = project.preferred_annotators
+            if current_preferred is not None:
+                new_ids = [uid for uid in ids if uid not in current_preferred]
+                if new_ids:
+                    project.preferred_annotators = current_preferred + new_ids
+                    project.save(update_fields=["preferred_annotators"])
 
             return Response(
                 {"message": "Annotator added to the project"}, status=status.HTTP_200_OK
