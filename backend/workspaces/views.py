@@ -1751,6 +1751,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                 "InstructionDrivenChat",
                 "ModelInteractionEvaluation",
                 "ModelOutputEvaluation",
+                "MultipleLLMInstructionDrivenChat"
             ]
         if "project_type" in dict(request.query_params):
             project_type = request.query_params["project_type"]
