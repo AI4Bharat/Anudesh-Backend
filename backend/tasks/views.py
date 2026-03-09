@@ -136,6 +136,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         cur_user = request.user
 
         all_annotators = project.annotators.all()
+        frozen_users_set = set(project.frozen_users.all()) if hasattr(project, "frozen_users") else set()
 
         unassigned_tasks = (
             Task.objects.filter(project_id=project_id)
@@ -150,6 +151,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                 task__in=unassigned_tasks,
                 annotation_type=ANNOTATOR_ANNOTATION,
                 completed_by__in=all_annotators,
+                completed_by__is_active=True # Only query active annotators
             )
             .values("completed_by__id")
             .annotate(
@@ -167,6 +169,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
         result = []
         for annotator in all_annotators:
+            if not getattr(annotator, 'is_active', True) or annotator in frozen_users_set:
+                continue
+            
             counts = count_lookup.get(annotator.id, {"unassigned_count": 0, "task_ids": []})
             result.append({
                 "annotator_id": annotator.id,

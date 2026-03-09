@@ -281,6 +281,13 @@ class Project(models.Model):
         ),
     )
 
+    preferred_annotators = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="List of preferred annotator user IDs for review task pulling. null=never set, []=deliberately empty",
+    )
+
     def clear_expired_lock(self):
         self.lock.filter(expires_at__lt=now()).delete()
 
