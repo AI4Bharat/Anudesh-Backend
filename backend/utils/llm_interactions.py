@@ -189,6 +189,7 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         "temperature": 0.2,
         "max_tokens": 2048,
         "top_p": 1,
+        "reasoning_effort": None,
     }
     
     try:
