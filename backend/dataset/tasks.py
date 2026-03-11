@@ -50,7 +50,8 @@ def upload_data_to_data_instance(
         self.update_state(
             state="FAILURE",
             meta={
-                "Empty Dataset Uploaded.",
+                "pk":pk,
+                "message":"Empty Dataset Uploaded.",
             },
         )
         raise e
@@ -61,6 +62,10 @@ def upload_data_to_data_instance(
     # Perform a full batch upload of the data and return success if all checks are passed
     try:
         resource.import_data(imported_data, raise_errors=True)
+        self.update_state(
+            state="SUCCESS",
+            meta={"pk": pk, "rows": len(imported_data.dict)},
+        )
         return f"All {len(imported_data.dict)} rows uploaded together."
 
     # If checks are failed, check which lines have an issue
@@ -96,6 +101,7 @@ def upload_data_to_data_instance(
         self.update_state(
             state="FAILURE",
             meta={
+                "pk": pk,
                 "failed_line_numbers": failed_rows,
             },
         )
