@@ -135,8 +135,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
         cur_user = request.user
 
-        frozen_user_ids = project.frozen_users.values_list("id", flat=True)
-        all_annotators = project.annotators.exclude(id__in=frozen_user_ids)
+        all_annotators = project.annotators.all()
 
         unassigned_tasks = (
             Task.objects.filter(project_id=project_id)
