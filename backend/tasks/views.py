@@ -70,6 +70,12 @@ def annotation_result_compare(base_annotation_result, review_annotation_result):
     return is_modified
 
 
+def append_annotation_history(annotation, history_entry):
+    history = list(annotation.previous_annotations_json or [])
+    history.append(history_entry)
+    annotation.previous_annotations_json = history
+
+
 class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
     """
     Model Viewset for Tasks. All Basic CRUD operations are covered here.
@@ -1735,7 +1741,7 @@ class AnnotationViewSet(
                 update_notification(annotation_obj, task)
                 is_revised = True
                 print(annotation_obj)
-                if "ids" in dict(request.data):
+                if "task_id" in dict(request.data):
                     pass
 
                 else:
@@ -1746,7 +1752,7 @@ class AnnotationViewSet(
 
         elif annotation_obj.annotation_type == SUPER_CHECKER_ANNOTATION:
             is_rejected = False
-            if annotation_obj.annotation_type == REJECTED:
+            if annotation_obj.annotation_status == REJECTED:
                 update_notification(annotation_obj, task)
                 is_rejected = True
 
@@ -1908,6 +1914,7 @@ class AnnotationViewSet(
                         annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
                 response_message = "Success"
             else:
+                review_history_entry = None
                 if "annotation_status" in dict(request.data) and request.data[
                     "annotation_status"
                 ] in [
@@ -2171,6 +2178,7 @@ class AnnotationViewSet(
                 response_message = "Success"
 
             else:
+                review_history_entry = None
                 if "annotation_status" in dict(request.data) and request.data[
                     "annotation_status"
                 ] in [
@@ -2226,26 +2234,6 @@ class AnnotationViewSet(
 
                     if review_status == TO_BE_REVISED:
                         parent_annotation = annotation_obj.parent_annotation
-                        current_time = datetime.now(timezone.utc)
-                        prev_result = parent_annotation.result
-                        
-                        prev_annotation_entry = {
-                            "result": prev_result,
-                            "revised_at": current_time.isoformat().replace("+00:00", "Z"),
-                        }
-                        
-                        # Update reviewer's previous_annotations_json
-                        if not annotation_obj.previous_annotations_json:
-                            annotation_obj.previous_annotations_json = []
-                        annotation_obj.previous_annotations_json.append(prev_annotation_entry)
-                        annotation_obj.save(update_fields=["previous_annotations_json"])
-                        
-                        # Update annotator annotation's previous_annotations_json
-                        if not parent_annotation.previous_annotations_json:
-                            parent_annotation.previous_annotations_json = []
-                        parent_annotation.previous_annotations_json.append(prev_annotation_entry)
-                        parent_annotation.save(update_fields=["previous_annotations_json"])
-
                         rev_loop_count = task.revision_loop_count
                         if (
                             rev_loop_count["review_count"]
@@ -2256,10 +2244,12 @@ class AnnotationViewSet(
                             }
                             ret_status = status.HTTP_403_FORBIDDEN
                             return Response(ret_dict, status=ret_status)
-
-                if update_annotated_at:
-                    annotation_obj.annotated_at = datetime.now(timezone.utc)
-                    annotation_obj.save(update_fields=["annotated_at"])
+                        review_history_entry = {
+                            "result": parent_annotation.result,
+                            "revised_at": datetime.now(timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                        }
                 if (
                     annotation_obj.task.project_id.project_type
                     == "InstructionDrivenChat"
@@ -2321,6 +2311,18 @@ class AnnotationViewSet(
                 annotation = Annotation.objects.get(pk=annotation_id)
                 task = annotation.task
 
+                if update_annotated_at:
+                    annotation.annotated_at = datetime.now(timezone.utc)
+
+                annotation_update_fields = []
+                if update_annotated_at:
+                    annotation_update_fields.append("annotated_at")
+                if review_history_entry is not None:
+                    append_annotation_history(annotation, review_history_entry)
+                    annotation_update_fields.append("previous_annotations_json")
+                if annotation_update_fields:
+                    annotation.save(update_fields=annotation_update_fields)
+
                 if review_status in [DRAFT, SKIPPED]:
                     task.task_status = ANNOTATED
                     task.save()
@@ -2346,6 +2348,7 @@ class AnnotationViewSet(
                                 1 + rev_loop_count["review_count"]
                             )
                         task.revision_loop_count = rev_loop_count
+                        append_annotation_history(parent, review_history_entry)
                     else:
                         task.task_status = REVIEWED
                         try:
@@ -2357,7 +2360,7 @@ class AnnotationViewSet(
                                 supercheck_annotation.save()
                         except:
                             pass
-                    parent.save(update_fields=["review_notes", "annotation_status"])
+                    parent.save()
                     task.save()
 
                 if review_status in [
@@ -2523,6 +2526,7 @@ class AnnotationViewSet(
                 response_message = "Success"
 
             else:
+                supercheck_history_entry = None
                 if "annotation_status" in dict(request.data) and request.data[
                     "annotation_status"
                 ] in [
@@ -2569,26 +2573,6 @@ class AnnotationViewSet(
                         return Response(ret_dict, status=ret_status)
                     if supercheck_status == REJECTED:
                         parent_annotation = annotation_obj.parent_annotation
-                        current_time = datetime.now(timezone.utc)
-                        prev_result = parent_annotation.result
-                        
-                        prev_annotation_entry ={
-                            "result": prev_result,
-                            "rejected_at": current_time.isoformat().replace("+00:00", "Z"),
-                        }
-                        
-                        # Update superchecker's previous_annotations_json
-                        if not annotation_obj.previous_annotations_json:
-                            annotation_obj.previous_annotations_json = []
-                        annotation_obj.previous_annotations_json.append(prev_annotation_entry)
-                        annotation_obj.save(update_fields=["previous_annotations_json"])
-                        
-                        # Update reviewer's previous_annotations_json
-                        if not parent_annotation.previous_annotations_json:
-                            parent_annotation.previous_annotations_json = []
-                        parent_annotation.previous_annotations_json.append(prev_annotation_entry)
-                        parent_annotation.save(update_fields=["previous_annotations_json"])
-                        
                         rev_loop_count = task.revision_loop_count
                         if (
                             rev_loop_count["super_check_count"]
@@ -2599,10 +2583,12 @@ class AnnotationViewSet(
                             }
                             ret_status = status.HTTP_403_FORBIDDEN
                             return Response(ret_dict, status=ret_status)
-
-                if update_annotated_at:
-                    annotation_obj.annotated_at = datetime.now(timezone.utc)
-                    annotation_obj.save(update_fields=["annotated_at"])
+                        supercheck_history_entry = {
+                            "result": parent_annotation.result,
+                            "rejected_at": datetime.now(timezone.utc)
+                            .isoformat()
+                            .replace("+00:00", "Z"),
+                        }
                 if (
                     annotation_obj.task.project_id.project_type
                     == "InstructionDrivenChat"
@@ -2668,6 +2654,18 @@ class AnnotationViewSet(
 
                 task = annotation.task
 
+                if update_annotated_at:
+                    annotation.annotated_at = datetime.now(timezone.utc)
+
+                annotation_update_fields = []
+                if update_annotated_at:
+                    annotation_update_fields.append("annotated_at")
+                if supercheck_history_entry is not None:
+                    append_annotation_history(annotation, supercheck_history_entry)
+                    annotation_update_fields.append("previous_annotations_json")
+                if annotation_update_fields:
+                    annotation.save(update_fields=annotation_update_fields)
+
                 if supercheck_status in [DRAFT, SKIPPED]:
                     task.task_status = REVIEWED
                     task.save()
@@ -2689,9 +2687,10 @@ class AnnotationViewSet(
                                 1 + rev_loop_count["super_check_count"]
                             )
                         task.revision_loop_count = rev_loop_count
+                        append_annotation_history(parent, supercheck_history_entry)
                     else:
                         task.task_status = SUPER_CHECKED
-                    parent.save(update_fields=["supercheck_notes", "annotation_status"])
+                    parent.save()
                     task.save()
 
                 if supercheck_status in [
