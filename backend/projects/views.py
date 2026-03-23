@@ -114,6 +114,55 @@ def batch(iterable, n=1):
         yield iterable[ndx : min(ndx + n, l)]
 
 
+def auto_update_reviewer_preferred_annotators(project, new_annotator_ids, requesting_user=None):
+    """
+    After an annotator is added (or un-frozen) in a project, newly added annotators
+    are added to the preferred annotators list of all annotation reviewers if all were selected,
+    otherwise not preferred for logged in user as well as reviewers
+    """
+    project_id_str = str(project.id)
+    new_ids_set = set(new_annotator_ids)
+
+    frozen_user_ids = set(project.frozen_users.values_list("id", flat=True))
+    all_active_ids = set(
+        project.annotators.exclude(id__in=frozen_user_ids).values_list("id", flat=True)
+    )
+    previous_annotator_ids = all_active_ids - new_ids_set
+
+    users_to_update = set(project.annotation_reviewers.all())
+    if requesting_user:
+        users_to_update.add(requesting_user)
+
+    for user in users_to_update:
+        prefs = user.preferred_task_by_json or {}
+        if not isinstance(prefs, dict):
+            prefs = {}
+        preferred_annotators = prefs.get("preferred_annotators", {})
+        if not isinstance(preferred_annotators, dict):
+            preferred_annotators = {}
+
+        saved_ids = set(int(x) for x in preferred_annotators.get(project_id_str, []))
+        previous_ids_int = set(int(x) for x in previous_annotator_ids)
+
+        if len(saved_ids) == 0:
+            continue
+
+        saved_ids_clean = saved_ids - set(int(x) for x in new_ids_set)
+        saved_active_ids = saved_ids_clean.intersection(previous_ids_int)
+        was_all_selected = (saved_active_ids == previous_ids_int)
+
+        if was_all_selected:
+            final_saved_ids = saved_ids_clean | set(int(x) for x in new_ids_set)
+        else:
+            final_saved_ids = saved_ids_clean
+
+        if final_saved_ids != saved_ids:
+            preferred_annotators[project_id_str] = list(final_saved_ids)
+            prefs["preferred_annotators"] = preferred_annotators
+            user.preferred_task_by_json = prefs
+            user.save(update_fields=["preferred_task_by_json"])
+
+
 def get_review_reports(proj_id, userid, start_date, end_date):
     user = User.objects.get(id=userid)
     userName = user.username
@@ -1549,6 +1598,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 user = User.objects.get(pk=user_id)
                 project.frozen_users.remove(user)
                 project.save()
+                auto_update_reviewer_preferred_annotators(project, [user.id], requesting_user=request.user)
+
             return Response(
                 {"message": "Frozen User removed from the project"},
                 status=status.HTTP_200_OK,
@@ -3848,6 +3899,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 project.annotators.add(annotator)
                 project.save()
 
+                auto_update_reviewer_preferred_annotators(project, [annotator.id], requesting_user=request.user)
+
                 # Creating Notification
                 title = f"{project.title}:{project.id} New annotators have been added to the project"
                 notification_type = "add_member"
@@ -3912,6 +3965,30 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
                 project.annotation_reviewers.add(user)
                 project.save()
+                project_id_str = str(project.id)
+                frozen_user_ids = set(project.frozen_users.values_list("id", flat=True))
+                all_active_annotator_ids = set(
+                    project.annotators.exclude(id__in=frozen_user_ids).values_list("id", flat=True)
+                )
+
+                users_to_update = {user}
+
+                for u in users_to_update:
+                    prefs = u.preferred_task_by_json or {}
+                    if not isinstance(prefs, dict):
+                        prefs = {}
+                    preferred_annotators = prefs.get("preferred_annotators", {})
+                    if not isinstance(preferred_annotators, dict):
+                        preferred_annotators = {}
+                    
+                    saved_ids = set(int(x) for x in preferred_annotators.get(project_id_str, []))
+                    saved_ids.update(all_active_annotator_ids)
+                    
+                    preferred_annotators[project_id_str] = list(saved_ids)
+                    prefs["preferred_annotators"] = preferred_annotators
+                    u.preferred_task_by_json = prefs
+                    u.save(update_fields=["preferred_task_by_json"])
+
                 # Creating Notification
                 title = f"{project.title}:{project.id} New reviewers have been added to project"
                 notification_type = "add_member"
