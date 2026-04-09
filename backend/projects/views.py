@@ -2634,13 +2634,38 @@ class ProjectViewSet(viewsets.ModelViewSet):
         annotation_status = get_status_from_query_params(request, status_type)
 
         task_ids = None
+        if "task_ids" in request.data:
+            print(f"Request: task_ids")
+
+            task_ids_data = request.data.get("task_ids")
+            if isinstance(task_ids_data, int):
+                task_ids = [task_ids_data]
+            elif isinstance(task_ids_data, str) and task_ids_data.isdigit():
+                task_ids = [int(task_ids_data)]
+            elif isinstance(task_ids_data, list):
+                task_ids = []
+                for tid in task_ids_data:
+                    if isinstance(tid, int):
+                        task_ids.append(tid)
+                    elif isinstance(tid, str) and tid.isdigit():
+                        task_ids.append(int(tid))
+            print(f"Task IDs from payload: {task_ids}")
 
         flag = "annotation_status" in request.query_params
-        if flag == False:
+        if flag == False and task_ids is None:
             task_ids, response = get_task_ids(request)
             print(task_ids)
             if response != None:
                 return response
+
+        if task_ids is not None:
+            if isinstance(task_ids, int):
+                task_ids = [task_ids]
+            elif isinstance(task_ids, str) and task_ids.isdigit():
+                task_ids = [int(task_ids)]
+            elif isinstance(task_ids, list) and len(task_ids) > 0 and isinstance(task_ids[0], str):
+                task_ids = [int(tid) for tid in task_ids if tid.isdigit()]
+
 
         if flag == False and task_ids == None:
             return Response(
@@ -4418,6 +4443,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 # Rename keys to match label studio converter
                 # task_dict['id'] = task_dict['task_id']
                 # del task_dict['task_id']
+                latest_annotation = task.annotations.order_by('-updated_at').first()
+                if latest_annotation and latest_annotation.updated_at:
+                    # Format as 'DD-MM-YYYY HH:MM:SS' to match your JSON
+                    task_dict['updated_at'] = latest_annotation.updated_at.strftime('%d-%m-%Y %H:%M:%S')
+                else:
+                    task_dict['updated_at'] = None
+                print(f"Request: {tasks}")
+
                 correct_annotation = task.correct_annotation
                 if correct_annotation is None and task.task_status in [
                     ANNOTATED,
@@ -4460,7 +4493,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     )
                 del task_dict["annotation_users"]
                 del task_dict["review_user"]
-                tasks_list.append(OrderedDict(task_dict))
+                ordered_task_dict = OrderedDict(task_dict)
+                tasks_list.append(ordered_task_dict)
+
 
             dataset_type = project.dataset_id.all()[0].dataset_type
             is_MultipleInteractionEvaluation = (
