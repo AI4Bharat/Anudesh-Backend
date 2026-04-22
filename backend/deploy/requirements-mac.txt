@@ -193,7 +193,7 @@ sacrebleu==2.3.1
 schedule==1.2.0
 semver==2.13.0
 sentry-sdk==2.35.0
-setuptools==80.9.0
+setuptools<81
 simplejson==3.19.1
 six==1.16.0
 smart_open==7.3.0.post1
