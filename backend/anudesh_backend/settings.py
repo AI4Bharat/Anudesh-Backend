@@ -16,13 +16,14 @@ from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
-
 if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
     from google.cloud import logging as gc_logging
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env file
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 
 # Quick-start development settings - unsuitable for production
@@ -32,7 +33,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("ENV") == "dev"
+DEBUG = os.getenv("ENV") == "dev" or os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
 if DEBUG:
     ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0", "*"]
