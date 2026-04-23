@@ -82,6 +82,7 @@ grpcio-status==1.74.0
 gunicorn==21.2.0
 htmlmin==0.1.12
 httplib2==0.22.0
+httpx<0.28.0
 idna==3.10
 imagesize==1.4.1
 importlib-metadata==8.7.0
