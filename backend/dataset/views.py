@@ -354,24 +354,24 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         dataset_model = apps.get_model("dataset", dataset_instance.dataset_type)
         dataset_resource = resources.RESOURCE_MAP[dataset_instance.dataset_type]
         data_item = dataset_model.objects.filter(instance_id=pk).first()
-        if not data_item:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        dataset = dataset_resource().export([data_item])
-        
-        # These are typically fields that are auto-generated. Add here for exculding as mandatory
+
+        # Export one sample row if available, otherwise export an empty dataset (headers only)
+        dataset = dataset_resource().export([data_item] if data_item else [])
+
+        # These are typically fields that are auto-generated. Add here for excluding as mandatory
         excluded_headers = [
-            "id", 
+            "id",
             "instance_id",
             "prompt_output_pair_id", "instruction_id", "no_of_turns", "time_taken",
             "datetime", "meta_info_structure", "meta_info_language",
             "interaction_id", "eval_form_output_json", "eval_time_taken",
             "parent_interaction_ids", "multiple_interaction_json", "eval_form_json", "no_of_models",
-            ]
+        ]
 
-        # These are field which mostly have really big text length. Add here for shortening
+        # These are fields which mostly have really big text length. Add here for shortening
         shorten_fields = ["instruction_data", "interactions_json", "output", "eval_form_json", "multiple_interaction_json"]
 
-        if len(dataset) > 0:
+        if data_item and len(dataset) > 0:
             row = list(dataset[0])
             for i, header in enumerate(dataset.headers):
                 if header in excluded_headers:
@@ -401,17 +401,22 @@ class DatasetInstanceViewSet(viewsets.ModelViewSet):
         for header in dataset.headers:
             if header not in excluded_headers:
                 mandatory_fields.append(header)
-        
+
         updated_headers = [
             f"{header}*" if header in mandatory_fields else header
             for header in dataset.headers
         ]
         dataset.headers = updated_headers
-        
+
         field_instructions = ["Field Headers marked with * are mandatory."] + [''] * (len(dataset.headers) - 1)
         instructions = ["Fields instance_id & id are auto-generated and should be left blank."] + [''] * (len(dataset.headers) - 1)
         dataset.insert(2, field_instructions)
         dataset.insert(3, instructions)
+
+        # If the dataset has no data items, insert an empty-dataset notice in row 5
+        if not data_item:
+            empty_notice = ["This dataset is empty."] + [''] * (len(dataset.headers) - 1)
+            dataset.insert(5, empty_notice)
         
         # Prepare StreamingHttpResponse
         response = StreamingHttpResponse(dataset.csv, content_type="text/csv")
