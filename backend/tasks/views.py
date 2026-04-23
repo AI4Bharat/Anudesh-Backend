@@ -1822,6 +1822,9 @@ class AnnotationViewSet(
                                 return Response(ret_dict, status=ret_status)
                             elif isinstance(output_result, Response):
                                 return output_result
+                            for model_out in output_result.values():
+                                if isinstance(model_out, Response):
+                                    return model_out
                             # store the result of all checks as well
                             prompt_text = request.data["result"]
                             for model_name, model_output in output_result.items():
@@ -2084,6 +2087,9 @@ class AnnotationViewSet(
                                 return Response(ret_dict, status=ret_status)
                             elif isinstance(output_result, Response):
                                 return output_result
+                            for model_out in output_result.values():
+                                if isinstance(model_out, Response):
+                                    return model_out
                             # store the result of all checks as well
                             prompt_text = request.data["result"]
                             for model_name, model_output in output_result.items():

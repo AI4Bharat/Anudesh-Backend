@@ -41,7 +41,7 @@ import os
 
 
 import re
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
@@ -67,9 +67,10 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
     else:
         deployment = model
     
-    client = OpenAI(
+    client = AzureOpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{deployment}"
+        api_version=os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION"),
+        azure_endpoint=os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")
     )
 
     history_messages = process_history(history)
@@ -86,7 +87,6 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
             top_p=0.95,
             frequency_penalty=0,
             presence_penalty=0,
-            extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
         )
 
         return response.choices[0].message.content.strip()
@@ -107,9 +107,10 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
 def get_gpt3_output(system_prompt, user_prompt, history):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
 
-    client = OpenAI(
+    client = AzureOpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}"
+        api_version=os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION"),
+        azure_endpoint=os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")
     )
 
     history_messages = process_history(history)
@@ -126,7 +127,6 @@ def get_gpt3_output(system_prompt, user_prompt, history):
             top_p=0.95,
             frequency_penalty=0,
             presence_penalty=0,
-            extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
         )
 
         return response.choices[0].message.content.strip()
