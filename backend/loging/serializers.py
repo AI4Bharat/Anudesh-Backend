@@ -13,11 +13,13 @@ class TransliterationSerializer(serializers.Serializer):
     language = serializers.CharField()
     steps = SelectionSerializer(many=True)
 
+
 class VoiceLogsSerializer(serializers.Serializer):
     audioBase64 = serializers.CharField()
     machineTranscription = serializers.CharField()
     correctedTranscription = serializers.CharField()
     timestamp = serializers.DateTimeField()
+
 
 class TranscriptionSerializer(serializers.Serializer):
     platform = serializers.CharField()

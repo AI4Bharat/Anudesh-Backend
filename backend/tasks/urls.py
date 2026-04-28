@@ -9,7 +9,6 @@ from tasks.views import (
     TranscribeAPIView,
 )
 
-
 router = routers.DefaultRouter()
 
 # router.register(r"task", TaskViewSet, basename="task")

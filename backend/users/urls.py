@@ -9,7 +9,6 @@ from .views import (
     GoogleLogin,
 )
 
-
 app_name = "users"
 
 router = routers.DefaultRouter()

@@ -66,7 +66,6 @@ from .tasks import (
 )
 from projects.registry_helper import ProjectRegistry
 
-
 # Create your views here.
 
 EMAIL_VALIDATION_REGEX = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
@@ -488,8 +487,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         methods=["POST"],
         name="Bulk add Members to Projects",
         url_name="bulk_add_members_to_projects",
-        )
-
+    )
     @is_particular_organization_owner
     def bulk_add_members_to_projects(self, request, pk=None, *args, **kwargs):
         """
@@ -505,7 +503,9 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             )
         if role not in ["annotator", "reviewer", "super_checker"]:
             return Response(
-                {"message": "Invalid role. Must be annotator or reviewer or super_checker."},
+                {
+                    "message": "Invalid role. Must be annotator or reviewer or super_checker."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         valid_users = []
@@ -521,7 +521,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         excepted_additions = []
         for pid in project_ids:
             try:
-                project = Project.objects.get(pk=pid)
+                project = Project.objects.get(pk=pid, workspace_id=pk)
                 valid_projects.append(project)
             except Project.DoesNotExist:
                 invalid_project_ids.append(pid)
@@ -548,13 +548,14 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                 project.save()
         message = "Users added to projects successfully."
         if excepted_additions != []:
-            message += f'Following users were not yet added: {excepted_additions}'
+            message += f"Following users were not yet added: {excepted_additions}"
         return Response(
             {
                 "message": message,
             },
             status=status.HTTP_200_OK,
         )
+
     @action(
         detail=True, methods=["POST"], name="Assign Manager", url_name="assign_manager"
     )

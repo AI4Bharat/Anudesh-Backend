@@ -88,6 +88,7 @@ def compute_meta_stats_for_instruction_driven_chat(conversation_history):
     }
     return meta_stats
 
+
 def compute_meta_stats_for_multiple_llm_idc(conversation_history):
     meta_stats = {}
     for result in conversation_history:
@@ -100,11 +101,13 @@ def compute_meta_stats_for_multiple_llm_idc(conversation_history):
             total_prompt_len = sum(len(turn.get("prompt", "")) for turn in interactions)
             # total_output_len = sum(len(turn.get("output", "")) for turn in interactions)
             total_output_len = sum(
-                len(turn["output"]) for turn in interactions if isinstance(turn.get("output"), str)
+                len(turn["output"])
+                for turn in interactions
+                if isinstance(turn.get("output"), str)
             )
-            
-            average_prompt_len = total_prompt_len/num_turns if num_turns else 0
-            average_output_len = total_output_len/num_turns if num_turns else 0
+
+            average_prompt_len = total_prompt_len / num_turns if num_turns else 0
+            average_output_len = total_output_len / num_turns if num_turns else 0
 
             meta_stats[model_name] = {
                 "num_turns": num_turns,
@@ -115,6 +118,7 @@ def compute_meta_stats_for_multiple_llm_idc(conversation_history):
             }
 
     return meta_stats
+
 
 def query_flower(filters=None):
     try:
@@ -147,32 +151,29 @@ def query_flower(filters=None):
     except RequestException as e:
         return {"error": f" failed to connect to flower API, {str(e)}"}
 
+
 def convert_audio_base64_to_mp3(input_base64):
-        input_audio_bytes = base64.b64decode(input_base64)
-        input_buffer = io.BytesIO(input_audio_bytes)
+    input_audio_bytes = base64.b64decode(input_base64)
+    input_buffer = io.BytesIO(input_audio_bytes)
 
-        ffmpeg_command = [
-            'ffmpeg', '-i', 'pipe:0',
-            '-f', 'mp3',
-            'pipe:1'
-        ]
+    ffmpeg_command = ["ffmpeg", "-i", "pipe:0", "-f", "mp3", "pipe:1"]
 
-        try:
-            process = subprocess.Popen(
-                ffmpeg_command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+    try:
+        process = subprocess.Popen(
+            ffmpeg_command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
-            output_mp3_bytes, error = process.communicate(input=input_buffer.read())
+        output_mp3_bytes, error = process.communicate(input=input_buffer.read())
 
-            if process.returncode != 0:
-                raise Exception(f"FFmpeg error: {error.decode()}")
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg error: {error.decode()}")
 
-            output_base64_mp3 = base64.b64encode(output_mp3_bytes).decode('utf-8')
-            return output_base64_mp3
+        output_base64_mp3 = base64.b64encode(output_mp3_bytes).decode("utf-8")
+        return output_base64_mp3
 
-        except Exception as e:
-            print(f"Audio conversion error: {e}")
-            return None
+    except Exception as e:
+        print(f"Audio conversion error: {e}")
+        return None

@@ -15,7 +15,7 @@ def get_response_for_domain_and_intent(prompt):
 
     client = OpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}"
+        base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}",
     )
 
     response = client.chat.completions.create(
@@ -29,6 +29,7 @@ def get_response_for_domain_and_intent(prompt):
     )
 
     return response.choices[0].message.content.strip()
+
 
 def get_lid(text):
     """

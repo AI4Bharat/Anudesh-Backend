@@ -4,15 +4,20 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('dataset', '0057_alter_instruction_meta_info_model_and_more'),
+        ("dataset", "0057_alter_instruction_meta_info_model_and_more"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='instruction',
-            name='meta_info_structure',
-            field=models.CharField(blank=True, help_text='Structure information for the instruction', max_length=2048, null=True, verbose_name='Meta Info Structure'),
+            model_name="instruction",
+            name="meta_info_structure",
+            field=models.CharField(
+                blank=True,
+                help_text="Structure information for the instruction",
+                max_length=2048,
+                null=True,
+                verbose_name="Meta Info Structure",
+            ),
         ),
     ]

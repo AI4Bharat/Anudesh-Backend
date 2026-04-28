@@ -371,14 +371,10 @@ class ProjectTaskRequestLock(models.Model):
 
 class ProjectBookmark(models.Model):
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="bookmarks"
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="bookmarks"
     )
     project = models.ForeignKey(
-        "Project",
-        on_delete=models.CASCADE,
-        related_name="bookmarked_by"
+        "Project", on_delete=models.CASCADE, related_name="bookmarked_by"
     )
     bookmarked_at = models.DateTimeField(default=timezone.now, db_index=True)
 

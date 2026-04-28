@@ -570,7 +570,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
         # for reports type review
         if reports_type == "review":
-
             proj_objs = Project.objects.filter(organization_id=pk)
             if project_type is not None:
                 proj_objs = proj_objs.filter(project_type=project_type)
@@ -731,7 +730,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             return Response(data=final_reports, status=status.HTTP_200_OK)
         # for reports type annotation
         else:
-
             if not (
                 request.user.is_authenticated
                 and (
@@ -756,7 +754,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                         "Part Time"
                         if participation_type == 2
                         else "Contract Basis" if participation_type == 4 else "N/A"
-                    ))
+                    )
+                )
             if send_mail == True:
                 send_user_analytics_mail_org.delay(
                     org_id=organization.id,

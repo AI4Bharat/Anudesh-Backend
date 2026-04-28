@@ -14,7 +14,7 @@ ANNOTATION_REGISTRY_DICT = {
             "to_name": "instruction_data",
             "from_name": ["prompt", "output", "preferred_response", "model"],
         }
-    }
+    },
 }
 
 
@@ -136,7 +136,10 @@ def draft_data_json_to_annotation_result(draft_data_json, project_type, pk=None)
         except:
             pass
 
-    if project_type == "InstructionDrivenChat" or project_type == "MultipleLLMInstructionDrivenChat":
+    if (
+        project_type == "InstructionDrivenChat"
+        or project_type == "MultipleLLMInstructionDrivenChat"
+    ):
         result = dataset_item.draft_data_json
 
     return result

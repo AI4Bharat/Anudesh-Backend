@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from locale import normalize
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 import ast
 from django.http import JsonResponse
 from rest_framework import viewsets
@@ -19,7 +19,11 @@ from tasks.serializers import (
     PredictionSerializer,
     TaskAnnotationSerializer,
 )
-from tasks.utils import compute_meta_stats_for_instruction_driven_chat, compute_meta_stats_for_multiple_llm_idc, query_flower
+from tasks.utils import (
+    compute_meta_stats_for_instruction_driven_chat,
+    compute_meta_stats_for_multiple_llm_idc,
+    query_flower,
+)
 from tasks.utils import Queued_Task_name, convert_audio_base64_to_mp3
 from utils.pagination import paginate_queryset
 from notifications.views import createNotification
@@ -78,9 +82,10 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
     permission_classes = [IsAuthenticated]
+
     # 🔹 Swagger docs for the unassigned review summary endpoint
     @swagger_auto_schema(
-        method='get',
+        method="get",
         operation_summary="Get Unassigned Review Summary",
         operation_description="""
         Returns the number of **unassigned review tasks** grouped by annotator 
@@ -90,7 +95,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         """,
         manual_parameters=[
             openapi.Parameter(
-                'project_id',
+                "project_id",
                 openapi.IN_QUERY,
                 description="The ID of the project for which to fetch unassigned review task summary",
                 type=openapi.TYPE_INTEGER,
@@ -105,10 +110,10 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         },
     )
     @action(
-    detail=False,
-    methods=["get"],
-    url_path="unassigned-review-summary",
-    url_name="unassigned_review_summary",
+        detail=False,
+        methods=["get"],
+        url_path="unassigned-review-summary",
+        url_name="unassigned_review_summary",
     )
     def unassigned_review_summary(self, request):
         """
@@ -144,6 +149,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         )
 
         from tasks.models import Annotation as Annotation_model, ANNOTATOR_ANNOTATION
+
         annotator_task_counts = (
             Annotation_model.objects.filter(
                 task__in=unassigned_tasks,
@@ -166,19 +172,22 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
         result = []
         for annotator in all_annotators:
-            counts = count_lookup.get(annotator.id, {"unassigned_count": 0, "task_ids": []})
-            result.append({
-                "annotator_id": annotator.id,
-                "annotator_email": annotator.email,
-                "annotator_username": annotator.username,
-                "unassigned_count": counts["unassigned_count"],
-                "task_ids": counts["task_ids"],
-            })
+            counts = count_lookup.get(
+                annotator.id, {"unassigned_count": 0, "task_ids": []}
+            )
+            result.append(
+                {
+                    "annotator_id": annotator.id,
+                    "annotator_email": annotator.email,
+                    "annotator_username": annotator.username,
+                    "unassigned_count": counts["unassigned_count"],
+                    "task_ids": counts["task_ids"],
+                }
+            )
 
         result.sort(key=lambda x: x["unassigned_count"], reverse=True)
 
         return Response(result, status=status.HTTP_200_OK)
-
 
     @action(
         detail=False,
@@ -405,7 +414,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             task_obj["id"] = an.task_id
                             task_obj["annotation_status"] = an.annotation_status
                             task_obj["user_mail"] = an.completed_by.email
-                            if("unlabeled" not in ann_status):
+                            if "unlabeled" not in ann_status:
                                 task_obj["updated_at"] = utc_to_ist(an.updated_at)
                             task_objs.append(task_obj)
                         task_objs.sort(key=lambda x: x["id"])
@@ -416,7 +425,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             tas = tas.values()[0]
                             tas["annotation_status"] = task_obj["annotation_status"]
                             tas["user_mail"] = task_obj["user_mail"]
-                            if("unlabeled" not in ann_status):
+                            if "unlabeled" not in ann_status:
                                 tas["updated_at"] = task_obj["updated_at"]
                             ordered_tasks.append(tas)
                         if page_number is not None:
@@ -481,7 +490,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     task_obj["annotation_status"] = an.annotation_status
                     task_obj["user_mail"] = an.completed_by.email
                     task_obj["annotation_result_json"] = an.result
-                    if("unlabeled" not in ann_status):
+                    if "unlabeled" not in ann_status:
                         task_obj["updated_at"] = utc_to_ist(an.updated_at)
                     task_objs.append(task_obj)
                 task_objs.sort(key=lambda x: x["id"])
@@ -493,7 +502,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     tas = tas.values()[0]
                     tas["annotation_status"] = task_obj["annotation_status"]
                     tas["user_mail"] = task_obj["user_mail"]
-                    if("unlabeled" not in ann_status):
+                    if "unlabeled" not in ann_status:
                         tas["updated_at"] = task_obj["updated_at"]
                     if (ann_status[0] in ["labeled", "draft", "to_be_revised"]) and (
                         proj_type == "ContextualTranslationEditing"
@@ -958,7 +967,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         task_status__in=tas_status,
                     )
                     if start_date and end_date:
-                        tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                        tasks = tasks.filter(
+                            annotations__updated_at__range=[start_date, end_date]
+                        ).distinct()
 
                     # Handle search query (if any)
                     if len(tasks):
@@ -999,7 +1010,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     annotation_users=user_id,
                 )
                 if start_date and end_date:
-                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    tasks = tasks.filter(
+                        annotations__updated_at__range=[start_date, end_date]
+                    ).distinct()
 
                 # Handle search query (if any)
                 if len(tasks):
@@ -1037,7 +1050,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     review_user_id=user_id,
                 )
                 if start_date and end_date:
-                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    tasks = tasks.filter(
+                        annotations__updated_at__range=[start_date, end_date]
+                    ).distinct()
 
                 # Handle search query (if any)
                 if len(tasks):
@@ -1075,7 +1090,9 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                     super_checker_user_id=user_id,
                 )
                 if start_date and end_date:
-                    tasks = tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    tasks = tasks.filter(
+                        annotations__updated_at__range=[start_date, end_date]
+                    ).distinct()
                 tasks = tasks.order_by("id")
 
                 # Handle search query (if any)
@@ -1769,7 +1786,7 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if request.data["result"]=="":
+                        if request.data["result"] == "":
                             # preferred_model = request.data.get("preferred_response")
                             # preferred_id = request.data.get("prompt_output_pair_id")
                             # for model_entry in annotation_obj.result:
@@ -1780,29 +1797,38 @@ class AnnotationViewSet(
                             eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             eval_form_entry = next(
-                                (entry for entry in annotation_obj.result if "eval_form" in entry),
-                                None
+                                (
+                                    entry
+                                    for entry in annotation_obj.result
+                                    if "eval_form" in entry
+                                ),
+                                None,
                             )
                             if eval_form_entry is None:
                                 eval_form_entry = {"eval_form": []}
                                 annotation_obj.result.insert(0, eval_form_entry)
                             existing_entry = next(
-                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
-                                None
+                                (
+                                    item
+                                    for item in eval_form_entry["eval_form"]
+                                    if item.get("prompt_output_pair_id") == preferred_id
+                                ),
+                                None,
                             )
                             if existing_entry:
                                 existing_entry["model_responses_json"] = eval_form_vals
                             else:
-                                eval_form_entry["eval_form"].append({
-                                    "prompt_output_pair_id": preferred_id,
-                                    "model_responses_json": eval_form_vals
-                                })
+                                eval_form_entry["eval_form"].append(
+                                    {
+                                        "prompt_output_pair_id": preferred_id,
+                                        "model_responses_json": eval_form_vals,
+                                    }
+                                )
                         else:
                             if not annotation_obj.result:
-                                annotation_obj.result.append({
-                                    "eval_form": [],
-                                    "model_interactions": []
-                                })
+                                annotation_obj.result.append(
+                                    {"eval_form": [], "model_interactions": []}
+                                )
                             result_entry = annotation_obj.result[0]
                             if "model_interactions" not in result_entry:
                                 result_entry["model_interactions"] = []
@@ -1812,7 +1838,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data["model"],
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -1822,6 +1848,9 @@ class AnnotationViewSet(
                                 return Response(ret_dict, status=ret_status)
                             elif isinstance(output_result, Response):
                                 return output_result
+                            for model_out in output_result.values():
+                                if isinstance(model_out, Response):
+                                    return model_out
                             # store the result of all checks as well
                             prompt_text = request.data["result"]
                             for model_name, model_output in output_result.items():
@@ -1829,23 +1858,28 @@ class AnnotationViewSet(
                                     "prompt": prompt_text,
                                     "output": model_output,
                                     "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id']
+                                    "prompt_output_pair_id": request.data[
+                                        "prompt_output_pair_id"
+                                    ],
                                 }
 
                                 model_found = False
                                 for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_entry["interaction_json"].append(
+                                            new_interaction
+                                        )
                                         model_found = True
                                         break
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    result_entry["model_interactions"].append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                                    result_entry["model_interactions"].append(
+                                        {
+                                            "model_name": model_name,
+                                            "interaction_json": [new_interaction],
+                                        }
+                                    )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -1901,9 +1935,16 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 response_message = "Success"
             else:
                 if "annotation_status" in dict(request.data) and request.data[
@@ -1979,16 +2020,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -2038,33 +2079,42 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if(request.data["result"]==""):
+                        if request.data["result"] == "":
                             eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             eval_form_entry = next(
-                                (entry for entry in annotation_obj.result if "eval_form" in entry),
-                                None
+                                (
+                                    entry
+                                    for entry in annotation_obj.result
+                                    if "eval_form" in entry
+                                ),
+                                None,
                             )
                             if eval_form_entry is None:
                                 eval_form_entry = {"eval_form": []}
                                 annotation_obj.result.insert(0, eval_form_entry)
                             existing_entry = next(
-                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
-                                None
+                                (
+                                    item
+                                    for item in eval_form_entry["eval_form"]
+                                    if item.get("prompt_output_pair_id") == preferred_id
+                                ),
+                                None,
                             )
                             if existing_entry:
                                 existing_entry["model_responses_json"] = eval_form_vals
                             else:
-                                eval_form_entry["eval_form"].append({
-                                    "prompt_output_pair_id": preferred_id,
-                                    "model_responses_json": eval_form_vals
-                                })
+                                eval_form_entry["eval_form"].append(
+                                    {
+                                        "prompt_output_pair_id": preferred_id,
+                                        "model_responses_json": eval_form_vals,
+                                    }
+                                )
                         else:
                             if not annotation_obj.result:
-                                annotation_obj.result.append({
-                                    "eval_form": [],
-                                    "model_interactions": []
-                                })
+                                annotation_obj.result.append(
+                                    {"eval_form": [], "model_interactions": []}
+                                )
                             result_entry = annotation_obj.result[0]
                             if "model_interactions" not in result_entry:
                                 result_entry["model_interactions"] = []
@@ -2074,7 +2124,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data["model"],
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2084,6 +2134,9 @@ class AnnotationViewSet(
                                 return Response(ret_dict, status=ret_status)
                             elif isinstance(output_result, Response):
                                 return output_result
+                            for model_out in output_result.values():
+                                if isinstance(model_out, Response):
+                                    return model_out
                             # store the result of all checks as well
                             prompt_text = request.data["result"]
                             for model_name, model_output in output_result.items():
@@ -2091,23 +2144,28 @@ class AnnotationViewSet(
                                     "prompt": prompt_text,
                                     "output": model_output,
                                     "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
+                                    "prompt_output_pair_id": request.data[
+                                        "prompt_output_pair_id"
+                                    ],
                                 }
 
                                 model_found = False
                                 for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_entry["interaction_json"].append(
+                                            new_interaction
+                                        )
                                         model_found = True
                                         break
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    result_entry["model_interactions"].append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                                    result_entry["model_interactions"].append(
+                                        {
+                                            "model_name": model_name,
+                                            "interaction_json": [new_interaction],
+                                        }
+                                    )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -2163,9 +2221,16 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 response_message = "Success"
 
             else:
@@ -2280,16 +2345,16 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
@@ -2369,33 +2434,42 @@ class AnnotationViewSet(
                     == "MultipleLLMInstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        if(request.data["result"]==""):
+                        if request.data["result"] == "":
                             eval_form_vals = request.data.get("model_responses_json")
                             preferred_id = request.data.get("prompt_output_pair_id")
                             eval_form_entry = next(
-                                (entry for entry in annotation_obj.result if "eval_form" in entry),
-                                None
+                                (
+                                    entry
+                                    for entry in annotation_obj.result
+                                    if "eval_form" in entry
+                                ),
+                                None,
                             )
                             if eval_form_entry is None:
                                 eval_form_entry = {"eval_form": []}
                                 annotation_obj.result.insert(0, eval_form_entry)
                             existing_entry = next(
-                                (item for item in eval_form_entry["eval_form"] if item.get("prompt_output_pair_id") == preferred_id),
-                                None
+                                (
+                                    item
+                                    for item in eval_form_entry["eval_form"]
+                                    if item.get("prompt_output_pair_id") == preferred_id
+                                ),
+                                None,
                             )
                             if existing_entry:
                                 existing_entry["model_responses_json"] = eval_form_vals
                             else:
-                                eval_form_entry["eval_form"].append({
-                                    "prompt_output_pair_id": preferred_id,
-                                    "model_responses_json": eval_form_vals
-                                })
+                                eval_form_entry["eval_form"].append(
+                                    {
+                                        "prompt_output_pair_id": preferred_id,
+                                        "model_responses_json": eval_form_vals,
+                                    }
+                                )
                         else:
                             if not annotation_obj.result:
-                                annotation_obj.result.append({
-                                    "eval_form": [],
-                                    "model_interactions": []
-                                })
+                                annotation_obj.result.append(
+                                    {"eval_form": [], "model_interactions": []}
+                                )
                             result_entry = annotation_obj.result[0]
                             if "model_interactions" not in result_entry:
                                 result_entry["model_interactions"] = []
@@ -2405,7 +2479,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data["model"],
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2422,23 +2496,28 @@ class AnnotationViewSet(
                                     "prompt": prompt_text,
                                     "output": model_output,
                                     "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
+                                    "prompt_output_pair_id": request.data[
+                                        "prompt_output_pair_id"
+                                    ],
                                 }
 
                                 model_found = False
                                 for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        model_entry["interaction_json"].append(
+                                            new_interaction
+                                        )
                                         model_found = True
                                         break
 
                                 # If model not found, create a new one
                                 if not model_found:
-                                    result_entry["model_interactions"].append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                                    result_entry["model_interactions"].append(
+                                        {
+                                            "model_name": model_name,
+                                            "interaction_json": [new_interaction],
+                                        }
+                                    )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -2494,9 +2573,16 @@ class AnnotationViewSet(
                 )
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 response_message = "Success"
 
             else:
@@ -2602,23 +2688,30 @@ class AnnotationViewSet(
                         and len(annotation_obj.result) > len(request.data["result"])
                     ):
                         request.data["result"] = annotation_obj.result
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            annotation_obj.result
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                annotation_obj.result
+                            )
                         )
                     else:
-                        request.data[
-                            "meta_stats"
-                        ] = compute_meta_stats_for_multiple_llm_idc(
-                            request.data["result"]
+                        request.data["meta_stats"] = (
+                            compute_meta_stats_for_multiple_llm_idc(
+                                request.data["result"]
+                            )
                         )
                 annotation_response = super().partial_update(request)
                 if is_IDC:
                     annotation_response.data["output"] = output_result
-                    if (annotation_obj.task.project_id.project_type == "MultipleLLMInstructionDrivenChat"):
+                    if (
+                        annotation_obj.task.project_id.project_type
+                        == "MultipleLLMInstructionDrivenChat"
+                    ):
                         metadata = annotation_obj.task.project_id.metadata_json
-                        annotation_response.data["enable_preferrence_selection"] = metadata.get("enable_preferrence_selection", False) if isinstance(metadata, dict) else False
+                        annotation_response.data["enable_preferrence_selection"] = (
+                            metadata.get("enable_preferrence_selection", False)
+                            if isinstance(metadata, dict)
+                            else False
+                        )
                 annotation_id = annotation_response.data["id"]
                 annotation = Annotation.objects.get(pk=annotation_id)
 
@@ -2948,7 +3041,10 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         if isinstance(project_metadata_json, str)
         else project_metadata_json
     )
-    if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
+    if (
+        isinstance(project_metadata, dict)
+        and project_metadata.get("blank_response") == True
+    ):
         return ""
     if prompt in [None, "Null", 0, "None", "", " "]:
         return -1
@@ -2993,6 +3089,7 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     if res in [None, "Null", 0, "None", "", " "]:
         return -1
     return res
+
 
 def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_to_run):
     # CHECKS
@@ -3041,16 +3138,16 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
     # GET MODEL OUTPUT
     history = ann_result[0]
 
-
     model_output = get_all_model_output(
         "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
         "bullet or numberings etc. suitably for code or the text. wherever required.",
         prompt,
         history,
-        models_to_run
+        models_to_run,
     )
 
     return model_output
+
 
 def format_model_output(model_output):
     result = ""
@@ -3120,12 +3217,16 @@ class TransliterationAPIView(APIView):
 
     def get(self, request, target_language, data, *args, **kwargs):
         response_transliteration = requests.get(
-            os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
+            os.getenv("TRANSLITERATION_URL")
+            + quote(target_language)
+            + "/"
+            + quote(data),
             headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
         )
 
         transliteration_output = response_transliteration.json()
         return Response(transliteration_output, status=status.HTTP_200_OK)
+
 
 class TranscribeAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -3138,23 +3239,28 @@ class TranscribeAPIView(APIView):
 
         chunk_data = {
             "config": {
-                "serviceId": os.getenv("DHRUVA_SERVICE_ID") if lang != "en" else os.getenv("DHRUVA_SERVICE_ID_EN"),
+                "serviceId": (
+                    os.getenv("DHRUVA_SERVICE_ID")
+                    if lang != "en"
+                    else os.getenv("DHRUVA_SERVICE_ID_EN")
+                ),
                 "language": {"sourceLanguage": lang},
-                "transcriptionFormat": {"value": "transcript"}
-                },
-            "audio": [
-                {
-                    "audioContent":mp3_base64
-                    }
-                ]
-            }
+                "transcriptionFormat": {"value": "transcript"},
+            },
+            "audio": [{"audioContent": mp3_base64}],
+        }
         try:
-            response = requests.post(os.getenv("DHRUVA_API_URL"),
-            headers={"authorization": os.getenv("DHRUVA_KEY")},
-            json=chunk_data,
+            response = requests.post(
+                os.getenv("DHRUVA_API_URL"),
+                headers={"authorization": os.getenv("DHRUVA_KEY")},
+                json=chunk_data,
             )
             transcript = response.json()["output"][0]["source"]
-            return Response({"transcript": transcript+" " or ""}, status=status.HTTP_200_OK)
+            return Response(
+                {"transcript": transcript + " " or ""}, status=status.HTTP_200_OK
+            )
         except Exception as e:
             print("Error:", e)
-            return Response({"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"message": "Failed to transcribe"}, status=status.HTTP_400_BAD_REQUEST
+            )

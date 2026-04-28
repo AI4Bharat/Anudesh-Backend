@@ -524,10 +524,9 @@ def check_matching_values_greater(list1, list2, criteria):
 
 
 def add_extra_task_data(t, project):
-    similar_tasks = (
-        Task.objects.filter(input_data=t.input_data, project_id=project.id)
-        .filter(task_status=ANNOTATED)
-    )
+    similar_tasks = Task.objects.filter(
+        input_data=t.input_data, project_id=project.id
+    ).filter(task_status=ANNOTATED)
     seen, total_rating, key_values = [], {}, {}
     for st in similar_tasks:
         ann = Annotation.objects.filter(task=st, annotation_status=LABELED)[0]
@@ -570,7 +569,7 @@ def add_extra_task_data(t, project):
 
     def dict_to_string(d):
         return "{" + ", ".join(f"{key}: {value}" for key, value in d.items()) + "}"
-    
+
     t.data["total_rating"] = dict_to_string(total_rating)
     t.data["inter_annotator_difference"] = dict_to_string(inter_annotator_difference)
     t.save()

@@ -6,5 +6,3 @@ from .models import Project, ProjectTaskRequestLock, ProjectBookmark
 admin.site.register(Project)
 admin.site.register(ProjectTaskRequestLock)
 admin.site.register(ProjectBookmark)
-
-

@@ -1,6 +1,5 @@
 from rest_framework import serializers
 
-
 # Imported user model here coz circular import errors popped up when we tried defining UserReadSerializer in users.serializers and importing it here
 from users.models import User
 from .models import *

@@ -69,10 +69,12 @@ load_dotenv()
 #         max_length=15,
 #     )
 
+
 #     def __str__(self):
 #         return str(self.language)
 def default_preferred_tasks():
     return {"preferred_annotators": {}, "preferred_reviewers": {}}
+
 
 class User(AbstractBaseUser, PermissionsMixin):
     """
@@ -223,7 +225,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=default_preferred_tasks,
         blank=True,
         help_text="Stores preferred annotators and reviewers by user ID",
-        null=True
+        null=True,
     )
     # languages = models.ManyToManyField(Language, related_name="user_languages", blank=True, help_text=("Languages known by the user."))
 
