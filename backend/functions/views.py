@@ -2,7 +2,9 @@ import ast
 import json
 import os
 import uuid
-from azure.storage.blob import BlobServiceClient
+import io
+from azure.storage.blob import BlobServiceClient, ContentSettings
+from PIL import Image
 
 from anudesh_backend.locks import Lock
 from urllib import request
@@ -12,7 +14,13 @@ from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from projects.models import *
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.decorators import (
+    api_view,
+    permission_classes,
+    action,
+    throttle_classes,
+)
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from users.utils import (
@@ -34,6 +42,7 @@ from .utils import (
     check_if_particular_organization_owner,
 )
 from datetime import timezone
+
 
 @api_view(["GET"])
 def get_indic_trans_supported_langs_model_codes(request):
@@ -307,22 +316,44 @@ def download_all_projects(request):
         )
 
 
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
 @api_view(["POST"])
 def chat_log(request):
     try:
         interaction_json = request.data.get("interaction_json")
         user_data = request.data.get("user_data", {})
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+
+        if interaction_json is None:
+            return Response(
+                {"message": "Missing interaction_json"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(interaction_json, dict) or not isinstance(user_data, dict):
+            return Response(
+                {"message": "Invalid payload format"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(json.dumps(interaction_json)) > 1024 * 1024:
+            return Response(
+                {"message": "Payload too large"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
         user = request.user
-        session_id = request.data.get("session_id", datetime.now(timezone.utc).strftime("%H:%M:%S %d-%m-%Y"))
+        session_id = request.data.get(
+            "session_id", datetime.now(timezone.utc).strftime("%H:%M:%S %d-%m-%Y")
+        )
         if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0].strip()
+            ip = x_forwarded_for.split(",")[0].strip()
         else:
-            ip = request.META.get('REMOTE_ADDR')
+            ip = request.META.get("REMOTE_ADDR")
         user_data["ip_address"] = ip
         user_data["user"] = user.email
-        interaction_json["timestamp"] = datetime.now(timezone.utc).strftime("%H:%M:%S %d-%m-%Y")
+        interaction_json["timestamp"] = datetime.now(timezone.utc).strftime(
+            "%H:%M:%S %d-%m-%Y"
+        )
         log_entry_string = json.dumps(interaction_json) + "\n"
         log_entry_bytes = log_entry_string.encode("utf-8")
         connection_string = os.getenv("CONNECTION_STRING_CHAT_LOG")
@@ -340,15 +371,19 @@ def chat_log(request):
         container_client = blob_service_client.get_container_client(container_name)
         name = f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}/{user.email}-{session_id}.jsonl"
         blob_client = container_client.get_blob_client(name)
-        blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-        blob_client = blob_service_client.get_blob_client(container=container_name, blob=name)
+        blob_service_client = BlobServiceClient.from_connection_string(
+            connection_string
+        )
+        blob_client = blob_service_client.get_blob_client(
+            container=container_name, blob=name
+        )
 
         if not blob_client.exists():
             blob_client.create_append_blob()
-            user_entry_string = json.dumps({'user_data': user_data}) + "\n"
+            user_entry_string = json.dumps({"user_data": user_data}) + "\n"
             user_entry_bytes = user_entry_string.encode("utf-8")
             blob_client.append_block(user_entry_bytes)
-        
+
         blob_client.append_block(log_entry_bytes)
 
         return Response(
@@ -362,7 +397,8 @@ def chat_log(request):
         )
 
 
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
+@throttle_classes([UserRateThrottle])
 @api_view(["POST"])
 def chat_output(request):
     prompt = request.data.get("message")
@@ -382,27 +418,58 @@ def chat_output(request):
         status=status.HTTP_200_OK,
     )
 
+
 @permission_classes([IsAuthenticated])
 @api_view(["POST"])
 def upload_chat_image(request):
-    image_file = request.FILES.get('image')
+    image_file = request.FILES.get("image")
     user = request.user
     if image_file:
+        try:
+            # Verify and re-encode with Pillow to strip EXIF
+            image = Image.open(image_file)
+            image.verify()
+
+            image_file.seek(0)
+            image = Image.open(image_file)
+
+            output_io = io.BytesIO()
+            img_format = image.format if image.format else "JPEG"
+            image.save(output_io, format=img_format)
+            image_bytes = output_io.getvalue()
+            content_type = f"image/{img_format.lower()}"
+        except Exception as e:
+            return Response(
+                {"error": f"Invalid image file: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         account_url = os.getenv("AZURE_ACCOUNT_URL_CHAT_IMAGES")
         container_name = os.getenv("AZURE_CONTAINER_NAME_CHAT_IMAGES")
         sas_token = os.getenv("AZURE_SAS_TOKEN_CHAT_IMAGES")
         file_extension = os.path.splitext(image_file.name)[1]
         blob_name = f"image-{user.email}{uuid.uuid4()}{file_extension}"
         try:
-            blob_service_client = BlobServiceClient(account_url=account_url, credential=sas_token)
-            blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
-            blob_client.upload_blob(image_file.read(), blob_type="BlockBlob")
+            blob_service_client = BlobServiceClient(
+                account_url=account_url, credential=sas_token
+            )
+            blob_client = blob_service_client.get_blob_client(
+                container=container_name, blob=blob_name
+            )
+            blob_client.upload_blob(
+                image_bytes,
+                blob_type="BlockBlob",
+                content_settings=ContentSettings(
+                    content_type=content_type, content_disposition="attachment"
+                ),
+            )
             image_url = blob_client.url
             return Response(
                 {"image_url": image_url},
-                status=status.HTTP_201_CREATED,)
+                status=status.HTTP_201_CREATED,
+            )
         except Exception as e:
             return Response(
                 {"error": f"Failed to upload image: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

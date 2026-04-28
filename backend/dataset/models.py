@@ -7,7 +7,6 @@ from users.models import User, LANG_CHOICES
 from organizations.models import Organization
 from workspaces.models import Workspace
 
-
 # List of all dataset types
 DATASET_TYPE_CHOICES = [
     ("PromptBase", "PromptBase"),
@@ -140,15 +139,33 @@ LLM_CHOICES = (
     (SARVAM_M, SARVAM_M),
     ("google/gemma-3-12b-it", "google/gemma-3-12b-it"),
     ("Qwen/Qwen3-30B-A3B", "Qwen/Qwen3-30B-A3B"),
-    ("meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"),
-    ("meta-llama/Llama-4-Scout-17B-16E-Instruct", "meta-llama/Llama-4-Scout-17B-16E-Instruct"),
+    (
+        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    ),
+    (
+        "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+    ),
     ("google/gemma-3-27b-it", "google/gemma-3-27b-it"),
-    ("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
+    (
+        "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+    ),
     ("meta-llama/Llama-3.2-3B-Instruct", "meta-llama/Llama-3.2-3B-Instruct"),
-    ("meta-llama/Llama-3.3-70B-Instruct-Turbo", "meta-llama/Llama-3.3-70B-Instruct-Turbo"),
-    ("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo", "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo"),
+    (
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    ),
+    (
+        "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+    ),
     ("meta-llama/Llama-3.3-70B-Instruct", "meta-llama/Llama-3.3-70B-Instruct"),
-    ("meta-llama/Meta-Llama-3.1-70B-Instruct", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
+    (
+        "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        "meta-llama/Meta-Llama-3.1-70B-Instruct",
+    ),
     ("meta-llama/Meta-Llama-3.1-8B-Instruct", "meta-llama/Meta-Llama-3.1-8B-Instruct"),
 )
 
@@ -615,4 +632,3 @@ class MultiModelInteraction(DatasetBase):
         null=True,
         blank=True,
     )
-    

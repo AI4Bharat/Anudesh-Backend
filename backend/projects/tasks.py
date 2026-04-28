@@ -40,6 +40,7 @@ def stringify_json(json):
         string += f"{key}: {value}, "
     return string[0:-1]
 
+
 def prompt_data_annotation_InstructionDrivenChat(tasks):
     """
     Extract prompts per task for InstructionDrivenChat projects.
@@ -119,6 +120,8 @@ def prompt_data_annotation_InstructionDrivenChat(tasks):
         task_prompt_map[task.id] = " | ".join(formatted)
 
     return task_prompt_map
+
+
 def prompt_data_annotation(tasks):
     """
     Runs correct_annotation logic on Task models
@@ -157,13 +160,12 @@ def prompt_data_annotation(tasks):
                     annotation_type=ANNOTATOR_ANNOTATION
                 ).first()
 
-        
         annotations = (
             correct_annotation
             if isinstance(correct_annotation, list)
             else [correct_annotation] if correct_annotation else []
         )
-        
+
         user_prompts = {}
         seen = {}
 
@@ -206,8 +208,8 @@ def prompt_data_annotation(tasks):
         task_prompt_map[task.id] = " | ".join(formatted)
 
     return task_prompt_map
-      
-            
+
+
 def create_automatic_annotations(tasks, automatic_annotation_creation_mode):
     user = User.objects.get(id=1)
     project = tasks[0].project_id
@@ -420,9 +422,9 @@ def create_tasks_from_dataitems(items, project):
             task.data["interactions_json"] = interaction_data
             task.save()
     if project_type == "MultipleLLMInstructionDrivenChat":
-        llm_sets=project.metadata_json["models_set"]
-        fixed_llms=project.metadata_json["fixed_models"]
-        num_llms=project.metadata_json["num_models"]
+        llm_sets = project.metadata_json["models_set"]
+        fixed_llms = project.metadata_json["fixed_models"]
+        num_llms = project.metadata_json["num_models"]
         num_extra_llms = num_llms - len(fixed_llms)
         rotating_llms = deque([m for m in llm_sets if m not in fixed_llms])
         for task in tasks:
@@ -432,7 +434,7 @@ def create_tasks_from_dataitems(items, project):
             task.data["model"] = selected_llms
             task.save()
             rotating_llms.extend(extra_llms)
-            
+
     return tasks
 
 

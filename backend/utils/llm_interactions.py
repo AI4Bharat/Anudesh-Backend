@@ -57,6 +57,7 @@ def process_history(history):
         messages.append(system_side)
     return messages
 
+
 def get_gpt4_output(system_prompt, user_prompt, history, model):
     if model == "GPT4":
         deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4")
@@ -66,11 +67,11 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
         deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O_MINI")
     else:
         deployment = model
-    
+
     client = AzureOpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
         api_version=os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION"),
-        azure_endpoint=os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")
+        azure_endpoint=os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE"),
     )
 
     history_messages = process_history(history)
@@ -104,13 +105,14 @@ def get_gpt4_output(system_prompt, user_prompt, history, model):
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
 
+
 def get_gpt3_output(system_prompt, user_prompt, history):
     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
 
     client = AzureOpenAI(
         api_key=os.getenv("OPENAI_API_KEY"),
         api_version=os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION"),
-        azure_endpoint=os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE")
+        azure_endpoint=os.getenv("LLM_INTERACTIONS_OPENAI_API_BASE"),
     )
 
     history_messages = process_history(history)
@@ -144,6 +146,7 @@ def get_gpt3_output(system_prompt, user_prompt, history):
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
 
+
 def get_llama2_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
     token = os.getenv("LLM_INTERACTION_LLAMA2_API_TOKEN")
@@ -165,21 +168,19 @@ def get_llama2_output(system_prompt, conv_history, user_prompt):
     result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
     return result.json()["choices"][0]["message"]["content"].strip()
 
+
 def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("SARVAM_M_API_BASE")
-    api_key = os.getenv("SARVAM_M_API_KEY") 
+    api_key = os.getenv("SARVAM_M_API_KEY")
     url = f"{api_base}/chat/completions"
 
-    headers = {
-        "api-subscription-key": api_key,
-        "Content-Type": "application/json"
-    }
+    headers = {"api-subscription-key": api_key, "Content-Type": "application/json"}
 
     history = process_history(conv_history)
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     if type(user_prompt) == list:
-        messages.append({"role": "user", "content": user_prompt[0]['text']})
+        messages.append({"role": "user", "content": user_prompt[0]["text"]})
     else:
         messages.append({"role": "user", "content": user_prompt})
 
@@ -190,11 +191,11 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         "max_tokens": 2048,
         "top_p": 1,
     }
-    
+
     try:
         s = requests.Session()
         response = s.post(url, headers=headers, json=body)
-        response.raise_for_status() 
+        response.raise_for_status()
         response_data = response.json()
         return response_data["choices"][0]["message"]["content"].strip()
     except requests.exceptions.RequestException as e:
@@ -205,11 +206,12 @@ def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
         print(f"Full response data: {response_data}")
         raise
 
+
 def get_deepinfra_output(system_prompt, user_prompt, history, model):
     try:
         client = OpenAI(
             api_key=os.getenv("DEEPINFRA_API_KEY"),
-            base_url=os.getenv("DEEPINFRA_BASE_URL")
+            base_url=os.getenv("DEEPINFRA_BASE_URL"),
         )
 
         history_messages = process_history(history)
@@ -225,7 +227,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         )
 
         output = response.choices[0].message.content.strip()
-        cleaned_response = re.sub(r'<think>.*?</think>\s*', '', output, flags=re.DOTALL)
+        cleaned_response = re.sub(r"<think>.*?</think>\s*", "", output, flags=re.DOTALL)
         return cleaned_response
 
     except Exception as e:
@@ -240,7 +242,8 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
-    
+
+
 def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
@@ -255,6 +258,7 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
     else:
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out
+
 
 def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
     results = {}
@@ -271,17 +275,25 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
                 for interaction in history.get("model_interactions", [])
                 if interaction.get("model_name") == model
             ),
-            []
+            [],
         )
         if model == GPT35:
             results[model] = get_gpt3_output(system_prompt, user_prompt, model_history)
         elif model in [GPT4, GPT4O, GPT4OMini]:
-            results[model] = get_gpt4_output(system_prompt, user_prompt, model_history, model)
+            results[model] = get_gpt4_output(
+                system_prompt, user_prompt, model_history, model
+            )
         elif model == LLAMA2:
-            results[model] = get_llama2_output(system_prompt, model_history, user_prompt)
+            results[model] = get_llama2_output(
+                system_prompt, model_history, user_prompt
+            )
         elif model == SARVAM_M:
-            results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt)
+            results[model] = get_sarvam_m_output(
+                system_prompt, model_history, user_prompt
+            )
         else:
-            results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model)
+            results[model] = get_deepinfra_output(
+                system_prompt, user_prompt, model_history, model
+            )
 
     return results

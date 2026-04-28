@@ -4,15 +4,27 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('projects', '0061_project_conceal'),
+        ("projects", "0061_project_conceal"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='project',
-            name='project_type',
-            field=models.CharField(choices=[('ModelOutputEvaluation', 'ModelOutputEvaluation'), ('ModelInteractionEvaluation', 'ModelInteractionEvaluation'), ('MultipleInteractionEvaluation', 'MultipleInteractionEvaluation'), ('InstructionDrivenChat', 'InstructionDrivenChat'), ('MultipleLLMInstructionDrivenChat', 'MultipleLLMInstructionDrivenChat')], help_text='Project Type indicating the annotation task', max_length=100),
+            model_name="project",
+            name="project_type",
+            field=models.CharField(
+                choices=[
+                    ("ModelOutputEvaluation", "ModelOutputEvaluation"),
+                    ("ModelInteractionEvaluation", "ModelInteractionEvaluation"),
+                    ("MultipleInteractionEvaluation", "MultipleInteractionEvaluation"),
+                    ("InstructionDrivenChat", "InstructionDrivenChat"),
+                    (
+                        "MultipleLLMInstructionDrivenChat",
+                        "MultipleLLMInstructionDrivenChat",
+                    ),
+                ],
+                help_text="Project Type indicating the annotation task",
+                max_length=100,
+            ),
         ),
     ]

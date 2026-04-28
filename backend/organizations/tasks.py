@@ -851,7 +851,10 @@ def send_project_analytics_mail_org(
     if projects_obj.count() != 0:
         for proj in projects_obj:
             if proj.workspace_id:
-                proj_manager = [manager.get_username() for manager in proj.workspace_id.managers.all()]
+                proj_manager = [
+                    manager.get_username()
+                    for manager in proj.workspace_id.managers.all()
+                ]
             else:
                 proj_manager = []
             try:

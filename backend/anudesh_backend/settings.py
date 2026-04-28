@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.0/ref/settings/
 
 import logging
 import os
+import socket
 from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -33,7 +34,11 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("ENV") == "dev" or os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
+DEBUG = os.getenv("ENV") == "dev" or os.getenv("DEBUG", "False").lower() in (
+    "true",
+    "1",
+    "t",
+)
 
 if DEBUG:
     ALLOWED_HOSTS = ["127.0.0.1", "localhost", "0.0.0.0", "*"]
@@ -95,7 +100,13 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
-CORS_ORIGIN_ALLOW_ALL = True
+CORS_ALLOWED_ORIGINS = [
+    "https://anudesh.ai4bharat.org",
+    "https://dev.anudesh.ai4bharat.org",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -192,6 +203,10 @@ REST_FRAMEWORK = {
         "rest_framework.authentication.SessionAuthentication",
     ),
     "DEFAULT_PAGINATION_CLASS": "anudesh_backend.pagination.CustomPagination",
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "10/minute",
+        "user": "60/minute",
+    },
 }
 
 
@@ -220,7 +235,7 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("JWT",),
     "BLACKLIST_AFTER_ROTATION": False,
     "REFRESH_TOKEN_LIFETIME": timedelta(days=20),
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=100),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
 }
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 102400  # higher than the count of fields
@@ -305,7 +320,12 @@ CELERY_IMPORTS = ("users.tasks",)
 
 # Celery settings
 CELERY_TIMEZONE = "Asia/Kolkata"
-CELERY_BROKER_URL = "redis://redis:6379/0"
+try:
+    socket.gethostbyname("redis")
+    CELERY_BROKER_URL = "redis://redis:6379/0"
+except socket.gaierror:
+    CELERY_BROKER_URL = "redis://localhost:6379/0"
+
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 

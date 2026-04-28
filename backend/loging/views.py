@@ -24,7 +24,8 @@ load_dotenv()
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_CONNECTION_STRING")
 TRANSLITERATION_CONTAINER_NAME = os.getenv("TRANSLITERATION_CONTAINER_NAME")
 TR_AZURE_STORAGE_CONNECTION_STRING = os.getenv("TR_AZURE_CONNECTION_STRING")
-TRANSCRIPTION_CONTAINER_NAME= os.getenv("TRANSCRIPTION_CONTAINER_NAME")
+TRANSCRIPTION_CONTAINER_NAME = os.getenv("TRANSCRIPTION_CONTAINER_NAME")
+
 
 def get_azure_credentials(connection_string):
     account_key = extract_account_key(connection_string)
@@ -204,6 +205,7 @@ class TransliterationSelectionViewSet(APIView):
                 {"message": "Failed to store log content in blob", "error": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
 
 class TranscriptionSelectionViewSet(APIView):
     # permission_classes = (IsAuthenticated,)

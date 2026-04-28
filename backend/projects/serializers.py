@@ -20,7 +20,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         # project_type = serializers.ChoiceField(choices=PROJECT_TYPE_CHOICES, default='friendly')
         fields = [
             "id",
-            "is_bookmarked", 
+            "is_bookmarked",
             "bookmarked_at",
             "title",
             "description",

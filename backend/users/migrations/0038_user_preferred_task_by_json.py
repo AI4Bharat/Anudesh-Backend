@@ -5,15 +5,18 @@ import users.models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('users', '0037_alter_user_languages'),
+        ("users", "0037_alter_user_languages"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='user',
-            name='preferred_task_by_json',
-            field=models.JSONField(blank=True, default=users.models.default_preferred_tasks, help_text='Stores preferred annotators and reviewers by user ID'),
+            model_name="user",
+            name="preferred_task_by_json",
+            field=models.JSONField(
+                blank=True,
+                default=users.models.default_preferred_tasks,
+                help_text="Stores preferred annotators and reviewers by user ID",
+            ),
         ),
     ]
