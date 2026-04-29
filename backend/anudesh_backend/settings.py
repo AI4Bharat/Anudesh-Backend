@@ -237,7 +237,7 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("JWT",),
     "BLACKLIST_AFTER_ROTATION": False,
     "REFRESH_TOKEN_LIFETIME": timedelta(days=20),
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=100),
 }
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 102400  # higher than the count of fields
