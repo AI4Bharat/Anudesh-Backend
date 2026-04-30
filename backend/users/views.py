@@ -1360,7 +1360,6 @@ class UserViewSet(viewsets.ViewSet):
         Update UI preferences for user.
 
         Accepts any combination of:
-          - prefer_cl_ui (bool)
           - instruction_panel_width (number, 10-80)
           - annotation_font_size (number, 0.6-1.6)
           - instruction_panel_pinned (bool)
@@ -1372,17 +1371,6 @@ class UserViewSet(viewsets.ViewSet):
 
         user = request.user
         updated_fields = []
-
-        # --- prefer_cl_ui (legacy) ---
-        prefer_cl_ui = request.data.get("prefer_cl_ui")
-        if prefer_cl_ui is not None:
-            if prefer_cl_ui not in (True, False):
-                return Response(
-                    {"message": "prefer_cl_ui must be True or False"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            user.prefer_cl_ui = prefer_cl_ui
-            updated_fields.append("prefer_cl_ui")
 
         # --- annotation_ui_preferences ---
         annotation_pref_keys = {
