@@ -75,6 +75,14 @@ def default_preferred_tasks():
     return {"preferred_annotators": {}, "preferred_reviewers": {}}
 
 
+def default_annotation_ui_preferences():
+    return {
+        "instruction_panel_width": 30,
+        "annotation_font_size": 0.9,
+        "instruction_panel_pinned": False,
+    }
+
+
 class User(AbstractBaseUser, PermissionsMixin):
     """
     Custom user model for storing userdata, also imlements different roles like organization_owner, workspace_manager
@@ -225,6 +233,16 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         help_text="Stores preferred annotators and reviewers by user ID",
         null = True,
+    )
+
+    annotation_ui_preferences = models.JSONField(
+        default=default_annotation_ui_preferences,
+        blank=True,
+        null=True,
+        help_text=(
+            "Stores annotation page UI preferences: instruction panel width, "
+            "font size, and pinned state."
+        ),
     )
     # languages = models.ManyToManyField(Language, related_name="user_languages", blank=True, help_text=("Languages known by the user."))
 
