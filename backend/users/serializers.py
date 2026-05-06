@@ -118,9 +118,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "unverified_email",
             "date_joined",
             "participation_type",
-            "prefer_cl_ui",
             "is_active",
             "preferred_task_by_json",
+            "annotation_ui_preferences",
         ]
         read_only_fields = [
             "id",

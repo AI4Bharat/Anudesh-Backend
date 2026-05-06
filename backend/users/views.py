@@ -1353,26 +1353,50 @@ class UserViewSet(viewsets.ViewSet):
     def update_ui_prefs(self, request):
         """
         Update UI preferences for user
+        Accepts any combination of:
+          - instruction_panel_width (number, 10-80)
+          - annotation_font_size (number, 0.6-1.6)
+          - instruction_panel_pinned (bool)
         """
-        prefer_cl_ui = request.data.get("prefer_cl_ui")
-
-        if prefer_cl_ui == True or prefer_cl_ui == False:
-            pass
-        else:
+        if not request.user.is_authenticated:
             return Response(
-                {"message": "Please enter valid input(True/False)"},
+                 {"message": "Not Authorized"}, status=status.HTTP_403_FORBIDDEN
+            )
+
+        user = request.user
+        updated_fields = []
+
+        # --- annotation_ui_preferences ---
+        annotation_pref_keys = {
+            "instruction_panel_width": (int, float),
+            "annotation_font_size": (int, float),
+            "instruction_panel_pinned": bool,
+        }
+        annotation_updates = {}
+        for key, expected_types in annotation_pref_keys.items():
+            val = request.data.get(key)
+            if val is not None:
+                if not isinstance(val, expected_types):
+                    return Response(
+                        {"message": f"Invalid value for {key}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                annotation_updates[key] = val
+
+        if annotation_updates:
+            from users.models import default_annotation_ui_preferences
+            prefs = user.annotation_ui_preferences or default_annotation_ui_preferences()
+            prefs.update(annotation_updates)
+            user.annotation_ui_preferences = prefs
+            updated_fields.append("annotation_ui_preferences")
+
+        if not updated_fields:
+            return Response(
+                {"message": "No valid preference fields provided."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if request.user.is_authenticated:
-            user = request.user
-        else:
-            return Response(
-                {"message": "Not Authorized"}, status=status.HTTP_403_FORBIDDEN
-            )
-
-        user.prefer_cl_ui = prefer_cl_ui
-        user.save()
+        user.save(update_fields=updated_fields)
         return Response(
             {"message": "Successfully updated UI preferences."},
             status=status.HTTP_200_OK,
