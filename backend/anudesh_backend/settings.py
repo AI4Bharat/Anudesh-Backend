@@ -254,17 +254,20 @@ handlers = {
 
 # If logging is enabled, add file handlers
 if os.getenv("LOGGING", "False").lower() in ("true", "1", "t", "yes", "y"):
+    # Make a new directory for logs
+    LOGS_DIR = BASE_DIR / "logs" / "logs_web"
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
     handlers["file"] = {
         "level": "WARNING",
         "class": "logging.FileHandler",
-        "filename": os.path.join(BASE_DIR, "logs/default.log"),
+        "filename": str(LOGS_DIR / "default.log"),
         "formatter": "file",
     }
 
     handlers["csvfile"] = {
         "level": "WARNING",
         "class": "logging.FileHandler",
-        "filename": os.path.join(BASE_DIR, "logs/logs.csv"),
+        "filename": str(LOGS_DIR / "logs.csv"),
         "formatter": "csvfile",
     }
 

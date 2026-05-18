@@ -226,6 +226,9 @@ def ocr_word_count(annotation_result):
     return word_count
 
 
+
+
+
 def get_attributes_for_IDC(project, task):
     correct_ann_obj = task.correct_annotation
     result_dict = {

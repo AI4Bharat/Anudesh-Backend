@@ -4,12 +4,18 @@ from datetime import datetime
 from time import sleep
 import pandas as pd
 import ast
+import csv
 import math
+import io
+import zipfile
 
 from django.core.files import File
 from django.db import IntegrityError
 from django.db.models import Count, Q, F, Case, When, OuterRef, Exists, Subquery, IntegerField, DateTimeField, Value
 from django.forms.models import model_to_dict
+from django.http import HttpResponse
+from django.core.mail import EmailMessage
+from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -4394,7 +4400,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 export_type = request.query_params["export_type"]
             else:
                 export_type = "CSV"
-            tasks = Task.objects.filter(project_id__exact=project)
+            tasks = Task.objects.filter(project_id__exact=project).select_related(
+                "correct_annotation", "correct_annotation__completed_by", "project_id", "input_data"
+            ).prefetch_related(
+                "annotations", "annotations__completed_by", "annotation_users"
+            )
 
             if "task_status" in dict(request.query_params):
                 task_status = request.query_params["task_status"]
@@ -4422,15 +4432,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 if correct_annotation is None and task.task_status in [
                     ANNOTATED,
                 ]:
-                    correct_annotation = task.annotations.all().filter(
-                        annotation_type=ANNOTATOR_ANNOTATION
-                    )[0]
+                    correct_annotation = next(
+                        (a for a in task.annotations.all() if a.annotation_type == ANNOTATOR_ANNOTATION),
+                        None
+                    )
                 if correct_annotation is None and task.task_status in [
                     REVIEWED,
                 ]:
-                    correct_annotation = task.annotations.all().filter(
-                        annotation_type=REVIEWER_ANNOTATION
-                    )[0]
+                    correct_annotation = next(
+                        (a for a in task.annotations.all() if a.annotation_type == REVIEWER_ANNOTATION),
+                        None
+                    )
 
                 annotator_email = ""
                 # if correct_annotation is not None and required_annotators_per_task < 2:
@@ -4520,13 +4532,59 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     
                 task["data"]["notes_json"] = notes
                 del task["annotations"]
-            return DataExport.generate_export_file(project, tasks_list, export_type)
+            delivery = request.query_params.get("delivery", "email")
+            download_resources = True
+            export_stream, content_type, filename = DataExport.generate_export_file(
+                project, tasks_list, export_type, download_resources, request.GET
+            )
+            if export_type == "TSV":
+                filename = filename.split(".")
+                filename[-1] = "tsv"
+                filename = ".".join(filename)
+            if delivery == "email":
+                import smtplib
+                # Send report via email
+                email = EmailMessage(
+                    f"Exported Project Report - {project.title} (ID: {project.id})",
+                    f"Please find the attached {export_type} report for project: {project.title} (ID: {project.id})",
+                    settings.DEFAULT_FROM_EMAIL,
+                    [request.user.email],
+                )
+                data = export_stream.read()
+                # Compress the data before attaching to avoid the 10 MB limit
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                    zip_file.writestr(filename, data)
+                zip_data = zip_buffer.getvalue()
+                email.attach(filename + ".zip", zip_data, "application/zip")
+                try:
+                    email.send()
+                except smtplib.SMTPException as smtp_err:
+                    return Response(
+                        {"message": f"Report generated but email delivery failed: {smtp_err}"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+                return Response(
+                    {
+                        "message": "The report has been generated and sent to your email."
+                    },
+                    status=status.HTTP_200_OK,
+                )
+            else:
+                # Default: direct file download
+                response = HttpResponse(export_stream, content_type=content_type)
+                response["Content-Disposition"] = f'attachment; filename="{filename}"'
+                response["filename"] = filename
+                return response
         except Project.DoesNotExist:
             ret_dict = {"message": "Project does not exist!"}
             ret_status = status.HTTP_404_NOT_FOUND
         except User.DoesNotExist:
             ret_dict = {"message": "User does not exist!"}
             ret_status = status.HTTP_404_NOT_FOUND
+        except Exception as e:
+            ret_dict = {"message": f"Export failed: {str(e)}"}
+            ret_status = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response(ret_dict, status=ret_status)
 
     @swagger_auto_schema(method="get", responses={200: "No tasks to export!"})
