@@ -320,7 +320,7 @@ def get_user_from_query_params(
         project = Project.objects.get(pk=pk)
         user = User.objects.get(pk=user_id)
         workspace = project.workspace_id
-        if request.user in workspace.managers.all():
+        if workspace and request.user in workspace.managers.all():
             return user, None
         else:
             response = Response(
