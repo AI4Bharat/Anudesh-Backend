@@ -2616,7 +2616,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
 
         return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
-
     @action(
         detail=True, methods=["post"], name="Unassign tasks", url_name="unassign_tasks"
     )
@@ -2634,29 +2633,86 @@ class ProjectViewSet(viewsets.ModelViewSet):
         annotation_status = get_status_from_query_params(request, status_type)
 
         task_ids = None
+        
+        # Check for annotation_status in request body
+        status_from_body = None
+        if "annotation_status" in request.data:
+            status_from_body = request.data.get("annotation_status")
+            if status_from_body:
+                annotation_status = status_from_body
+                print(f"Annotation status from body: {annotation_status}")
+        
+        if "task_ids" in request.data:
+            print(f"Request: task_ids")
 
-        flag = "annotation_status" in request.query_params
-        if flag == False:
+            task_ids_data = request.data.get("task_ids")
+            if isinstance(task_ids_data, int):
+                task_ids = [task_ids_data]
+            elif isinstance(task_ids_data, str) and task_ids_data.isdigit():
+                task_ids = [int(task_ids_data)]
+            elif isinstance(task_ids_data, list):
+                task_ids = []
+                for tid in task_ids_data:
+                    if isinstance(tid, int):
+                        task_ids.append(tid)
+                    elif isinstance(tid, str) and tid.isdigit():
+                        task_ids.append(int(tid))
+            print(f"Task IDs from payload: {task_ids}")
+    
+        # Check if status is provided either in query params or body
+        flag = "annotation_status" in request.query_params or status_from_body is not None
+        
+        if flag == False and task_ids is None:
             task_ids, response = get_task_ids(request)
             print(task_ids)
             if response != None:
                 return response
+
+        if task_ids is not None:
+            if isinstance(task_ids, int):
+                task_ids = [task_ids]
+            elif isinstance(task_ids, str) and task_ids.isdigit():
+                task_ids = [int(task_ids)]
+            elif isinstance(task_ids, list) and len(task_ids) > 0 and isinstance(task_ids[0], str):
+                task_ids = [int(tid) for tid in task_ids if tid.isdigit()]
+
 
         if flag == False and task_ids == None:
             return Response(
                 {"message": "Either provide annotation_status or task_ids"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-        ann, response = get_annotations_for_project(
+    
+        # Get annotations (this returns a QuerySet)
+        ann_queryset, response = get_annotations_for_project(
             flag, pk, user, annotation_status, task_ids, ANNOTATOR_ANNOTATION
         )
         if response != None:
             return response
-        if ann != None:
+        
+        if ann_queryset is not None:
+            # If both task_ids and status are provided, filter the queryset
+            if task_ids is not None and status_from_body is not None:
+                # Filter queryset to only include annotations with matching task_ids
+                ann_queryset = ann_queryset.filter(task_id__in=task_ids)
+                print(f"Filtered annotations count: {ann_queryset.count()}")
+                ann_queryset = Annotation_model.objects.filter(
+                    task_id__in=task_ids,
+                    annotation_type=ANNOTATOR_ANNOTATION,
+                    annotation_status__in=annotation_status if isinstance(annotation_status, list) else [annotation_status]
+                )
+
+                if ann_queryset.count() == 0:
+                    return Response(
+                        {"message": "No matching annotations found for specified task IDs and status"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+                # Update task_ids to only the filtered ones
+                task_ids = list(ann_queryset.values_list('task_id', flat=True))
+            
             review_annotations_ids = []
             reviewer_pulled_tasks = []
-            for ann1 in ann:
+            for ann1 in ann_queryset:
                 try:
                     review_annotation_obj = Annotation_model.objects.get(
                         parent_annotation=ann1
@@ -2666,7 +2722,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 except:
                     pass
             if task_ids == None:
-                task_ids = [an.task_id for an in ann]
+                task_ids = [an.task_id for an in ann_queryset]
             print(task_ids)
             review_annotations = Annotation_model.objects.filter(
                 id__in=review_annotations_ids
@@ -2696,9 +2752,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
             reviewed_tasks = Task.objects.filter(id__in=reviewer_pulled_tasks)
             if reviewed_tasks.count() > 0:
                 reviewed_tasks.update(review_user=None)
-
-            ann.delete()
-
+    
+            # Delete the original annotations (this is a QuerySet, so .delete() works)
+            ann_queryset.delete()
+    
             tasks = Task.objects.filter(id__in=task_ids)
             if tasks.count() > 0:
                 for task in tasks:
@@ -2720,8 +2777,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(
             {"message": "Only annotators can unassign tasks"},
             status=status.HTTP_400_BAD_REQUEST,
-        )
-
+        )    
     @swagger_auto_schema(
         method="post",
         request_body=openapi.Schema(
@@ -3005,35 +3061,79 @@ class ProjectViewSet(viewsets.ModelViewSet):
         user, response = get_user_from_query_params(request, user_type, pk)
         if response != None:
             return response
-
+    
         status_type = "review"
         review_status = get_status_from_query_params(request, status_type)
-
+    
         task_ids = None
-
-        flag = "review_status" in request.query_params
-
-        if flag == False:
+        
+        # Check for review_status in request body
+        status_from_body = None
+        if "review_status" in request.data:
+            status_from_body = request.data.get("review_status")
+            if status_from_body:
+                review_status = status_from_body
+                print(f"Review status from body: {review_status}")
+        
+        if "task_ids" in request.data:
+            print(f"Request: task_ids")
+            task_ids_data = request.data.get("task_ids")
+            if isinstance(task_ids_data, int):
+                task_ids = [task_ids_data]
+            elif isinstance(task_ids_data, str) and task_ids_data.isdigit():
+                task_ids = [int(task_ids_data)]
+            elif isinstance(task_ids_data, list):
+                task_ids = []
+                for tid in task_ids_data:
+                    if isinstance(tid, int):
+                        task_ids.append(tid)
+                    elif isinstance(tid, str) and tid.isdigit():
+                        task_ids.append(int(tid))
+            print(f"Task IDs from payload: {task_ids}")
+    
+        # Check if status is provided either in query params or body
+        flag = "review_status" in request.query_params or status_from_body is not None
+    
+        if flag == False and task_ids is None:
             task_ids, response = get_task_ids(request)
             if response != None:
                 return response
-
+    
         if flag == False and task_ids == None:
             return Response(
                 {"message": "Either provide reviewer_id and review_status or task_ids"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-        ann, response = get_annotations_for_project(
+    
+        # Get annotations (this returns a QuerySet)
+        ann_queryset, response = get_annotations_for_project(
             flag, pk, user, review_status, task_ids, REVIEWER_ANNOTATION
         )
         if response != None:
             return response
+    
+        if ann_queryset is not None:
+            # If both task_ids and status are provided, filter the queryset
+            if task_ids is not None and status_from_body is not None:
+                ann_queryset = ann_queryset.filter(task_id__in=task_ids)
+                print(f"Filtered annotations count: {ann_queryset.count()}")
+                ann_queryset = Annotation_model.objects.filter(
+                    task_id__in=task_ids,
+                    annotation_type=REVIEWER_ANNOTATION,
+                    annotation_status__in=review_status if isinstance(review_status, list) else [review_status]
+                )
 
-        if ann != None:
+                if ann_queryset.count() == 0:
+                    return Response(
+                        {"message": "No matching annotations found for specified task IDs and status"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+                # Update task_ids to only the filtered ones
+                task_ids = list(ann_queryset.values_list('task_id', flat=True))
+            
             superchecker_annotation_ids = []
             supercheck_pulled_tasks = []
-            for ann1 in ann:
+            for ann1 in ann_queryset:
                 try:
                     supercheck_annotation_obj = Annotation_model.objects.get(
                         parent_annotation=ann1
@@ -3043,17 +3143,18 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 except:
                     pass
             if task_ids == None:
-                task_ids = [an.task_id for an in ann]
+                task_ids = [an.task_id for an in ann_queryset]
+            
             supercheck_annotations = Annotation_model.objects.filter(
                 id__in=superchecker_annotation_ids
             )
             supercheck_tasks = Task.objects.filter(id__in=supercheck_pulled_tasks)
-
+    
             supercheck_annotations.delete()
             if len(supercheck_tasks) > 0:
                 supercheck_tasks.update(super_check_user=None)
-
-            for an in ann:
+    
+            for an in ann_queryset:
                 if an.annotation_status == TO_BE_REVISED:
                     parent = an.parent_annotation
                     parent.annotation_status = LABELED
@@ -3061,7 +3162,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 an.parent_annotation = None
                 an.save()
                 an.delete()
-
+    
             tasks = Task.objects.filter(id__in=task_ids)
             if tasks.count() > 0:
                 tasks.update(review_user=None)
@@ -3078,7 +3179,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
             {"message": "Only reviewers can unassign tasks"},
             status=status.HTTP_403_FORBIDDEN,
         )
-
     @action(
         detail=True,
         methods=["POST"],
@@ -3237,10 +3337,35 @@ class ProjectViewSet(viewsets.ModelViewSet):
         supercheck_status = get_status_from_query_params(request, status_type)
 
         task_ids = None
-
-        flag = "supercheck_status" in request.query_params
-
-        if flag == False:
+        
+        # Check for supercheck_status in request body
+        status_from_body = None
+        if "supercheck_status" in request.data:
+            status_from_body = request.data.get("supercheck_status")
+            if status_from_body:
+                supercheck_status = status_from_body
+                print(f"Supercheck status from body: {supercheck_status}")
+        
+        if "task_ids" in request.data:
+            print(f"Request: task_ids")
+            task_ids_data = request.data.get("task_ids")
+            if isinstance(task_ids_data, int):
+                task_ids = [task_ids_data]
+            elif isinstance(task_ids_data, str) and task_ids_data.isdigit():
+                task_ids = [int(task_ids_data)]
+            elif isinstance(task_ids_data, list):
+                task_ids = []
+                for tid in task_ids_data:
+                    if isinstance(tid, int):
+                        task_ids.append(tid)
+                    elif isinstance(tid, str) and tid.isdigit():
+                        task_ids.append(int(tid))
+            print(f"Task IDs from payload: {task_ids}")
+    
+        # Check if status is provided either in query params or body
+        flag = "supercheck_status" in request.query_params or status_from_body is not None
+    
+        if flag == False and task_ids is None:
             task_ids, response = get_task_ids(request)
             if response != None:
                 return response
@@ -3252,16 +3377,37 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-        ann, response = get_annotations_for_project(
+        ann_queryset, response = get_annotations_for_project(
             flag, pk, user, supercheck_status, task_ids, SUPER_CHECKER_ANNOTATION
         )
         if response != None:
             return response
-        if ann != None:
+        
+        if ann_queryset is not None:
+            # If both task_ids and status are provided, filter the queryset
+            if task_ids is not None and status_from_body is not None:
+                ann_queryset = ann_queryset.filter(task_id__in=task_ids)
+                print(f"Filtered annotations count: {ann_queryset.count()}")
+                ann_queryset = Annotation_model.objects.filter(
+                    task_id__in=task_ids,
+                    annotation_type=SUPER_CHECKER_ANNOTATION,
+                    annotation_status__in=supercheck_status if isinstance(supercheck_status, list) else [supercheck_status]
+                )
+
+                if ann_queryset.count() == 0:
+                    return Response(
+                        {"message": "No matching annotations found for specified task IDs and status"},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+                # Update task_ids to only the filtered ones
+                task_ids = list(ann_queryset.values_list('task_id', flat=True))
+
+            
+            
             if task_ids == None:
-                task_ids = [an.task_id for an in ann]
-            for an in ann:
+                task_ids = [an.task_id for an in ann_queryset]
+             
+            for an in ann_queryset:
                 if an.annotation_status == REJECTED:
                     parent = an.parent_annotation
                     grand_parent = parent.parent_annotation
@@ -3293,7 +3439,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
             {"message": "Only supercheckers can unassign tasks"},
             status=status.HTTP_403_FORBIDDEN,
         )
-
     @swagger_auto_schema(
         method="post",
         request_body=openapi.Schema(
@@ -4418,6 +4563,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 # Rename keys to match label studio converter
                 # task_dict['id'] = task_dict['task_id']
                 # del task_dict['task_id']
+                latest_annotation = task.annotations.order_by('-updated_at').first()
+                if latest_annotation and latest_annotation.updated_at:
+                    # Format as 'DD-MM-YYYY HH:MM:SS' to match your JSON
+                    task_dict['updated_at'] = latest_annotation.updated_at.strftime('%d-%m-%Y %H:%M:%S')
+                else:
+                    task_dict['updated_at'] = None
+                print(f"Request: {tasks}")
+
                 correct_annotation = task.correct_annotation
                 if correct_annotation is None and task.task_status in [
                     ANNOTATED,
@@ -4460,7 +4613,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     )
                 del task_dict["annotation_users"]
                 del task_dict["review_user"]
-                tasks_list.append(OrderedDict(task_dict))
+                ordered_task_dict = OrderedDict(task_dict)
+                tasks_list.append(ordered_task_dict)
+
 
             dataset_type = project.dataset_id.all()[0].dataset_type
             is_MultipleInteractionEvaluation = (
