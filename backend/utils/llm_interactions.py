@@ -256,10 +256,11 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out
 
-def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
+def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run, default_system_prompt=""):
     results = {}
 
     for model in models_to_run:
+        system_prompt = system_prompt_data.get(model) or system_prompt_data.get("default") or default_system_prompt if isinstance(system_prompt_data, dict) else system_prompt_data
         # print("history:", history)
         # model_history = next(
         #     (entry["interaction_json"] for entry in history if entry.get("model_name") == model),

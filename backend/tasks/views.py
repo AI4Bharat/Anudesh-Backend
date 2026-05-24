@@ -2984,13 +2984,15 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
         "bullet or numberings etc. suitably for code or the text. wherever required."
     )
-    system_prompt = (
-        project_metadata.get("system_prompt", "").strip()
-        if isinstance(project_metadata, dict)
-        else ""
-    ) or DEFAULT_SYSTEM_PROMPT
-    history = ann_result
+    sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
     model = task.data["model"]
+
+    if isinstance(sys_prompt_data, dict):
+        system_prompt = sys_prompt_data.get(model) or sys_prompt_data.get("default") or DEFAULT_SYSTEM_PROMPT
+    else:
+        system_prompt = sys_prompt_data.strip() if sys_prompt_data.strip() else DEFAULT_SYSTEM_PROMPT
+
+    history = ann_result
     model_output = get_model_output(
         system_prompt,
         prompt,
@@ -3051,19 +3053,20 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
         "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
         "bullet or numberings etc. suitably for code or the text. wherever required."
     )
-    system_prompt = (
-        project_metadata.get("system_prompt", "").strip()
-        if isinstance(project_metadata, dict)
-        else ""
-    ) or DEFAULT_SYSTEM_PROMPT
+    sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
+
+    if not isinstance(sys_prompt_data, dict):
+        sys_prompt_data = {"default": sys_prompt_data.strip() if sys_prompt_data.strip() else DEFAULT_SYSTEM_PROMPT}
+
     history = ann_result[0]
 
 
     model_output = get_all_model_output(
-        system_prompt,
+        sys_prompt_data,
         prompt,
         history,
-        models_to_run
+        models_to_run,
+        DEFAULT_SYSTEM_PROMPT
     )
 
     return model_output
