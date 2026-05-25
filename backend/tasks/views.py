@@ -2987,6 +2987,7 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         "bullet or numberings etc. suitably for code or the text. wherever required."
     )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
+    history = ann_result
     model = task.data["model"]
 
     if isinstance(sys_prompt_data, dict):
@@ -2994,7 +2995,6 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     else:
         system_prompt = sys_prompt_data.strip() if sys_prompt_data.strip() else DEFAULT_SYSTEM_PROMPT
 
-    history = ann_result
     model_output = get_model_output(
         system_prompt,
         prompt,
