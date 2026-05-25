@@ -2996,7 +2996,8 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
 
     history = ann_result
     model_output = get_model_output(
-        system_prompt,
+        "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text. wherever required.",
         prompt,
         history,
         model,

@@ -281,8 +281,6 @@ class Project(models.Model):
         ),
     )
 
-
-
     def clear_expired_lock(self):
         self.lock.filter(expires_at__lt=now()).delete()
 
