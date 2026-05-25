@@ -281,28 +281,7 @@ class Project(models.Model):
         ),
     )
 
-    max_Draft_tasks_per_user = models.IntegerField(
-        verbose_name="max draft tasks per user",
-        default=-1,
-        help_text=(
-            "Maximum number of draft tasks that can be assigned to a user. Default is -1, which means unlimited"
-        ),
-    )
 
-    max_Skipped_tasks_per_user = models.IntegerField(
-        verbose_name="max skipped tasks per user",
-        default=-1,
-        help_text=(
-            "Maximum number of skipped tasks allowed per user. Default is -1, which means unlimited"
-        ),
-    )
-
-    preferred_annotators = models.JSONField(
-        verbose_name="preferred annotators",
-        null=True,
-        blank=True,
-        help_text=("List of preferred annotators for the project"),
-    )
 
     def clear_expired_lock(self):
         self.lock.filter(expires_at__lt=now()).delete()
