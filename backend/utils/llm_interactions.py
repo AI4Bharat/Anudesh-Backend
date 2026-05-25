@@ -161,9 +161,16 @@ def get_llama2_output(system_prompt, conv_history, user_prompt):
         "max_new_tokens": 500,
         "top_p": 1,
     }
-    s = requests.Session()
-    result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
-    return result.json()["choices"][0]["message"]["content"].strip()
+    try:
+        s = requests.Session()
+        result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
+        result.raise_for_status()
+        return result.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        err_msg = str(e)
+        message = f"An error occurred while interacting with Llama2 API: {err_msg}"
+        st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({"message": message}, status=st)
 
 def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("SARVAM_M_API_BASE")
@@ -285,5 +292,8 @@ def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run
             results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt)
         else:
             results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model)
+
+        if isinstance(results[model], Response):
+            return results[model]
 
     return results
