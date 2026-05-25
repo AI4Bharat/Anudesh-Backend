@@ -2940,16 +2940,12 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     intent = task.data["meta_info_intent"]
     domain = task.data["meta_info_domain"]
     lang_type = task.data["meta_info_language"]
-    ann_result = (
-        json.loads(annotation.result)
-        if isinstance(annotation.result, str)
-        else annotation.result
-    )
-    project_metadata = (
-        json.loads(project_metadata_json)
-        if isinstance(project_metadata_json, str)
-        else project_metadata_json
-    )
+    ann_result = annotation.result
+    if isinstance(ann_result, str):
+        ann_result = json.loads(ann_result) if ann_result.strip() else []
+    project_metadata = project_metadata_json
+    if isinstance(project_metadata, str):
+        project_metadata = json.loads(project_metadata) if project_metadata.strip() else {}
     if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
         return ""
     if prompt in [None, "Null", 0, "None", "", " "]:
@@ -3012,16 +3008,12 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
     intent = task.data["meta_info_intent"]
     domain = task.data["meta_info_domain"]
     lang_type = task.data["meta_info_language"]
-    ann_result = (
-        json.loads(annotation.result)
-        if isinstance(annotation.result, str)
-        else annotation.result
-    )
-    project_metadata = (
-        json.loads(project_metadata_json)
-        if isinstance(project_metadata_json, str)
-        else project_metadata_json
-    )
+    ann_result = annotation.result
+    if isinstance(ann_result, str):
+        ann_result = json.loads(ann_result) if ann_result.strip() else []
+    project_metadata = project_metadata_json
+    if isinstance(project_metadata, str):
+        project_metadata = json.loads(project_metadata) if project_metadata.strip() else {}
     if prompt in [None, "Null", 0, "None", "", " "]:
         return -1
     intentDomain_test, lang_test, duplicate_test = False, False, False
