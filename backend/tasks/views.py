@@ -19,6 +19,7 @@ from tasks.serializers import (
     PredictionSerializer,
     TaskAnnotationSerializer,
 )
+from tasks.redaction import convert_model_names_to_ids, mask_eval_form_model_keys,_resolve_models_to_internal_names
 from tasks.utils import compute_meta_stats_for_instruction_driven_chat, compute_meta_stats_for_multiple_llm_idc, query_flower
 from tasks.utils import Queued_Task_name, convert_audio_base64_to_mp3
 from utils.pagination import paginate_queryset
@@ -315,7 +316,11 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         i["result"][0]["output"]
                     ) == type([]):
                         i["result"][0]["output"] = i["result"][0]["output"][0]["value"]
-        return Response(serializer.data)
+
+        data = serializer.data
+        convert_model_names_to_ids(data)
+        return Response(data)
+  
 
     @action(detail=True, methods=["get"], url_path="predictions")
     def predictions(self, request, pk):
@@ -325,6 +330,13 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
         task = self.get_object()
         predictions = Prediction.objects.filter(task=task)
         serializer = PredictionSerializer(predictions, many=True)
+        data = serializer.data
+        convert_model_names_to_ids(data)
+        return Response(data)
+    
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
     def list(self, request, *args, **kwargs):
@@ -428,6 +440,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                                 page_items = page_object.page(page_number)
                                 ordered_tasks = page_items.object_list
                                 final_dict["result"] = ordered_tasks
+                                convert_model_names_to_ids(final_dict)
                                 return Response(final_dict)
                             except:
                                 return Response(
@@ -517,6 +530,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         page_items = page_object.page(page_number)
                         ordered_tasks = page_items.object_list
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)
                         return Response(final_dict)
                     except:
                         return Response(
@@ -526,6 +540,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                 final_dict["total_count"] = len(ordered_tasks)
                 final_dict["result"] = ordered_tasks
+                convert_model_names_to_ids(final_dict)  
                 return Response(final_dict)
 
             if "review_status" in dict(request.query_params):
@@ -602,6 +617,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                                 page_items = page_object.page(page_number)
                                 ordered_tasks = page_items.object_list
                                 final_dict["result"] = ordered_tasks
+                                convert_model_names_to_ids(final_dict)
                                 return Response(final_dict)
                             except:
                                 return Response(
@@ -611,6 +627,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                         final_dict["total_count"] = len(ordered_tasks)
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)  
                         return Response(final_dict)
 
                 ann = Annotation.objects.filter(
@@ -768,6 +785,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         page_items = page_object.page(page_number)
                         ordered_tasks = page_items.object_list
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)
                         return Response(final_dict)
                     except:
                         return Response(
@@ -777,6 +795,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                 final_dict["total_count"] = len(ordered_tasks)
                 final_dict["result"] = ordered_tasks
+                convert_model_names_to_ids(final_dict)  
                 return Response(final_dict)
 
             if "supercheck_status" in dict(request.query_params):
@@ -831,6 +850,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                                 page_items = page_object.page(page_number)
                                 ordered_tasks = page_items.object_list
                                 final_dict["result"] = ordered_tasks
+                                convert_model_names_to_ids(final_dict)
                                 return Response(final_dict)
                             except:
                                 return Response(
@@ -840,6 +860,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                         final_dict["total_count"] = len(ordered_tasks)
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)  
                         return Response(final_dict)
 
                 ann = Annotation.objects.filter(
@@ -933,6 +954,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         page_items = page_object.page(page_number)
                         ordered_tasks = page_items.object_list
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)  
                         return Response(final_dict)
                     except:
                         return Response(
@@ -942,6 +964,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                 final_dict["total_count"] = len(ordered_tasks)
                 final_dict["result"] = ordered_tasks
+                convert_model_names_to_ids(final_dict)  
                 return Response(final_dict)
 
             tas_status = ["incomplete"]
@@ -980,6 +1003,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                             page_items = page_object.page(page_number)
                             ordered_tasks = page_items.object_list
                             final_dict["result"] = ordered_tasks
+                            convert_model_names_to_ids(final_dict)
                             return Response(final_dict)
                         except:
                             return Response(
@@ -989,6 +1013,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                     final_dict["total_count"] = len(ordered_tasks)
                     final_dict["result"] = ordered_tasks
+                    convert_model_names_to_ids(final_dict)  
                     return Response(final_dict)
             proj_annotators_ids = [an.id for an in proj_annotators]
             proj_reviewers_ids = [an.id for an in proj_reviewers]
@@ -1021,6 +1046,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         page_items = page_object.page(page_number)
                         ordered_tasks = page_items.object_list
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)
                         return Response(final_dict)
                     except:
                         return Response(
@@ -1030,6 +1056,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                 final_dict["total_count"] = len(ordered_tasks)
                 final_dict["result"] = ordered_tasks
+                convert_model_names_to_ids(final_dict) 
                 return Response(final_dict)
 
             if user_id in proj_reviewers_ids:
@@ -1059,6 +1086,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         page_items = page_object.page(page_number)
                         ordered_tasks = page_items.object_list
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)
                         return Response(final_dict)
                     except:
                         return Response(
@@ -1068,6 +1096,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                 final_dict["total_count"] = len(ordered_tasks)
                 final_dict["result"] = ordered_tasks
+                convert_model_names_to_ids(final_dict)
                 return Response(final_dict)
 
             if user_id in proj_superchecker_ids:
@@ -1098,6 +1127,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
                         page_items = page_object.page(page_number)
                         ordered_tasks = page_items.object_list
                         final_dict["result"] = ordered_tasks
+                        convert_model_names_to_ids(final_dict)
                         return Response(final_dict)
                     except:
                         return Response(
@@ -1107,6 +1137,7 @@ class TaskViewSet(viewsets.ModelViewSet, mixins.ListModelMixin):
 
                 final_dict["total_count"] = len(ordered_tasks)
                 final_dict["result"] = ordered_tasks
+                convert_model_names_to_ids(final_dict)
                 return Response(final_dict)
 
             return Response(
@@ -1573,6 +1604,13 @@ class AnnotationViewSet(
     serializer_class = AnnotationSerializer
     permission_classes = [IsAuthenticated]
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        data = serializer.data
+        convert_model_names_to_ids(data)
+        return Response(data)
+
     def create(self, request):
         # TODO: Correction annotation to be filled by validator
         if "mode" in dict(request.data):
@@ -1629,6 +1667,7 @@ class AnnotationViewSet(
                     task.correct_annotation = None
 
             task.save()
+        convert_model_names_to_ids(annotation_response.data)
         return annotation_response
 
     def create_review_annotation(self, request):
@@ -1697,7 +1736,8 @@ class AnnotationViewSet(
                 parent_annotation.save()
             task.task_status = REVIEWED
             task.save()
-
+        
+        convert_model_names_to_ids(annotation_response.data)
         return annotation_response
 
     def partial_update(self, request, pk=None):
@@ -1794,11 +1834,14 @@ class AnnotationViewSet(
                             )
                             if existing_entry:
                                 existing_entry["model_responses_json"] = eval_form_vals
+                                mask_eval_form_model_keys(existing_entry)
                             else:
-                                eval_form_entry["eval_form"].append({
-                                    "prompt_output_pair_id": preferred_id,
-                                    "model_responses_json": eval_form_vals
-                                })
+                                new_eval_item = {
+                                  "prompt_output_pair_id": preferred_id,
+                                  "model_responses_json": eval_form_vals or {}
+                                }
+                                mask_eval_form_model_keys(new_eval_item)
+                                eval_form_entry["eval_form"].append(new_eval_item)
                         else:
                             if not annotation_obj.result:
                                 annotation_obj.result.append({
@@ -1814,7 +1857,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                _resolve_models_to_internal_names(task)
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2076,7 +2119,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                _resolve_models_to_internal_names(task)
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2407,7 +2450,8 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                _resolve_models_to_internal_names(task)
+                                # task.data["model"]
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2681,6 +2725,7 @@ class AnnotationViewSet(
                     task.correct_annotation = None
                     task.save()
         annotation_response.data["message"] = response_message
+        convert_model_names_to_ids(annotation_response.data)
         return annotation_response
 
     def destroy(self, request, pk=None):
@@ -2823,6 +2868,7 @@ class PredictionViewSet(
 
     def create(self, request):
         prediction_response = super().create(request)
+        convert_model_names_to_ids(prediction_response.data)
         return prediction_response
 
 
