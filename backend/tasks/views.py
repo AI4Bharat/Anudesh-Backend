@@ -1814,7 +1814,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data.get("model", [])
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2076,7 +2076,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data.get("model", [])
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2407,7 +2407,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data.get("model", [])
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -3003,10 +3003,13 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     return res
 
 def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_to_run):
+    if not models_to_run:
+        return Response({"message": "No models are configured for this task. Please configure models for this project."}, status=status.HTTP_400_BAD_REQUEST)
+
     # CHECKS
-    intent = task.data["meta_info_intent"]
-    domain = task.data["meta_info_domain"]
-    lang_type = task.data["meta_info_language"]
+    intent = task.data.get("meta_info_intent")
+    domain = task.data.get("meta_info_domain")
+    lang_type = task.data.get("meta_info_language")
     ann_result = annotation.result
     if isinstance(ann_result, str):
         ann_result = json.loads(ann_result) if ann_result.strip() else []
