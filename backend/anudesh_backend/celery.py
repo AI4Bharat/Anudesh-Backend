@@ -38,6 +38,7 @@ celery_app.conf.beat_schedule = {
 
 # Celery Task related settings
 celery_app.autodiscover_tasks()
+celery_app.conf.imports = ["tasks.llm_tasks"]
 
 
 @celery_app.task(bind=True)
