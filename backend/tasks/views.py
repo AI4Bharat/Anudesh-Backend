@@ -3001,6 +3001,13 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     return res
 
 def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_to_run):
+    project_metadata = project_metadata_json
+    if isinstance(project_metadata, str):
+        project_metadata = json.loads(project_metadata) if project_metadata.strip() else {}
+
+    if not models_to_run:
+        models_to_run = project_metadata.get("models_set", []) if isinstance(project_metadata, dict) else []
+
     if not models_to_run:
         return Response({"message": "No models are configured for this task. Please configure models for this project."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -3011,9 +3018,6 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
     ann_result = annotation.result
     if isinstance(ann_result, str):
         ann_result = json.loads(ann_result) if ann_result.strip() else []
-    project_metadata = project_metadata_json
-    if isinstance(project_metadata, str):
-        project_metadata = json.loads(project_metadata) if project_metadata.strip() else {}
     if prompt in [None, "Null", 0, "None", "", " "]:
         return -1
     intentDomain_test, lang_test, duplicate_test = False, False, False
