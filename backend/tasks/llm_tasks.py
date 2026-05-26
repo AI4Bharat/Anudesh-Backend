@@ -20,8 +20,10 @@ def run_llm_task(self, annotation_id, prompt):
             annotation_obj = Annotation.objects.select_for_update().get(id=annotation_id)
             model = annotation_obj.task.data["model"]
             history = annotation_obj.result
+            metadata_json = annotation_obj.task.project_id.metadata_json or {}
+            system_prompt = metadata_json.get("system_prompt", _SYSTEM_PROMPT)
 
-            output = get_model_output(_SYSTEM_PROMPT, prompt, history, model)
+            output = get_model_output(system_prompt, prompt, history, model)
 
             if isinstance(output, DRFResponse):
                 raise Exception(output.data.get("message", "LLM returned an error response"))
@@ -58,7 +60,9 @@ def run_all_llm_task(self, annotation_id, prompt, prompt_output_pair_id):
                 result_entry["model_interactions"] = []
 
             history = annotation_obj.result[0]
-            output_result = get_all_model_output(_SYSTEM_PROMPT, prompt, history, models_to_run)
+            metadata_json = annotation_obj.task.project_id.metadata_json or {}
+            system_prompt = metadata_json.get("system_prompt", _SYSTEM_PROMPT)
+            output_result = get_all_model_output(system_prompt, prompt, history, models_to_run)
 
             for model_name, model_output in output_result.items():
                 new_interaction = {
