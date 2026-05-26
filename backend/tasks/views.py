@@ -1814,7 +1814,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data.get("model", [])
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2076,7 +2076,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data.get("model", [])
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2407,7 +2407,7 @@ class AnnotationViewSet(
                                 annotation_obj.task,
                                 annotation_obj,
                                 annotation_obj.task.project_id.metadata_json,
-                                task.data["model"]
+                                task.data.get("model", [])
                             )
                             if output_result == -1:
                                 ret_dict = {
@@ -2940,16 +2940,12 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     intent = task.data["meta_info_intent"]
     domain = task.data["meta_info_domain"]
     lang_type = task.data["meta_info_language"]
-    ann_result = (
-        json.loads(annotation.result)
-        if isinstance(annotation.result, str)
-        else annotation.result
-    )
-    project_metadata = (
-        json.loads(project_metadata_json)
-        if isinstance(project_metadata_json, str)
-        else project_metadata_json
-    )
+    ann_result = annotation.result
+    if isinstance(ann_result, str):
+        ann_result = json.loads(ann_result) if ann_result.strip() else []
+    project_metadata = project_metadata_json
+    if isinstance(project_metadata, str):
+        project_metadata = json.loads(project_metadata) if project_metadata.strip() else {}
     if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
         return ""
     if prompt in [None, "Null", 0, "None", "", " "]:
@@ -2982,11 +2978,21 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         dup_check = duplicate_check(ann_result, prompt)
 
     # GET MODEL OUTPUT
-    history = ann_result
+    DEFAULT_SYSTEM_PROMPT = (
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
+    )
+    sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
     model = task.data["model"]
+
+    if isinstance(sys_prompt_data, dict):
+        system_prompt = sys_prompt_data.get(model) or sys_prompt_data.get("default") or DEFAULT_SYSTEM_PROMPT
+    else:
+        system_prompt = sys_prompt_data.strip() if sys_prompt_data.strip() else DEFAULT_SYSTEM_PROMPT
+
+    history = ann_result
     model_output = get_model_output(
-        "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text. wherever required.",
+        system_prompt,
         prompt,
         history,
         model,
@@ -2997,20 +3003,23 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     return res
 
 def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_to_run):
+    project_metadata = project_metadata_json
+    if isinstance(project_metadata, str):
+        project_metadata = json.loads(project_metadata) if project_metadata.strip() else {}
+
+    if not models_to_run:
+        models_to_run = project_metadata.get("models_set", []) if isinstance(project_metadata, dict) else []
+
+    if not models_to_run:
+        return Response({"message": "No models are configured for this task. Please configure models for this project."}, status=status.HTTP_400_BAD_REQUEST)
+
     # CHECKS
-    intent = task.data["meta_info_intent"]
-    domain = task.data["meta_info_domain"]
-    lang_type = task.data["meta_info_language"]
-    ann_result = (
-        json.loads(annotation.result)
-        if isinstance(annotation.result, str)
-        else annotation.result
-    )
-    project_metadata = (
-        json.loads(project_metadata_json)
-        if isinstance(project_metadata_json, str)
-        else project_metadata_json
-    )
+    intent = task.data.get("meta_info_intent")
+    domain = task.data.get("meta_info_domain")
+    lang_type = task.data.get("meta_info_language")
+    ann_result = annotation.result
+    if isinstance(ann_result, str):
+        ann_result = json.loads(ann_result) if ann_result.strip() else []
     if prompt in [None, "Null", 0, "None", "", " "]:
         return -1
     intentDomain_test, lang_test, duplicate_test = False, False, False
@@ -3041,15 +3050,24 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
         dup_check = duplicate_check(ann_result, prompt)
 
     # GET MODEL OUTPUT
+    DEFAULT_SYSTEM_PROMPT = (
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
+    )
+    sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
+
+    if not isinstance(sys_prompt_data, dict):
+        sys_prompt_data = {"default": sys_prompt_data.strip() if sys_prompt_data.strip() else DEFAULT_SYSTEM_PROMPT}
+
     history = ann_result[0]
 
 
     model_output = get_all_model_output(
-        "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text. wherever required.",
+        sys_prompt_data,
         prompt,
         history,
-        models_to_run
+        models_to_run,
+        DEFAULT_SYSTEM_PROMPT
     )
 
     return model_output
