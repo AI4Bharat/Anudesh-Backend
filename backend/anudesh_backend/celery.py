@@ -14,6 +14,7 @@ celery_app = Celery(
     result_serializer="json",
     task_serializer="json",
     result_expires=None,
+    include=["tasks.llm_tasks"],
 )
 # Celery settings
 celery_app.config_from_object("django.conf:settings", namespace="CELERY")
@@ -38,7 +39,6 @@ celery_app.conf.beat_schedule = {
 
 # Celery Task related settings
 celery_app.autodiscover_tasks()
-celery_app.conf.imports = ["tasks.llm_tasks"]
 
 
 @celery_app.task(bind=True)
