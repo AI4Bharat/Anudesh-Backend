@@ -368,11 +368,14 @@ def chat_output(request):
     prompt = request.data.get("message")
     history = request.data.get("history", "")
     model = request.data.get("model", "GPT3.5")
+    DEFAULT_SYSTEM_PROMPT = (
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
+    )
     return Response(
         {
             "message": get_model_output(
-                "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-                "bullet or numberings etc. suitably for code or the text. wherever required.",
+                DEFAULT_SYSTEM_PROMPT,
                 prompt,
                 history,
                 model,

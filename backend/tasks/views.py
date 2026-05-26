@@ -2979,8 +2979,8 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
 
     # GET MODEL OUTPUT
     DEFAULT_SYSTEM_PROMPT = (
-        "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text. wherever required."
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
     )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
     model = task.data["model"]
@@ -3044,8 +3044,8 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
 
     # GET MODEL OUTPUT
     DEFAULT_SYSTEM_PROMPT = (
-        "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text. wherever required."
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
     )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
 
