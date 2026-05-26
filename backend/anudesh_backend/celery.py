@@ -24,6 +24,7 @@ celery_app.conf.task_default_queue = "default"
 celery_app.conf.task_routes = {
     "functions.tasks.*": {"queue": "functions"},
     "reports.tasks.*": {"queue": "reports"},
+    "tasks.llm_tasks.*": {"queue": "llm"},
 }
 
 # Celery Beat tasks registration

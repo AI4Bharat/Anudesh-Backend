@@ -12,6 +12,7 @@ from tasks.views import (
     AnnotationViewSet,
     PredictionViewSet,
     SentenceOperationViewSet,
+    llm_task_status,
 )
 
 
@@ -37,6 +38,7 @@ SchemaView = get_schema_view(
     permission_classes=[permissions.AllowAny],
 )
 urlpatterns = [
+    path("annotation/llm_task_status/<str:celery_task_id>/", llm_task_status),
     path("admin/", admin.site.urls),
     path("users/", include("users.urls")),
     path("session/", include("rest_framework.urls")),
