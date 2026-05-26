@@ -366,8 +366,8 @@ def chat_log(request):
 @api_view(["POST"])
 def chat_output(request):
     DEFAULT_SYSTEM_PROMPT = (
-        "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text. wherever required."
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
     )
     prompt = request.data.get("message")
     history = request.data.get("history", "")
