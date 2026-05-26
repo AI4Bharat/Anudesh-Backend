@@ -96,6 +96,17 @@ services:
       - redis
       - web
 
+  celery-llm:
+    container_name: celery-llm
+    restart: always
+    build: ./backend
+    command: celery -A anudesh_backend.celery worker -Q llm --concurrency=10 --loglevel=info
+    volumes:
+      - ./backend/:/usr/src/backend/
+    depends_on:
+      - redis
+      - web
+
   flower:
     container_name: flower
     restart: always

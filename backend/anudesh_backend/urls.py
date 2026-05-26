@@ -12,6 +12,7 @@ from tasks.views import (
     AnnotationViewSet,
     PredictionViewSet,
     SentenceOperationViewSet,
+    llm_task_status,
 )
 
 
@@ -44,6 +45,7 @@ urlpatterns = [
     path("workspaces/", include("workspaces.urls")),
     # path("/", include("tasks.urls")),
     path("tasks/", include("tasks.urls")),
+    path("annotation/llm_task_status/<str:celery_task_id>/", llm_task_status),
     path("notifications/", include("notifications.urls")),
     path("projects/", include("projects.urls")),
     path("functions/", include("functions.urls")),
