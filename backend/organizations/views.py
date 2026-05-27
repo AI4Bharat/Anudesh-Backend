@@ -746,17 +746,17 @@ class OrganizationViewSet(viewsets.ModelViewSet):
 
             user = User.objects.get(id=user_id)
 
-            result = []
-            for annotator in annotators:
-                participation_type = annotator.participation_type
-                participation_type = (
-                    "Full Time"
-                    if participation_type == 1
-                    else (
-                        "Part Time"
-                        if participation_type == 2
-                        else "Contract Basis" if participation_type == 4 else "N/A"
-                    ))
+            # result = []
+            # for annotator in annotators:
+            #     participation_type = annotator.participation_type
+            #     participation_type = (
+            #         "Full Time"
+            #         if participation_type == 1
+            #         else (
+            #             "Part Time"
+            #             if participation_type == 2
+            #             else "Contract Basis" if participation_type == 4 else "N/A"
+            #         )))
             if send_mail == True:
                 send_user_analytics_mail_org.delay(
                     org_id=organization.id,
@@ -1003,10 +1003,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             final_result = []
             if projects_obj.count() != 0:
                 for proj in projects_obj:
-                    proj_manager = [
-                        manager.get_username()
-                        for manager in proj.workspace_id.managers.all()
-                    ]
+                    if proj.workspace_id:
+                        proj_manager = [
+                            manager.get_username()
+                            for manager in proj.workspace_id.managers.all()
+                        ]
+                    else:
+                        proj_manager = []
                     try:
                         org_owner = proj.organization_id.created_by.get_username()
                         proj_manager.append(org_owner)
