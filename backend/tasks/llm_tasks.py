@@ -9,19 +9,24 @@ def run_llm_task(self, annotation_id, prompt):
     from django.db import transaction
 
     try:
+        # Read annotation metadata outside the transaction — no DB connection held during LLM call
+        annotation_obj = Annotation.objects.select_related(
+            "task", "task__project_id"
+        ).get(id=annotation_id)
+
+        output = get_llm_output(
+            prompt,
+            annotation_obj.task,
+            annotation_obj,
+            annotation_obj.task.project_id.metadata_json,
+        )
+
+        if output in (-1, None, "Null", "None", "", " "):
+            raise Exception("LLM returned empty or invalid output")
+
+        # Re-acquire with lock only for the fast write
         with transaction.atomic():
             annotation_obj = Annotation.objects.select_for_update().get(id=annotation_id)
-
-            output = get_llm_output(
-                prompt,
-                annotation_obj.task,
-                annotation_obj,
-                annotation_obj.task.project_id.metadata_json,
-            )
-
-            if output in (-1, None, "Null", "None", "", " "):
-                raise Exception("LLM returned empty or invalid output")
-
             annotation_obj.result.append({"prompt": prompt, "output": output})
             annotation_obj.meta_stats = compute_meta_stats_for_instruction_driven_chat(
                 annotation_obj.result
@@ -43,27 +48,33 @@ def run_all_llm_task(self, annotation_id, prompt, prompt_output_pair_id):
     from rest_framework.response import Response as DRFResponse
 
     try:
+        # Read annotation metadata outside the transaction — no DB connection held during LLM call
+        annotation_obj = Annotation.objects.select_related(
+            "task", "task__project_id"
+        ).get(id=annotation_id)
+
+        output_result = get_all_llm_output(
+            prompt,
+            annotation_obj.task,
+            annotation_obj,
+            annotation_obj.task.project_id.metadata_json,
+            annotation_obj.task.data.get("model", []),
+        )
+
+        if output_result in (-1, None):
+            raise Exception("LLM returned empty or invalid output")
+        if isinstance(output_result, DRFResponse):
+            raise Exception(output_result.data.get("message", "LLM error"))
+
+        # Re-acquire with lock only for the fast write
         with transaction.atomic():
             annotation_obj = Annotation.objects.select_for_update().get(id=annotation_id)
 
             if not annotation_obj.result:
-                annotation_obj.result.append({"eval_form": [], "model_interactions": []})
+                annotation_obj.result = [{"eval_form": [], "model_interactions": []}]
             result_entry = annotation_obj.result[0]
             if "model_interactions" not in result_entry:
                 result_entry["model_interactions"] = []
-
-            output_result = get_all_llm_output(
-                prompt,
-                annotation_obj.task,
-                annotation_obj,
-                annotation_obj.task.project_id.metadata_json,
-                annotation_obj.task.data["model"],
-            )
-
-            if output_result in (-1, None):
-                raise Exception("LLM returned empty or invalid output")
-            if isinstance(output_result, DRFResponse):
-                raise Exception(output_result.data.get("message", "LLM error"))
 
             for model_name, model_output in output_result.items():
                 new_interaction = {
