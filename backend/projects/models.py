@@ -246,6 +246,30 @@ class Project(models.Model):
             "Maximum no. of tasks assigned to a user which are at unlabeled stage, as a threshold for pulling new tasks"
         ),
     )
+    
+    max_Draft_tasks_per_user = models.IntegerField(
+        verbose_name="max_Draft_tasks_per_user",
+        default=60,
+        null=True,  # Allow NULL
+        blank=True,  # Allow blank in forms
+        help_text=(
+            "Maximum no. of Draft task in project"
+        ),
+    )
+
+    max_Skipped_tasks_per_user = models.IntegerField(
+        verbose_name="max_Skipped_tasks_per_user",
+        default=60,
+        null=True,  # Allow NULL
+        blank=True,  # Allow blank in forms
+        help_text=(
+            "Maximum no. of Skipped task in project"
+        ),
+    )
+
+
+
+
 
     # enable_task_reviews = models.BooleanField(
     #     verbose_name="enable_task_reviews",
