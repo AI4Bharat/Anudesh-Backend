@@ -49,14 +49,29 @@ def project_is_archived(f):
 
 
 # Allow delete only if project is in draft mode and is not in published mode.
+# Allow deletion of published projects when there are no tasks or no annotations created.
 def project_is_published(f):
     @wraps(f)
     def wrapper(self, request, pk, *args, **kwargs):
+        from tasks.models import Task, Annotation
+        
         project = Project.objects.get(pk=pk)
-        if project.is_published:
-            return Response(
-                PROJECT_IS_PUBLISHED_ERROR, status=status.HTTP_403_FORBIDDEN
-            )
+        
+        if project.is_published and not request.user.is_superuser:
+            # Check if there are any tasks in the project
+            tasks_exist = Task.objects.filter(project_id=pk).exists()
+            
+            if tasks_exist:
+                # Check if any annotations have been created by annotators
+                annotations_exist = Annotation.objects.filter(
+                    task__project_id=pk
+                ).exists()
+                
+                if annotations_exist:
+                    return Response(
+                        PROJECT_IS_PUBLISHED_ERROR, status=status.HTTP_403_FORBIDDEN
+                    )
+        
         return f(self, request, pk, *args, **kwargs)
 
     return wrapper
