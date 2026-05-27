@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import io
 import os
 import shutil
 from copy import deepcopy
@@ -377,9 +378,13 @@ class Prediction(models.Model):
     #     db_table = 'prediction'
 
 
-EXPORT_DIR = "/usr"
-UPLOAD_DIR = "/usr"
-MEDIA_ROOT = "/usr"
+EXPORT_DIR = os.path.join(settings.BASE_DIR, "media", "export")
+UPLOAD_DIR = os.path.join(settings.BASE_DIR, "media", "upload")
+MEDIA_ROOT = os.path.join(settings.BASE_DIR, "media")
+if not os.path.exists(EXPORT_DIR):
+    os.makedirs(EXPORT_DIR)
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
 
 
 class DataExport(object):
@@ -433,7 +438,7 @@ class DataExport(object):
         return sorted(formats, key=lambda f: f.get("disabled", False))
 
     @staticmethod
-    def generate_export_file(project, tasks, output_format):
+    def generate_export_file(project, tasks, output_format, download_resources=True, get_args=None):
         def serialize_datetime(obj):
             if isinstance(obj, datetime):
                 return obj.isoformat()
@@ -441,11 +446,70 @@ class DataExport(object):
         data = json.dumps(tasks, default=serialize_datetime, ensure_ascii=False)
         data = json.loads(data)
         if output_format == "CSV":
-            return DataExport.data_to_csv(data, project, tasks, False)
+            content_type = "text/csv"
+            filename = f"{project.title}.csv"
+            str_buffer = io.StringIO()
+            writer = csv.writer(str_buffer, lineterminator="\r\n")
+            if data:
+                fieldnames = list(data[0].keys())
+                nested_fieldnames = list(data[0]["data"].keys())
+                names = []
+                csv_data = []
+                flag_once = True
+                for item in data:
+                    row = []
+                    for fieldname in fieldnames:
+                        if fieldname == "data":
+                            row.extend(item["data"][key] for key in nested_fieldnames)
+                            if flag_once:
+                                names.extend(nested_fieldnames)
+                        else:
+                            if flag_once:
+                                names.append(fieldname)
+                            row.append(item[fieldname])
+                    csv_data.append(row)
+                    flag_once = False
+                writer.writerow(names)
+                for row in csv_data:
+                    writer.writerow(row)
+            stream = io.BytesIO(str_buffer.getvalue().encode("utf-8-sig"))
+            return stream, content_type, filename
         elif output_format == "TSV":
-            return DataExport.data_to_tsv(data, project, tasks)
+            content_type = "text/tab-separated-values"
+            filename = f"{project.title}.tsv"
+            if data:
+                fieldnames = list(data[0].keys())
+                nested_fieldnames = list(data[0]["data"].keys())
+                names = []
+                csv_data = []
+                flag_once = True
+                for item in data:
+                    row = []
+                    for fieldname in fieldnames:
+                        if fieldname == "data":
+                            row.extend(item["data"][key] for key in nested_fieldnames)
+                            if flag_once:
+                                names.extend(nested_fieldnames)
+                        else:
+                            if flag_once:
+                                names.append(fieldname)
+                            row.append(item[fieldname])
+                    csv_data.append(row)
+                    flag_once = False
+                tsv_rows = ["\t".join(str(v) for v in names)]
+                for row in csv_data:
+                    tsv_rows.append("\t".join(str(field) for field in row))
+                tsv_content = "\n".join(tsv_rows)
+            else:
+                tsv_content = ""
+            stream = io.BytesIO(tsv_content.encode("utf-8"))
+            return stream, content_type, filename
         elif output_format == "JSON":
-            return DataExport.data_to_json(data, project)
+            content_type = "application/json"
+            filename = f"{project.title}.json"
+            json_data = json.dumps(data, indent=4, ensure_ascii=False).encode("utf-8")
+            stream = io.BytesIO(json_data)
+            return stream, content_type, filename
         message = "The format asked is inappropriate"
         status_code = 404
         return HttpResponse(message, status=status_code)
