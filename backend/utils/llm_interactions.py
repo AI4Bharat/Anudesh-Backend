@@ -161,9 +161,16 @@ def get_llama2_output(system_prompt, conv_history, user_prompt):
         "max_new_tokens": 500,
         "top_p": 1,
     }
-    s = requests.Session()
-    result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
-    return result.json()["choices"][0]["message"]["content"].strip()
+    try:
+        s = requests.Session()
+        result = s.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
+        result.raise_for_status()
+        return result.json()["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        err_msg = str(e)
+        message = f"An error occurred while interacting with Llama2 API: {err_msg}"
+        st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({"message": message}, status=st)
 
 def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
     api_base = os.getenv("SARVAM_M_API_BASE")
@@ -256,10 +263,11 @@ def get_model_output(system_prompt, user_prompt, history, model=GPT4OMini):
         out = get_deepinfra_output(system_prompt, user_prompt, history, model)
     return out
 
-def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
+def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run, default_system_prompt=""):
     results = {}
 
     for model in models_to_run:
+        system_prompt = system_prompt_data.get(model) or system_prompt_data.get("default") or default_system_prompt if isinstance(system_prompt_data, dict) else system_prompt_data
         # print("history:", history)
         # model_history = next(
         #     (entry["interaction_json"] for entry in history if entry.get("model_name") == model),
@@ -283,5 +291,8 @@ def get_all_model_output(system_prompt, user_prompt, history, models_to_run):
             results[model] = get_sarvam_m_output(system_prompt, model_history, user_prompt)
         else:
             results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model)
+
+        if isinstance(results[model], Response):
+            return results[model]
 
     return results

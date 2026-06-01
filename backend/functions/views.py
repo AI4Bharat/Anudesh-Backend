@@ -365,14 +365,18 @@ def chat_log(request):
 @permission_classes([AllowAny])
 @api_view(["POST"])
 def chat_output(request):
+    DEFAULT_SYSTEM_PROMPT = (
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
+    )
     prompt = request.data.get("message")
     history = request.data.get("history", "")
     model = request.data.get("model", "GPT3.5")
+    system_prompt = (request.data.get("system_prompt", "") or "").strip() or DEFAULT_SYSTEM_PROMPT
     return Response(
         {
             "message": get_model_output(
-                "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-                "bullet or numberings etc. suitably for code or the text. wherever required.",
+                system_prompt,
                 prompt,
                 history,
                 model,
