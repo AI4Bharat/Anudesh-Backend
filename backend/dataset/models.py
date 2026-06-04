@@ -150,6 +150,14 @@ LLM_CHOICES = (
     ("meta-llama/Llama-3.3-70B-Instruct", "meta-llama/Llama-3.3-70B-Instruct"),
     ("meta-llama/Meta-Llama-3.1-70B-Instruct", "meta-llama/Meta-Llama-3.1-70B-Instruct"),
     ("meta-llama/Meta-Llama-3.1-8B-Instruct", "meta-llama/Meta-Llama-3.1-8B-Instruct"),
+    # New DeepInfra models
+    ("google/gemma-4-26B-A4B-it", "google/gemma-4-26B-A4B-it"),
+    ("google/gemma-4-31B-it", "google/gemma-4-31B-it"),
+    # New Google AI Studio models
+    ("gemini-3.5-flash", "gemini-3.5-flash"),
+    ("gemini-3.1-pro", "gemini-3.1-pro"),
+    ("gemini-3.1-flash-lite", "gemini-3.1-flash-lite"),
+    ("gemini-3-flash", "gemini-3-flash"),
 )
 
 
