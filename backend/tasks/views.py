@@ -2982,6 +2982,8 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
     model = task.data["model"]
+    if model == "SARVAM_M":
+       model = "google/gemma-3-12b"
 
     if isinstance(sys_prompt_data, dict):
         system_prompt = sys_prompt_data.get(model) or sys_prompt_data.get("default") or DEFAULT_SYSTEM_PROMPT
