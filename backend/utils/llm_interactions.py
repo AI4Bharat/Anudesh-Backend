@@ -295,7 +295,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
     
-def get_model_output(system_prompt, user_prompt, history, model="gemini-3.5-flash"):
+def get_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
     if model in GOOGLE_AI_STUDIO_MODELS:
