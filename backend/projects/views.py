@@ -15,8 +15,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from users.models import LANG_CHOICES
-from users.serializers import UserEmailSerializer
 from users.models import *
+from users.serializers import UserEmailSerializer
 from dataset.serializers import TaskResultSerializer, DatasetInstanceSerializer
 from utils.search import process_search_query
 from django_celery_results.models import TaskResult
@@ -60,8 +60,7 @@ from .tasks import (
     add_new_data_items_into_project,
     export_project_in_place,
     export_project_new_record,
-    filter_data_items,
-    prompt_data_annotation,
+    filter_data_items,prompt_data_annotation,
     prompt_data_annotation_InstructionDrivenChat,
 )
 
@@ -87,13 +86,11 @@ from users.utils import generate_random_string
 from notifications.views import createNotification
 from notifications.utils import get_userids_from_project_id
 
-
 from django.db.models.functions import Coalesce
 from rest_framework import generics, permissions
 from .models import Project, ProjectBookmark
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-
 
 
 
@@ -1134,6 +1131,70 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response(
                 {"message": "Please Login!"}, status=status.HTTP_400_BAD_REQUEST
+            )
+    @action(detail=True, methods=["POST"], url_path="update_tasks_models")
+    def update_tasks_models(self, request, pk=None):
+        """
+        Update all tasks in a project to use the new model configuration.
+        """
+        from tasks.models import Task
+        
+        try:
+            project = self.get_object()
+            
+            # Check permissions
+            if not (request.user.role == User.ORGANIZATION_OWNER or 
+                    request.user.is_superuser or 
+                    request.user.role == User.WORKSPACE_MANAGER):
+                return Response(
+                    {"message": "You are not authorized to perform this action"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get the models from project metadata
+            models_set = project.metadata_json.get('models_set', [])
+            fixed_models = project.metadata_json.get('fixed_models', [])
+            
+            if not models_set:
+                return Response(
+                    {"message": "No models configured in project"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Use fixed models if available, otherwise use all models_set
+            new_models = fixed_models if fixed_models else models_set
+            
+            # Update all tasks - REPLACE with new models
+            tasks = Task.objects.filter(project_id=project)
+            updated_count = 0
+            errors = []
+            
+            for task in tasks:
+                try:
+                    if 'model' in task.data:
+                        current_models = task.data['model']
+                        
+                        # Replace with new models regardless of what was there
+                        if current_models != new_models:
+                            task.data['model'] = new_models.copy()
+                            task.save(update_fields=['data'])
+                            updated_count += 1
+                            print(f"Updated task {task.id}: {current_models} -> {new_models}")
+                                
+                except Exception as e:
+                    errors.append(f"Task {task.id}: {str(e)}")
+            
+            return Response({
+                "message": f"Updated {updated_count} out of {tasks.count()} tasks",
+                "updated_count": updated_count,
+                "total_tasks": tasks.count(),
+                "errors": errors
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"message": f"Error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
     @swagger_auto_schema(
@@ -2827,7 +2888,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         preferred_annotators = preferred_task_json.get("preferred_annotators", {})
         project_key = str(pk)
         preferred_annotator_ids = preferred_annotators.get(project_key, [])
-
+    
         print(f"Reviewer {cur_user.id} preferred annotators for project {pk}: {preferred_annotator_ids}")
         # check if the project contains eligible tasks to pull
         tasks = (
@@ -2850,12 +2911,13 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 completed_by__in=preferred_annotator_ids,
                 task__project_id=pk
             ).values_list("task_id", flat=True).distinct()
-
+    
             tasks = tasks.filter(id__in=annotation_filter_task_ids)
-
+            
         task_pull_count = project.tasks_pull_count_per_batch
         if "num_tasks" in dict(request.data):
             task_pull_count = request.data["num_tasks"]
+
         if project.required_annotators_per_task > 1 and allow_unireview:
             task_ids = (
                 Annotation_model.objects
@@ -2868,7 +2930,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 .values_list("task", flat=True)  # get task IDs back
             )
         else:
-        # Sort by oldest updated annotation;
+        # Sort by oldest updated annotation; temporary change
             task_ids = (
                 Annotation_model.objects.filter(task__in=tasks)
                 .filter(annotation_type=ANNOTATOR_ANNOTATION)
@@ -2991,7 +3053,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK
         )
-
+        
     @action(
         detail=True,
         methods=["post"],
@@ -3435,7 +3497,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             else:
                 result = {"message": "disabled task supercheck for this project "}
                 return Response(result)
-
+    
         # managers = [
         #     user1.get_username() for user1 in proj_obj.workspace_id.managers.all()
         # ]
@@ -4402,10 +4464,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 task_status = request.query_params["task_status"]
                 task_status = task_status.split(",")
                 tasks = tasks.filter(task_status__in=task_status)
-                
             prompt_map = prompt_data_annotation(tasks)
             prompt_map_InstructionDrivenChat = prompt_data_annotation_InstructionDrivenChat(tasks)
-
+            
+            
             if len(tasks) == 0:
                 ret_dict = {"message": "No tasks in project!"}
                 ret_status = status.HTTP_200_OK
@@ -4420,7 +4482,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 # Rename keys to match label studio converter
                 # task_dict['id'] = task_dict['task_id']
                 # del task_dict['task_id']
-               
                 correct_annotation = task.correct_annotation
                 if correct_annotation is None and task.task_status in [
                     ANNOTATED,
@@ -4434,7 +4495,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     correct_annotation = task.annotations.all().filter(
                         annotation_type=REVIEWER_ANNOTATION
                     )[0]
-                    
+
                 annotator_email = ""
                 # if correct_annotation is not None and required_annotators_per_task < 2:
                 if correct_annotation is not None:
@@ -4514,8 +4575,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 elif is_InstructionDrivenChat:
                     task["data"]["interactions_json"] = complete_result
                     task["data"]["Prompts"] = prompt_map_InstructionDrivenChat.get(task["id"], "")
+                    
                 else:
                     task["data"]["interactions_json"] = complete_result
+                    
                     task["data"]["Prompts"] = prompt_map.get(task["id"], "")
 
                     
@@ -5023,7 +5086,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     print(f"Annotation already exists for task {task.id}, user {user.email}, type {allocation_type}")
 
         return Response({"message": "Tasks successfully allocated"}, status=status.HTTP_200_OK)
-    
 
 class UserProjectListView(generics.ListAPIView):
     serializer_class = ProjectSerializer
@@ -5046,9 +5108,9 @@ class UserProjectListView(generics.ListAPIView):
                 ),
             )
             .annotate(sort_time=Coalesce("bookmarked_at", Value(epoch_datetime)))
-            .order_by("-is_bookmarked", "-sort_time")
-            .filter(is_bookmarked=True)
-        )
+                .order_by("-is_bookmarked", "-sort_time")
+                .filter(is_bookmarked=True)
+            )
 
 class BookmarkProjectView(APIView):
     permission_classes = [permissions.IsAuthenticated]
