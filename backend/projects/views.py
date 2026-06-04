@@ -1132,6 +1132,70 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response(
                 {"message": "Please Login!"}, status=status.HTTP_400_BAD_REQUEST
             )
+    @action(detail=True, methods=["POST"], url_path="update_tasks_models")
+    def update_tasks_models(self, request, pk=None):
+        """
+        Update all tasks in a project to use the new model configuration.
+        """
+        from tasks.models import Task
+        
+        try:
+            project = self.get_object()
+            
+            # Check permissions
+            if not (request.user.role == User.ORGANIZATION_OWNER or 
+                    request.user.is_superuser or 
+                    request.user.role == User.WORKSPACE_MANAGER):
+                return Response(
+                    {"message": "You are not authorized to perform this action"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get the models from project metadata
+            models_set = project.metadata_json.get('models_set', [])
+            fixed_models = project.metadata_json.get('fixed_models', [])
+            
+            if not models_set:
+                return Response(
+                    {"message": "No models configured in project"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Use fixed models if available, otherwise use all models_set
+            new_models = fixed_models if fixed_models else models_set
+            
+            # Update all tasks - REPLACE with new models
+            tasks = Task.objects.filter(project_id=project)
+            updated_count = 0
+            errors = []
+            
+            for task in tasks:
+                try:
+                    if 'model' in task.data:
+                        current_models = task.data['model']
+                        
+                        # Replace with new models regardless of what was there
+                        if current_models != new_models:
+                            task.data['model'] = new_models.copy()
+                            task.save(update_fields=['data'])
+                            updated_count += 1
+                            print(f"Updated task {task.id}: {current_models} -> {new_models}")
+                                
+                except Exception as e:
+                    errors.append(f"Task {task.id}: {str(e)}")
+            
+            return Response({
+                "message": f"Updated {updated_count} out of {tasks.count()} tasks",
+                "updated_count": updated_count,
+                "total_tasks": tasks.count(),
+                "errors": errors
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"message": f"Error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     @swagger_auto_schema(
         method="get",
