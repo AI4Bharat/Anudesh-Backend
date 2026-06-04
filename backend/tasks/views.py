@@ -2982,7 +2982,7 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
     model = task.data["model"]
-    if model == "SARVAM_M":
+    if model in ("SARVM_M", "GPT4OMini"):
        model = "google/gemma-3-12b-it"
 
     if isinstance(sys_prompt_data, dict):
