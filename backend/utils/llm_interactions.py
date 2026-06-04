@@ -222,7 +222,6 @@ GOOGLE_AI_STUDIO_MODELS = {
     "gemini-3.5-flash",
     "gemini-3.1-pro",
     "gemini-3.1-flash-lite",
-    "gemini-3-flash",
 }
 
 def get_google_ai_studio_output(system_prompt, user_prompt, history, model):
