@@ -204,9 +204,8 @@ def process_history(history):
 # Google AI Studio models (via OpenAI-compatible endpoint)
 GOOGLE_AI_STUDIO_MODELS = {
     "gemini-3.5-flash",
-    "gemini-3.1-pro",
+    "gemini-3.1-pro-preview",
     "gemini-3.1-flash-lite",
-    "gemini-3-flash",
 }
 
 def get_google_ai_studio_output(system_prompt, user_prompt, history, model):
@@ -279,7 +278,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
     
-def get_model_output(system_prompt, user_prompt, history, model="gemini-3.5-flash"):
+def get_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
     # Assume that translation happens outside (and the prompt is already translated)
     out = ""
     if model in GOOGLE_AI_STUDIO_MODELS:
