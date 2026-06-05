@@ -220,7 +220,7 @@ def process_history(history):
 # Google AI Studio models (via OpenAI-compatible endpoint)
 GOOGLE_AI_STUDIO_MODELS = {
     "gemini-3.5-flash",
-    "gemini-3.1-pro",
+    "gemini-3.1-pro-preview",
     "gemini-3.1-flash-lite",
 }
 
