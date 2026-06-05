@@ -1167,25 +1167,22 @@ class ProjectViewSet(viewsets.ModelViewSet):
             # Use fixed models if available, otherwise use all models_set
             new_models = fixed_models if fixed_models else models_set
             
-            # Update all tasks - REPLACE with new models
             tasks = Task.objects.filter(project_id=project)
             updated_count = 0
             errors = []
-            
+            tasks_list = []
+    
             for task in tasks:
                 try:
-                    if 'model' in task.data:
-                        current_models = task.data['model']
-                        
-                        # Replace with new models regardless of what was there
-                        if current_models != new_models:
-                            task.data['model'] = new_models.copy()
-                            task.save(update_fields=['data'])
-                            updated_count += 1
-                            print(f"Updated task {task.id}: {current_models} -> {new_models}")
-                                
+                    task.data['model'] = new_models.copy()
+                    tasks_list.append(task)
+                    updated_count += 1
                 except Exception as e:
                     errors.append(f"Task {task.id}: {str(e)}")
+    
+            # Bulk update for performance
+            if tasks_list:
+                Task.objects.bulk_update(tasks_list, ['data'])
             
             return Response({
                 "message": f"Updated {updated_count} out of {tasks.count()} tasks",
