@@ -52,7 +52,7 @@ from .utils import (
     validate_metadata_json_format,
 )
 
-from dataset.models import DatasetInstance
+from dataset.models import DatasetInstance, ACTIVE_LLM_MODELS
 
 # Import celery tasks
 from .tasks import (
@@ -2515,6 +2515,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
         for task in tasks:
             task.annotation_users.add(cur_user)
+            if project.project_type == "InstructionDrivenChat":
+                if task.data and "model" in task.data and task.data["model"] not in ACTIVE_LLM_MODELS:
+                    task.data["model"] = ACTIVE_LLM_MODELS[0]
             task.save()
             result = []
             annotator_anno_count = Annotation_model.objects.filter(
