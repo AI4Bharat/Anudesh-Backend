@@ -37,6 +37,7 @@ from utils.llm_checks import (
     duplicate_check,
 )
 from utils.llm_interactions import get_model_output, get_all_model_output
+from dataset.models import ACTIVE_LLM_MODELS
 
 from utils.search import process_search_query
 
@@ -2846,6 +2847,9 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
     )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
     model = task.data["model"]
+
+    if model not in ACTIVE_LLM_MODELS:
+        model = ACTIVE_LLM_MODELS[0]
 
     if isinstance(sys_prompt_data, dict):
         system_prompt = sys_prompt_data.get(model) or sys_prompt_data.get("default") or DEFAULT_SYSTEM_PROMPT
