@@ -394,7 +394,7 @@ class Instruction(DatasetBase):
     meta_info_model = models.CharField(
         max_length=2048,
         verbose_name="Meta Info Model",
-        default="GPT3.5",
+        default="google/gemma-4-26B-A4B-it",
         choices=LLM_CHOICES,
         help_text="Model information for the instruction",
     )
