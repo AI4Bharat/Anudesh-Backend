@@ -1193,6 +1193,70 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 {"message": f"Error: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+            
+    @action(detail=True, methods=["POST"], url_path="update_idc_tasks_model")
+    def update_idc_tasks_model(self, request, pk=None):
+        """
+        Update the model of all incomplete tasks in a Single IDC project if the current model is inactive.
+        """
+        from tasks.models import Task, INCOMPLETE
+        from dataset.models import ACTIVE_LLM_MODELS
+        
+        try:
+            project = self.get_object()
+            
+            # Check permissions
+            if not (request.user.role == User.ORGANIZATION_OWNER or 
+                    request.user.is_superuser or 
+                    request.user.role == User.WORKSPACE_MANAGER):
+                return Response(
+                    {"message": "You are not authorized to perform this action"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            if project.project_type != "InstructionDrivenChat":
+                return Response(
+                    {"message": "This operation is only allowed for InstructionDrivenChat projects."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            new_model = request.data.get("new_model")
+            if not new_model:
+                return Response(
+                    {"message": "new_model is required."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            if new_model not in ACTIVE_LLM_MODELS:
+                return Response(
+                    {"message": f"{new_model} is not an active LLM model."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            tasks = Task.objects.filter(project_id=project, task_status=INCOMPLETE)
+            updated_count = 0
+            tasks_list = []
+            
+            for task in tasks:
+                current_model = task.data.get("model")
+                if current_model not in ACTIVE_LLM_MODELS:
+                    task.data["model"] = new_model
+                    tasks_list.append(task)
+                    updated_count += 1
+            
+            if tasks_list:
+                Task.objects.bulk_update(tasks_list, ['data'])
+                
+            return Response({
+                "message": f"Updated {updated_count} incomplete tasks to model {new_model}.",
+                "updated_count": updated_count
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"message": f"Error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     @swagger_auto_schema(
         method="get",
