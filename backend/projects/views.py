@@ -52,7 +52,7 @@ from .utils import (
     validate_metadata_json_format,
 )
 
-from dataset.models import DatasetInstance
+from dataset.models import DatasetInstance, ACTIVE_LLM_MODELS
 
 # Import celery tasks
 from .tasks import (
@@ -1131,6 +1131,67 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response(
                 {"message": "Please Login!"}, status=status.HTTP_400_BAD_REQUEST
+            )
+    @action(detail=True, methods=["POST"], url_path="update_tasks_models")
+    def update_tasks_models(self, request, pk=None):
+        """
+        Update all tasks in a project to use the new model configuration.
+        """
+        from tasks.models import Task
+        
+        try:
+            project = self.get_object()
+            
+            # Check permissions
+            if not (request.user.role == User.ORGANIZATION_OWNER or 
+                    request.user.is_superuser or 
+                    request.user.role == User.WORKSPACE_MANAGER):
+                return Response(
+                    {"message": "You are not authorized to perform this action"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get the models from project metadata
+            models_set = project.metadata_json.get('models_set', [])
+            fixed_models = project.metadata_json.get('fixed_models', [])
+            
+            if not models_set:
+                return Response(
+                    {"message": "No models configured in project"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Use fixed models if available, otherwise use all models_set
+            new_models = fixed_models if fixed_models else models_set
+            
+            tasks = Task.objects.filter(project_id=project)
+            updated_count = 0
+            errors = []
+            tasks_list = []
+    
+            for task in tasks:
+                try:
+                    task.data['model'] = new_models.copy()
+                    tasks_list.append(task)
+                    updated_count += 1
+                except Exception as e:
+                    errors.append(f"Task {task.id}: {str(e)}")
+    
+            # Bulk update for performance
+            if tasks_list:
+                Task.objects.bulk_update(tasks_list, ['data'])
+            
+            return Response({
+                "message": f"Updated {updated_count} out of {tasks.count()} tasks",
+                "updated_count": updated_count,
+                "total_tasks": tasks.count(),
+                "errors": errors
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"message": f"Error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
     @swagger_auto_schema(
@@ -2512,6 +2573,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
         for task in tasks:
             task.annotation_users.add(cur_user)
+            if project.project_type == "InstructionDrivenChat":
+                if task.data and "model" in task.data and task.data["model"] not in ACTIVE_LLM_MODELS:
+                    task.data["model"] = ACTIVE_LLM_MODELS[0]
             task.save()
             result = []
             annotator_anno_count = Annotation_model.objects.filter(
