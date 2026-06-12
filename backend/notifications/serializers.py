@@ -7,4 +7,7 @@ class NotificationSerializer(serializers.ModelSerializer):
         model = Notification
         fields = "__all__"
         
-
+class NotificationSerializer1(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ["id", "title", "notification_type", "on_click", "created_at", "priority", "seen_json"]
