@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework import viewsets
 from .models import Notification
-from .serializers import NotificationSerializer, NotificationSerializer1
+from .serializers import NotificationSerializer
 
 from notifications.tasks import create_notification_handler
 NO_NOTIFICATION_MESSAGE = {"message": "No notifications found"}
@@ -65,7 +65,7 @@ def viewNotifications(request):
         return Response(FETCH_NOTIFICATION_ERROR, status=status.HTTP_400_BAD_REQUEST)
     if len(user_notifications_queryset) == 0:
         return Response(NO_NOTIFICATION_MESSAGE, status=status.HTTP_200_OK)
-    serializer = NotificationSerializer1(user_notifications_queryset, many=True)
+    serializer = NotificationSerializer(user_notifications_queryset, many=True)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
