@@ -1199,7 +1199,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """
         Update the model of incomplete tasks in a Single IDC project if the current model is inactive.
         """
-        from tasks.models import Task, Annotation, INCOMPLETE, UNLABELED, DRAFT, SKIPPED
+        from tasks.models import Task, Annotation, INCOMPLETE, UNLABELED
         from dataset.models import ACTIVE_LLM_MODELS
         
         try:
@@ -1236,7 +1236,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             tasks_with_progress = Annotation.objects.filter(
                 task__project_id=project
             ).exclude(
-                annotation_status__in=[UNLABELED, DRAFT, SKIPPED]
+                annotation_status=UNLABELED
             ).values_list('task_id', flat=True)
 
             tasks = Task.objects.filter(
@@ -1258,6 +1258,20 @@ class ProjectViewSet(viewsets.ModelViewSet):
             
             if tasks_list:
                 Task.objects.bulk_update(tasks_list, ['data'])
+                
+                # Clear the result field of UNLABELED annotations for these updated tasks
+                annotations_to_update = Annotation.objects.filter(
+                    task__in=tasks_list,
+                    annotation_status=UNLABELED
+                )
+                annotations_list = []
+                for annotation in annotations_to_update:
+                    if annotation.result:
+                        annotation.result = []
+                        annotations_list.append(annotation)
+                
+                if annotations_list:
+                    Annotation.objects.bulk_update(annotations_list, ['result'])
                 
             return Response({
                 "message": f"Updated {updated_count} incomplete tasks to model {new_model}.",
