@@ -1197,9 +1197,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], url_path="update_idc_tasks_model")
     def update_idc_tasks_model(self, request, pk=None):
         """
-        Update the model of all incomplete tasks in a Single IDC project if the current model is inactive.
+        Update the model of incomplete tasks in a Single IDC project if the current model is inactive.
         """
-        from tasks.models import Task, INCOMPLETE
+        from tasks.models import Task, Annotation, INCOMPLETE, UNLABELED, DRAFT, SKIPPED
         from dataset.models import ACTIVE_LLM_MODELS
         
         try:
@@ -1233,7 +1233,19 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
                 
-            tasks = Task.objects.filter(project_id=project, task_status=INCOMPLETE)
+            tasks_with_progress = Annotation.objects.filter(
+                task__project_id=project
+            ).exclude(
+                annotation_status__in=[UNLABELED, DRAFT, SKIPPED]
+            ).values_list('task_id', flat=True)
+
+            tasks = Task.objects.filter(
+                project_id=project, 
+                task_status=INCOMPLETE
+            ).exclude(
+                id__in=tasks_with_progress
+            )
+            
             updated_count = 0
             tasks_list = []
             
