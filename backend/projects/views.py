@@ -1266,9 +1266,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 )
                 annotations_list = []
                 for annotation in annotations_to_update:
-                    if annotation.result:
-                        annotation.result = []
-                        annotations_list.append(annotation)
+                    if annotation.result and isinstance(annotation.result, list):
+                        modified = False
+                        for item in annotation.result:
+                            if isinstance(item, dict) and "output" in item:
+                                item["output"] = ""
+                                modified = True
+                        if modified:
+                            annotations_list.append(annotation)
                 
                 if annotations_list:
                     Annotation.objects.bulk_update(annotations_list, ['result'])
