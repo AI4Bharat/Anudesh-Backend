@@ -328,7 +328,8 @@ def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run
 
         if isinstance(results[model], Response):
             return results[model]
-
+    
+    return results
 
 # ── Async streaming generators (Django 5 + ASGI) ────────────────────────────
 
