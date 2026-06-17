@@ -41,7 +41,7 @@ import os
 
 
 import re
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
@@ -328,5 +328,97 @@ def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run
 
         if isinstance(results[model], Response):
             return results[model]
+
+
+# ── Async streaming generators (Django 5 + ASGI) ────────────────────────────
+
+async def stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
+    client = AsyncOpenAI(
+        api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    )
+    history_messages = process_history(history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2048,
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content is not None:
+                yield chunk.choices[0].delta.content
+    except Exception as e:
+        yield f"[ERROR] {e}"
+
+
+async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
+    client = AsyncOpenAI(
+        api_key=os.getenv("DEEPINFRA_API_KEY"),
+        base_url=os.getenv("DEEPINFRA_BASE_URL"),
+    )
+    history_messages = process_history(history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    # State machine to strip <think>...</think> blocks that may span chunk boundaries
+    pending = ""
+    in_think = False
+
+    try:
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2048,
+            stream=True,
+        )
+        async for chunk in stream:
+            if not (chunk.choices and chunk.choices[0].delta.content is not None):
+                continue
+            pending += chunk.choices[0].delta.content
+
+            while True:
+                if in_think:
+                    end = pending.find("</think>")
+                    if end != -1:
+                        in_think = False
+                        pending = pending[end + 8:].lstrip("\n")
+                    else:
+                        pending = ""
+                        break
+                else:
+                    start = pending.find("<think>")
+                    if start != -1:
+                        if start > 0:
+                            yield pending[:start]
+                        in_think = True
+                        pending = pending[start + 7:]
+                    else:
+                        # Keep last 7 chars to handle tags split across chunks
+                        if len(pending) > 7:
+                            yield pending[:-7]
+                            pending = pending[-7:]
+                        break
+
+        if pending and not in_think:
+            yield pending.lstrip("\n")
+    except Exception as e:
+        yield f"[ERROR] {e}"
+
+
+async def stream_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
+    if model in GOOGLE_AI_STUDIO_MODELS:
+        async for token in stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
+            yield token
+    else:
+        async for token in stream_deepinfra_output(system_prompt, user_prompt, history, model):
+            yield token
 
     return results
