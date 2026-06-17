@@ -420,5 +420,3 @@ async def stream_model_output(system_prompt, user_prompt, history, model="google
     else:
         async for token in stream_deepinfra_output(system_prompt, user_prompt, history, model):
             yield token
-
-    return results

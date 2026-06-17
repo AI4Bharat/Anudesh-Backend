@@ -400,7 +400,7 @@ _CHAT_SYSTEM_PROMPT = (
 async def chat_output_stream(request):
     data = json.loads(request.body)
     prompt = data.get("message")
-    history = data.get("history", "")
+    history = data.get("history", [])
     model = data.get("model", "google/gemma-4-26B-A4B-it")
 
     async def event_stream():
