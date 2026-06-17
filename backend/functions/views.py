@@ -23,7 +23,10 @@ from users.utils import (
 
 from tasks.models import *
 from utils.blob_functions import test_container_connection
-from utils.llm_interactions import get_model_output
+from django.http import StreamingHttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+from utils.llm_interactions import get_model_output, stream_model_output
 
 from .tasks import (
     populate_draft_data_json,
@@ -385,6 +388,35 @@ def chat_output(request):
         },
         status=status.HTTP_200_OK,
     )
+
+
+_CHAT_SYSTEM_PROMPT = (
+    "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+    "bullet or numberings etc. suitably for code or the text, wherever required."
+)
+
+
+@csrf_exempt
+@require_POST
+async def chat_output_stream(request):
+    data = json.loads(request.body)
+    prompt = data.get("message")
+    history = data.get("history", "")
+    model = data.get("model", "google/gemma-4-26B-A4B-it")
+
+    async def event_stream():
+        try:
+            async for token in stream_model_output(_CHAT_SYSTEM_PROMPT, prompt, history, model):
+                yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
 
 @permission_classes([IsAuthenticated])
 @api_view(["POST"])

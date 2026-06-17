@@ -119,6 +119,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "anudesh_backend.wsgi.application"
+ASGI_APPLICATION = "anudesh_backend.asgi.application"
 
 
 # Database
