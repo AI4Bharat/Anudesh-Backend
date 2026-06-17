@@ -1136,8 +1136,10 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def update_tasks_models(self, request, pk=None):
         """
         Update all tasks in a project to use the new model configuration.
+        For multiple LLM and IDC: only updates incomplete tasks with UNLABELED, DRAFT, and SKIPPED annotations.
+        Clears existing annotation results (output only, not prompt) before updating model.
         """
-        from tasks.models import Task
+        from tasks.models import Task, Annotation, INCOMPLETE, UNLABELED, DRAFT, SKIPPED, LABELED, TO_BE_REVISED
         
         try:
             project = self.get_object()
@@ -1152,8 +1154,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 )
             
             # Get the models from project metadata
-            models_set = project.metadata_json.get('models_set', [])
-            fixed_models = project.metadata_json.get('fixed_models', [])
+            models_set = project.metadata_json.get("models_set", [])
+            fixed_models = project.metadata_json.get("fixed_models", [])
             
             if not models_set:
                 return Response(
@@ -1164,28 +1166,65 @@ class ProjectViewSet(viewsets.ModelViewSet):
             # Use fixed models if available, otherwise use all models_set
             new_models = fixed_models if fixed_models else models_set
             
-            tasks = Task.objects.filter(project_id=project)
+            # Statuses that can be updated (no real progress)
+            # These are statuses where we can clear output and update model
+            updateable_statuses = [UNLABELED, DRAFT, SKIPPED]
+            
+            # Get tasks with real progress (annotations that are NOT in updateable_statuses)
+            # This includes LABELED, TO_BE_REVISED, and any other status not in updateable_statuses
+            tasks_with_progress = Annotation.objects.filter(
+                task__project_id=project
+            ).exclude(
+                annotation_status__in=updateable_statuses
+            ).values_list('task_id', flat=True)
+            
+            # Filter: incomplete tasks WITHOUT any real progress
+            tasks = Task.objects.filter(
+                project_id=project, 
+                task_status=INCOMPLETE
+            ).exclude(
+                id__in=tasks_with_progress
+            )
+            
             updated_count = 0
-            errors = []
             tasks_list = []
-    
+            annotations_list = []
+            
             for task in tasks:
-                try:
-                    task.data['model'] = new_models.copy()
-                    tasks_list.append(task)
-                    updated_count += 1
-                except Exception as e:
-                    errors.append(f"Task {task.id}: {str(e)}")
-    
-            # Bulk update for performance
+                # Update the model on the task
+                task.data["model"] = new_models.copy()
+                tasks_list.append(task)
+                updated_count += 1
+            
             if tasks_list:
+                # Bulk update tasks
                 Task.objects.bulk_update(tasks_list, ['data'])
+                
+                # Clear the output field for UNLABELED, DRAFT, and SKIPPED annotations only
+                annotations_to_update = Annotation.objects.filter(
+                    task__in=tasks_list,
+                    annotation_status__in=updateable_statuses
+                )
+                
+                for annotation in annotations_to_update:
+                    if annotation.result and isinstance(annotation.result, list):
+                        modified = False
+                        for item in annotation.result:
+                            # Clear ONLY "output", preserve "prompt"
+                            if isinstance(item, dict) and "output" in item:
+                                if item["output"]:  # Only clear if there's a value
+                                    item["output"] = ""
+                                    modified = True
+                        if modified:
+                            annotations_list.append(annotation)
+                
+                if annotations_list:
+                    Annotation.objects.bulk_update(annotations_list, ['result'])
             
             return Response({
-                "message": f"Updated {updated_count} out of {tasks.count()} tasks",
+                "message": f"Updated {updated_count} incomplete tasks with new model configuration.",
                 "updated_count": updated_count,
-                "total_tasks": tasks.count(),
-                "errors": errors
+                "annotations_cleaned": len(annotations_list)
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
