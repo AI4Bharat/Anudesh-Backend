@@ -801,7 +801,213 @@ class GoogleLogin(viewsets.ViewSet):
 
 
 class UserViewSet(viewsets.ViewSet):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = [IsAuthenticated]
+    queryset = User.objects.all()
+    @action(
+        detail=False,
+        methods=["GET"],
+        url_path="get_prefered_workspace",
+        url_name="get-prefered-workspace",
+        permission_classes=[IsAuthenticated]
+    )
+    @swagger_auto_schema(
+        request_body=UserUpdateSerializer,
+        operation_description="Save preferred workspace mapping for the authenticated user",
+    )
+    def get_prefered_workspace(self, request):
+        """
+        Get preferred workspace mapping for the authenticated user.
+
+        Expected JSON format:
+          {
+            "2125": [188, 189, 190],
+            "2126": [188, 189, 191]
+          }
+        """
+        user = request.user
+
+        return Response(
+            {"message": "Preferred workspace fetched successfully.","prefered_workspace":user.Prefered_Workspace},
+            status=status.HTTP_200_OK,
+        )
+    
+    @action(
+    detail=False,
+    methods=["POST"],
+    url_path="save_prefered_workspace",
+    url_name="save-prefered-workspace",
+    permission_classes=[IsAuthenticated],
+    )
+    @swagger_auto_schema(
+        operation_description=(
+            "Save preferred workspace mapping for the authenticated user.\n"
+            "This completely rewrites previous preferences.\n\n"
+            "Expected JSON format:\n"
+            "{\n"
+            '  \"2125\": [\n'
+            '    {\"id\": 189, \"workspace_name\": \"Review Workspace\"},\n'
+            '    {\"id\": 190, \"workspace_name\": \"Translation Workspace\"}\n'
+            "  ]\n"
+            "}"
+        )
+    )
+    def save_prefered_workspace(self, request):
+        """
+        Save preferred workspace for the authenticated user.
+        ALWAYS overwrites previous saved preferences.
+        """
+        user = request.user
+        data = request.data
+
+        # Data must be a dict
+        if not isinstance(data, dict):
+            return Response(
+                {"error": "Invalid format. Expected JSON object like {'2125': [...]}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        validated_prefs = {}
+
+        for org_id, workspace_list in data.items():
+
+            # org_id must be numeric
+            if not str(org_id).isdigit():
+                return Response(
+                    {"error": f"Invalid org id: {org_id}. Expected a number."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # workspace_list must be a list
+            if not isinstance(workspace_list, list):
+                return Response(
+                    {"error": f"Workspaces under org {org_id} must be a list."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Validate workspace objects
+            for ws in workspace_list:
+                if (
+                    not isinstance(ws, dict)
+                    or "id" not in ws
+                    or "workspace_name" not in ws
+                ):
+                    return Response(
+                        {
+                            "error": (
+                                f"Invalid workspace format under org {org_id}. "
+                                "Each workspace must include 'id' and 'workspace_name'."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            validated_prefs[str(org_id)] = workspace_list
+
+        # ALWAYS overwrite previous preferences
+        user.Prefered_Workspace = validated_prefs
+        user.save(update_fields=["Prefered_Workspace"])
+
+        return Response(
+            {
+                "message": "Preferred workspace saved successfully.",
+                "Prefered_Workspace": user.Prefered_Workspace,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+    @action(
+    detail=False,
+    methods=["PUT"],
+    url_path="save_update_prefered_workspace",
+    url_name="save-update-prefered-workspace",
+    permission_classes=[IsAuthenticated],
+    )
+    @swagger_auto_schema(
+        operation_description=(
+            "Replace preferred workspace list for a given organization.\n\n"
+            "Expected format:\n"
+            "{\n"
+            '  "2125": [\n'
+            '    {"id": 189, "workspace_name": "Review Workspace"},\n'
+            '    {"id": 190, "workspace_name": "Translation Workspace"}\n'
+            "  ]\n"
+            "}\n\n"
+            "PUT = full replacement. Old data will be removed."
+        )
+    )
+    def save_update_prefered_workspace(self, request):
+        """
+        Save (replace) preferred workspaces for the authenticated user.
+        This is a COMPLETE REPLACEMENT for the given org_id(s).
+        """
+        user = request.user
+        data = request.data
+        print (user)
+        print(data)
+        # Input must be a dict: { "orgId": [workspaceList] }
+        if not isinstance(data, dict):
+            return Response(
+                {"error": "Invalid format. Expected an object {'org_id': [workspaces]}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    
+        # Load existing preferences
+        existing_pref = user.Prefered_Workspace or {}
+    
+        valid_update_done = False
+    
+        for org_id, workspace_list in data.items():
+        
+            # Validate org_id
+            if not str(org_id).isdigit():
+                continue
+            
+            # Validate workspace_list
+            if not isinstance(workspace_list, list):
+                return Response(
+                    {"error": f"Value for org_id {org_id} must be a list."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+    
+            # Validate each workspace
+            for workspace in workspace_list:
+                if not isinstance(workspace, dict) or \
+                   "id" not in workspace or \
+                   "workspace_name" not in workspace:
+                    return Response(
+                        {
+                            "error": f"Each workspace under org_id {org_id} must include "
+                                     "'id' and 'workspace_name'."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+    
+            # ⭐ FULL REPLACEMENT (PUT behavior)
+            existing_pref[str(org_id)] = workspace_list
+    
+            valid_update_done = True
+            print(valid_update_done)
+    
+        if not valid_update_done:
+            return Response(
+                {"error": "No valid org_id found to update."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    
+        # Save updated preferences
+        user.Prefered_Workspace = existing_pref
+        user.save(update_fields=["Prefered_Workspace"])
+    
+        return Response(
+            {
+                "message": "Preferred workspaces updated successfully.",
+                "Prefered_Workspace": user.Prefered_Workspace,
+            },
+            status=status.HTTP_200_OK,
+        )
+        
+        
     @action(detail=False, methods=["post"], url_path="save-preferred-annotators")
     def save_preferred_annotators(self, request):
         """

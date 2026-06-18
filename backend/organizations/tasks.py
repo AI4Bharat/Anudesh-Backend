@@ -325,6 +325,7 @@ def send_user_reports_mail_org(
     start_date=None,
     end_date=None,
     period=None,
+    workspace_ids=None,
 ):
     """Function to generate CSV of organization user reports and send mail to the owner/admin
 
@@ -340,8 +341,13 @@ def send_user_reports_mail_org(
 
     user = User.objects.get(id=user_id)
     organization = Organization.objects.get(pk=org_id)
+    
+    if not workspace_ids:
+        print("❌ No workspace IDs provided, exiting task")
+        return
+    
     proj_objs = Project.objects.filter(
-        organization_id=org_id, project_type=project_type
+        organization_id=org_id, project_type=project_type,workspace_id__in=workspace_ids,
     )
 
     if period:
@@ -825,6 +831,7 @@ def send_project_analytics_mail_org(
     user_id,
     sort_by_column_name,
     descending_order,
+    workspace_ids
 ):
     organization = Organization.objects.get(pk=org_id)
     user = User.objects.get(id=user_id)
@@ -834,18 +841,22 @@ def send_project_analytics_mail_org(
 
     if descending_order == None:
         descending_order = False
-
+    
+    if not workspace_ids:
+        print("❌ No workspace IDs provided, exiting task")
+        return
+    
     if tgt_language == None:
         selected_language = "-"
         projects_obj = Project.objects.filter(
-            organization_id=org_id, project_type=project_type
+            organization_id=org_id, project_type=project_type,workspace_id__in=workspace_ids
         )
     else:
         selected_language = tgt_language
         projects_obj = Project.objects.filter(
             organization_id=org_id,
             tgt_language=tgt_language,
-            project_type=project_type,
+            project_type=project_type,workspace_id__in=workspace_ids
         )
     final_result = []
     if projects_obj.count() != 0:
