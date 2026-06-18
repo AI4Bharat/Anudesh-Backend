@@ -421,3 +421,56 @@ async def stream_model_output(system_prompt, user_prompt, history, model="google
     else:
         async for token in stream_deepinfra_output(system_prompt, user_prompt, history, model):
             yield token
+
+
+async def stream_all_models_output(system_prompt_data, user_prompt, model_interactions, models_to_run, default_system_prompt=""):
+    """
+    Stream tokens from multiple models concurrently.
+    Yields dicts like: {"model": "modelA", "token": "Hello"}
+    and {"model": "modelA", "done": True} when a model finishes.
+    """
+    import asyncio
+
+    queue = asyncio.Queue()
+
+    async def _stream_single_model(model_name):
+        """Collect tokens from one model and push them onto the shared queue."""
+        system_prompt = (
+            system_prompt_data.get(model_name)
+            or system_prompt_data.get("default")
+            or default_system_prompt
+        ) if isinstance(system_prompt_data, dict) else system_prompt_data
+
+        # Extract this model's conversation history from model_interactions
+        model_history = next(
+            (
+                interaction["interaction_json"]
+                for interaction in (model_interactions or [])
+                if interaction.get("model_name") == model_name
+            ),
+            [],
+        )
+
+        try:
+            async for token in stream_model_output(system_prompt, user_prompt, model_history, model_name):
+                await queue.put({"model": model_name, "token": token})
+        except Exception as e:
+            await queue.put({"model": model_name, "error": str(e)})
+        finally:
+            await queue.put({"model": model_name, "done": True})
+
+    # Launch all model streams concurrently
+    tasks = [asyncio.create_task(_stream_single_model(m)) for m in models_to_run]
+
+    models_remaining = len(models_to_run)
+    while models_remaining > 0:
+        item = await queue.get()
+        if item.get("done"):
+            models_remaining -= 1
+        yield item
+
+    # Ensure all tasks are cleaned up
+    for t in tasks:
+        if not t.done():
+            t.cancel()
+
