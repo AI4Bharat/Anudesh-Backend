@@ -26,7 +26,7 @@ from utils.blob_functions import test_container_connection
 from django.http import StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from utils.llm_interactions import get_model_output, stream_model_output
+from utils.llm_interactions import get_model_output, stream_model_output, stream_all_models_output
 
 from .tasks import (
     populate_draft_data_json,
@@ -408,6 +408,43 @@ async def chat_output_stream(request):
         try:
             async for token in stream_model_output(_CHAT_SYSTEM_PROMPT, prompt, history, model):
                 yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+@csrf_exempt
+@require_POST
+async def chat_output_stream_multi(request):
+    """
+    SSE endpoint for streaming tokens from multiple LLM models concurrently.
+    Each SSE event is tagged with the model name for frontend demultiplexing.
+    """
+    data = json.loads(request.body)
+    prompt = data.get("message")
+    model_interactions = data.get("model_interactions", [])
+    models = data.get("models", [])
+
+    # Build system prompt data from project metadata
+    DEFAULT_SYSTEM_PROMPT = (
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
+    )
+    system_prompt_data = data.get("system_prompt_data", {})
+    if not system_prompt_data:
+        system_prompt_data = {"default": DEFAULT_SYSTEM_PROMPT}
+
+    async def event_stream():
+        try:
+            async for item in stream_all_models_output(
+                system_prompt_data, prompt, model_interactions, models, DEFAULT_SYSTEM_PROMPT
+            ):
+                yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield "data: [DONE]\n\n"
