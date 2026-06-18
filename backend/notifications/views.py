@@ -8,11 +8,12 @@ from rest_framework import status
 # from shoonya_backend.celery import celery_app
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.decorators import action
+from rest_framework import viewsets
+from .models import Notification
+from .serializers import NotificationSerializer, NotificationSerializer1
 
-from notifications.models import Notification
 from notifications.tasks import create_notification_handler
-from notifications.serializers import NotificationSerializer
-
 NO_NOTIFICATION_MESSAGE = {"message": "No notifications found"}
 FETCH_NOTIFICATION_ERROR = {"message": "Cannot fetch notifications"}
 MISSING_REQUEST_PARAMETERS = {
@@ -64,7 +65,7 @@ def viewNotifications(request):
         return Response(FETCH_NOTIFICATION_ERROR, status=status.HTTP_400_BAD_REQUEST)
     if len(user_notifications_queryset) == 0:
         return Response(NO_NOTIFICATION_MESSAGE, status=status.HTTP_200_OK)
-    serializer = NotificationSerializer(user_notifications_queryset, many=True)
+    serializer = NotificationSerializer1(user_notifications_queryset, many=True)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -97,3 +98,40 @@ def mark_seen(request):
         notif.seen_json = s_json
         notif.save()
     return Response(NOTIFICATION_CHANGED_STATE, status=status.HTTP_200_OK)
+
+
+class NotificationViewSet(viewsets.ModelViewSet):
+    queryset = Notification.objects.all()
+    serializer_class = NotificationSerializer
+
+    @action(detail=False, methods=['get'])
+    def unseen_notifications(self, request):
+        unseen_notifications = self.get_queryset().filter(seen_json__isnull=True)
+        serializer = self.get_serializer(unseen_notifications, many=True)
+        return Response(serializer.data)
+
+
+@swagger_auto_schema(
+    method="get",
+    manual_parameters=[],
+    responses={200: "Unread notifications fetched", 400: "Error while fetching unread notifications"},
+)
+@api_view(["GET"])
+def allunreadNotifications(request):
+    """Fetch all unseen notifications for the authenticated user and return the total count."""
+    try:
+        user = request.user  
+
+        notifications = Notification.objects.filter(
+            reciever_user_id=user.id
+        ).exclude(Q(seen_json__contains={str(user.id): True})).order_by("-created_at")
+
+        total_count = notifications.count()
+
+        serialized_notifications = NotificationSerializer(notifications, many=True).data
+
+    except Exception as e:
+        print(f"Error fetching notifications: {str(e)}")
+        return Response({"error": "Error fetching notifications", "details": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(total_count, status=status.HTTP_200_OK)
