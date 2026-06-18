@@ -14,6 +14,7 @@ celery_app = Celery(
     result_serializer="json",
     task_serializer="json",
     result_expires=None,
+    include=["tasks.llm_tasks"],
 )
 # Celery settings
 celery_app.config_from_object("django.conf:settings", namespace="CELERY")
@@ -24,6 +25,7 @@ celery_app.conf.task_default_queue = "default"
 celery_app.conf.task_routes = {
     "functions.tasks.*": {"queue": "functions"},
     "reports.tasks.*": {"queue": "reports"},
+    "tasks.llm_tasks.*": {"queue": "llm"},
 }
 
 # Celery Beat tasks registration

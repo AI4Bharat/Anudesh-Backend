@@ -7,7 +7,7 @@ from rest_framework import viewsets
 from rest_framework import mixins
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.core.paginator import Paginator
 
@@ -1800,54 +1800,18 @@ class AnnotationViewSet(
                                     "model_responses_json": eval_form_vals
                                 })
                         else:
-                            if not annotation_obj.result:
-                                annotation_obj.result.append({
-                                    "eval_form": [],
-                                    "model_interactions": []
-                                })
-                            result_entry = annotation_obj.result[0]
-                            if "model_interactions" not in result_entry:
-                                result_entry["model_interactions"] = []
-
-                            output_result = get_all_llm_output(
+                            from tasks.llm_tasks import run_all_llm_task
+                            celery_task = run_all_llm_task.delay(
+                                annotation_obj.id,
                                 request.data["result"],
-                                annotation_obj.task,
-                                annotation_obj,
-                                annotation_obj.task.project_id.metadata_json,
-                                task.data.get("model", [])
+                                request.data.get("prompt_output_pair_id"),
                             )
-                            if output_result == -1:
-                                ret_dict = {
-                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                                }
-                                ret_status = status.HTTP_403_FORBIDDEN
-                                return Response(ret_dict, status=ret_status)
-                            elif isinstance(output_result, Response):
-                                return output_result
-                            # store the result of all checks as well
-                            prompt_text = request.data["result"]
-                            for model_name, model_output in output_result.items():
-                                new_interaction = {
-                                    "prompt": prompt_text,
-                                    "output": model_output,
-                                    "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id']
-                                }
-
-                                model_found = False
-                                for model_entry in result_entry["model_interactions"]:
-                                    if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
-                                        model_found = True
-                                        break
-
-                                # If model not found, create a new one
-                                if not model_found:
-                                    result_entry["model_interactions"].append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                            annotation_obj.lead_time = request.data["lead_time"]
+                            annotation_obj.save(update_fields=["lead_time", "updated_at"])
+                            return Response(
+                                {"celery_task_id": celery_task.id, "result": annotation_obj.result},
+                                status=status.HTTP_202_ACCEPTED,
+                            )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -1861,26 +1825,16 @@ class AnnotationViewSet(
                     == "InstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        output_result = get_llm_output(
+                        from tasks.llm_tasks import run_llm_task
+                        celery_task = run_llm_task.delay(
+                            annotation_obj.id,
                             request.data["result"],
-                            annotation_obj.task,
-                            annotation_obj,
-                            annotation_obj.task.project_id.metadata_json,
                         )
-                        if output_result == -1:
-                            ret_dict = {
-                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                            }
-                            ret_status = status.HTTP_403_FORBIDDEN
-                            return Response(ret_dict, status=ret_status)
-                        elif isinstance(output_result, Response):
-                            return output_result
-                        # store the result of all checks as well
-                        annotation_obj.result.append(
-                            {
-                                "prompt": request.data["result"],
-                                "output": output_result,
-                            }
+                        annotation_obj.lead_time = request.data["lead_time"]
+                        annotation_obj.save(update_fields=["lead_time", "updated_at"])
+                        return Response(
+                            {"celery_task_id": celery_task.id, "result": annotation_obj.result},
+                            status=status.HTTP_202_ACCEPTED,
                         )
                     # to handle the delete last chat case
                     else:
@@ -2062,54 +2016,18 @@ class AnnotationViewSet(
                                     "model_responses_json": eval_form_vals
                                 })
                         else:
-                            if not annotation_obj.result:
-                                annotation_obj.result.append({
-                                    "eval_form": [],
-                                    "model_interactions": []
-                                })
-                            result_entry = annotation_obj.result[0]
-                            if "model_interactions" not in result_entry:
-                                result_entry["model_interactions"] = []
-
-                            output_result = get_all_llm_output(
+                            from tasks.llm_tasks import run_all_llm_task
+                            celery_task = run_all_llm_task.delay(
+                                annotation_obj.id,
                                 request.data["result"],
-                                annotation_obj.task,
-                                annotation_obj,
-                                annotation_obj.task.project_id.metadata_json,
-                                task.data.get("model", [])
+                                request.data.get("prompt_output_pair_id"),
                             )
-                            if output_result == -1:
-                                ret_dict = {
-                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                                }
-                                ret_status = status.HTTP_403_FORBIDDEN
-                                return Response(ret_dict, status=ret_status)
-                            elif isinstance(output_result, Response):
-                                return output_result
-                            # store the result of all checks as well
-                            prompt_text = request.data["result"]
-                            for model_name, model_output in output_result.items():
-                                new_interaction = {
-                                    "prompt": prompt_text,
-                                    "output": model_output,
-                                    "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
-                                }
-
-                                model_found = False
-                                for model_entry in result_entry["model_interactions"]:
-                                    if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
-                                        model_found = True
-                                        break
-
-                                # If model not found, create a new one
-                                if not model_found:
-                                    result_entry["model_interactions"].append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                            annotation_obj.lead_time = request.data["lead_time"]
+                            annotation_obj.save(update_fields=["lead_time", "updated_at"])
+                            return Response(
+                                {"celery_task_id": celery_task.id, "result": annotation_obj.result},
+                                status=status.HTTP_202_ACCEPTED,
+                            )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -2123,26 +2041,16 @@ class AnnotationViewSet(
                     == "InstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        output_result = get_llm_output(
+                        from tasks.llm_tasks import run_llm_task
+                        celery_task = run_llm_task.delay(
+                            annotation_obj.id,
                             request.data["result"],
-                            annotation_obj.task,
-                            annotation_obj,
-                            annotation_obj.task.project_id.metadata_json,
                         )
-                        if output_result == -1:
-                            ret_dict = {
-                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                            }
-                            ret_status = status.HTTP_403_FORBIDDEN
-                            return Response(ret_dict, status=ret_status)
-                        elif isinstance(output_result, Response):
-                            return output_result
-                        # store the result of all checks as well
-                        annotation_obj.result.append(
-                            {
-                                "prompt": request.data["result"],
-                                "output": output_result,
-                            }
+                        annotation_obj.lead_time = request.data["lead_time"]
+                        annotation_obj.save(update_fields=["lead_time", "updated_at"])
+                        return Response(
+                            {"celery_task_id": celery_task.id, "result": annotation_obj.result},
+                            status=status.HTTP_202_ACCEPTED,
                         )
                     # to handle the delete last chat case
                     else:
@@ -2393,54 +2301,18 @@ class AnnotationViewSet(
                                     "model_responses_json": eval_form_vals
                                 })
                         else:
-                            if not annotation_obj.result:
-                                annotation_obj.result.append({
-                                    "eval_form": [],
-                                    "model_interactions": []
-                                })
-                            result_entry = annotation_obj.result[0]
-                            if "model_interactions" not in result_entry:
-                                result_entry["model_interactions"] = []
-
-                            output_result = get_all_llm_output(
+                            from tasks.llm_tasks import run_all_llm_task
+                            celery_task = run_all_llm_task.delay(
+                                annotation_obj.id,
                                 request.data["result"],
-                                annotation_obj.task,
-                                annotation_obj,
-                                annotation_obj.task.project_id.metadata_json,
-                                task.data.get("model", [])
+                                request.data.get("prompt_output_pair_id"),
                             )
-                            if output_result == -1:
-                                ret_dict = {
-                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                                }
-                                ret_status = status.HTTP_403_FORBIDDEN
-                                return Response(ret_dict, status=ret_status)
-                            elif isinstance(output_result, Response):
-                                return output_result
-                            # store the result of all checks as well
-                            prompt_text = request.data["result"]
-                            for model_name, model_output in output_result.items():
-                                new_interaction = {
-                                    "prompt": prompt_text,
-                                    "output": model_output,
-                                    "preferred_response": False,
-                                    "prompt_output_pair_id": request.data['prompt_output_pair_id'],
-                                }
-
-                                model_found = False
-                                for model_entry in result_entry["model_interactions"]:
-                                    if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
-                                        model_found = True
-                                        break
-
-                                # If model not found, create a new one
-                                if not model_found:
-                                    result_entry["model_interactions"].append({
-                                        "model_name": model_name,
-                                        "interaction_json": [new_interaction]
-
-                                    })  
+                            annotation_obj.lead_time = request.data["lead_time"]
+                            annotation_obj.save(update_fields=["lead_time", "updated_at"])
+                            return Response(
+                                {"celery_task_id": celery_task.id, "result": annotation_obj.result},
+                                status=status.HTTP_202_ACCEPTED,
+                            )
                     else:
                         annotation_obj.result = request.data["result"]
                         annotation_obj.meta_stats = (
@@ -2454,26 +2326,16 @@ class AnnotationViewSet(
                     == "InstructionDrivenChat"
                 ):
                     if isinstance(request.data["result"], str):
-                        output_result = get_llm_output(
+                        from tasks.llm_tasks import run_llm_task
+                        celery_task = run_llm_task.delay(
+                            annotation_obj.id,
                             request.data["result"],
-                            annotation_obj.task,
-                            annotation_obj,
-                            annotation_obj.task.project_id.metadata_json,
                         )
-                        if output_result == -1:
-                            ret_dict = {
-                                "message": "Please make sure you have entered a prompt and the system has responded with an answer"
-                            }
-                            ret_status = status.HTTP_403_FORBIDDEN
-                            return Response(ret_dict, status=ret_status)
-                        elif isinstance(output_result, Response):
-                            return output_result
-                        # store the result of all checks as well
-                        annotation_obj.result.append(
-                            {
-                                "prompt": request.data["result"],
-                                "output": output_result,
-                            }
+                        annotation_obj.lead_time = request.data["lead_time"]
+                        annotation_obj.save(update_fields=["lead_time", "updated_at"])
+                        return Response(
+                            {"celery_task_id": celery_task.id, "result": annotation_obj.result},
+                            status=status.HTTP_202_ACCEPTED,
                         )
                     # to handle the delete last chat case
                     else:
@@ -3133,6 +2995,20 @@ def get_celery_tasks(request):
     page_size = int(request.GET.get("page_size", 10))
     data = paginate_queryset(filtered_tasks, page_number, page_size)
     return JsonResponse(data["results"], safe=False)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def llm_task_status(request, celery_task_id):
+    from celery.result import AsyncResult
+    task_result = AsyncResult(celery_task_id)
+    if task_result.state == "SUCCESS":
+        annotation_result = task_result.result.get("annotation_result", [])
+        return Response({"status": "SUCCESS", "result": annotation_result})
+    elif task_result.state == "FAILURE":
+        return Response({"status": "FAILURE", "result": None})
+    else:
+        return Response({"status": task_result.state, "result": None})
 
 
 class TransliterationAPIView(APIView):

@@ -21,6 +21,7 @@ boto3==1.40.11
 botocore==1.40.11
 cachetools==5.5.2
 celery==5.3.4
+gevent==23.9.1
 certifi==2025.8.3
 cffi==1.17.1
 charset-normalizer==3.4.3
