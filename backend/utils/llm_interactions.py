@@ -333,11 +333,29 @@ def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run
 
 # ── Async streaming generators (Django 5 + ASGI) ────────────────────────────
 
+_google_client = None
+_deepinfra_client = None
+
+def _get_google_client() -> AsyncOpenAI:
+    global _google_client
+    if _google_client is None:
+        _google_client = AsyncOpenAI(
+            api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+    return _google_client
+
+def _get_deepinfra_client() -> AsyncOpenAI:
+    global _deepinfra_client
+    if _deepinfra_client is None:
+        _deepinfra_client = AsyncOpenAI(
+            api_key=os.getenv("DEEPINFRA_API_KEY"),
+            base_url=os.getenv("DEEPINFRA_BASE_URL"),
+        )
+    return _deepinfra_client
+
 async def stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
-    client = AsyncOpenAI(
-        api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
-        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    )
+    client = _get_google_client()
     history_messages = process_history(history)
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
@@ -359,10 +377,7 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
 
 
 async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
-    client = AsyncOpenAI(
-        api_key=os.getenv("DEEPINFRA_API_KEY"),
-        base_url=os.getenv("DEEPINFRA_BASE_URL"),
-    )
+    client = _get_deepinfra_client()
     history_messages = process_history(history)
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
