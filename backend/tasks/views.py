@@ -2045,6 +2045,7 @@ class AnnotationViewSet(
                         celery_task = run_llm_task.delay(
                             annotation_obj.id,
                             request.data["result"],
+                            request.data.get("retry", False),
                         )
                         annotation_obj.lead_time = request.data["lead_time"]
                         annotation_obj.save(update_fields=["lead_time", "updated_at"])

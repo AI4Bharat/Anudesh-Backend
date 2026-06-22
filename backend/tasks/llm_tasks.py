@@ -2,7 +2,7 @@ from celery import shared_task
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=5)
-def run_llm_task(self, annotation_id, prompt):
+def run_llm_task(self, annotation_id, prompt, retry=False):
     from tasks.models import Annotation
     from tasks.views import get_llm_output
     from tasks.utils import compute_meta_stats_for_instruction_driven_chat
@@ -22,7 +22,17 @@ def run_llm_task(self, annotation_id, prompt):
             if output in (-1, None, "Null", "None", "", " "):
                 raise Exception("LLM returned empty or invalid output")
 
-            annotation_obj.result.append({"prompt": prompt, "output": output})
+            if retry and annotation_obj.result:
+                annotation_obj.result[-1] = {
+                    **annotation_obj.result[-1],
+                    "prompt": prompt,
+                    "output": output,
+                }
+            else:
+                annotation_obj.result.append({
+                    "prompt": prompt,
+                    "output": output,
+                })
             annotation_obj.meta_stats = compute_meta_stats_for_instruction_driven_chat(
                 annotation_obj.result
             )
