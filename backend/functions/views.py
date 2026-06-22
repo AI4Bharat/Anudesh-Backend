@@ -23,8 +23,21 @@ from users.utils import (
 
 from tasks.models import *
 from utils.blob_functions import test_container_connection
-from django.http import StreamingHttpResponse
+from django.http import StreamingHttpResponse, JsonResponse
+from asgiref.sync import sync_to_async
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, AuthenticationFailed
 from django.views.decorators.csrf import csrf_exempt
+
+def is_request_authenticated(request):
+    try:
+        auth_tuple = JWTAuthentication().authenticate(request)
+        if auth_tuple is not None:
+            user, token = auth_tuple
+            return user.is_authenticated
+    except (InvalidToken, AuthenticationFailed):
+        pass
+    return request.user.is_authenticated
 from django.views.decorators.http import require_POST
 from utils.llm_interactions import get_model_output, stream_model_output, stream_all_models_output
 
@@ -399,12 +412,16 @@ _CHAT_SYSTEM_PROMPT = (
 @csrf_exempt
 @require_POST
 async def chat_output_stream(request):
+    if not await sync_to_async(is_request_authenticated)(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
     data = json.loads(request.body)
     prompt = data.get("message")
     history = data.get("history", [])
     model = data.get("model", "google/gemma-4-26B-A4B-it")
 
     async def event_stream():
+        yield ": keep-alive\n\n"
         try:
             async for token in stream_model_output(_CHAT_SYSTEM_PROMPT, prompt, history, model):
                 yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
@@ -425,6 +442,9 @@ async def chat_output_stream_multi(request):
     SSE endpoint for streaming tokens from multiple LLM models concurrently.
     Each SSE event is tagged with the model name for frontend demultiplexing.
     """
+    if not await sync_to_async(is_request_authenticated)(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
     data = json.loads(request.body)
     prompt = data.get("message")
     model_interactions = data.get("model_interactions", [])
@@ -440,6 +460,7 @@ async def chat_output_stream_multi(request):
         system_prompt_data = {"default": DEFAULT_SYSTEM_PROMPT}
 
     async def event_stream():
+        yield ": keep-alive\n\n"
         try:
             async for item in stream_all_models_output(
                 system_prompt_data, prompt, model_interactions, models, DEFAULT_SYSTEM_PROMPT
