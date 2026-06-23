@@ -30,14 +30,53 @@ from rest_framework_simplejwt.exceptions import InvalidToken, AuthenticationFail
 from django.views.decorators.csrf import csrf_exempt
 
 def is_request_authenticated(request):
+    """
+    Authenticate a request using JWT.
+    Works with both DRF Request objects and raw Django HttpRequest
+    (used by async streaming views).
+    """
+    # First, try DRF's built-in JWTAuthentication (works with DRF Request objects)
     try:
         auth_tuple = JWTAuthentication().authenticate(request)
         if auth_tuple is not None:
             user, token = auth_tuple
             return user.is_authenticated
     except (InvalidToken, AuthenticationFailed):
+        return False
+    except Exception:
         pass
-    return request.user.is_authenticated
+
+    # Fallback: manually extract JWT from the Authorization header.
+    # This handles raw Django HttpRequest objects in async views where
+    # DRF's JWTAuthentication silently fails because it expects a DRF Request.
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if not auth_header:
+        auth_header = request.headers.get("Authorization", "")
+
+    if auth_header:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].upper() == "JWT":
+            raw_token = parts[1]
+            try:
+                from rest_framework_simplejwt.tokens import UntypedToken
+                from django.contrib.auth import get_user_model
+                UntypedToken(raw_token)  # validates expiry & signature
+                # Decode to get user_id
+                from rest_framework_simplejwt.backends import TokenBackend
+                from django.conf import settings
+                tb = TokenBackend(
+                    algorithm="HS256",
+                    signing_key=settings.SECRET_KEY,
+                )
+                payload = tb.decode(raw_token, verify=True)
+                User = get_user_model()
+                user = User.objects.get(id=payload.get("user_id"))
+                return user.is_authenticated
+            except Exception:
+                return False
+
+    # Final fallback: check session-based auth
+    return getattr(request, "user", None) is not None and request.user.is_authenticated
 from django.views.decorators.http import require_POST
 from utils.llm_interactions import get_model_output, stream_model_output, stream_all_models_output
 
