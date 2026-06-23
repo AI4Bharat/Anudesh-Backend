@@ -1860,6 +1860,7 @@ class AnnotationViewSet(
                     annotation_obj.task.project_id.project_type
                     == "InstructionDrivenChat"
                 ):
+                    retry = request.data.get("retry", False)
                     if isinstance(request.data["result"], str):
                         output_result = get_llm_output(
                             request.data["result"],
@@ -1876,12 +1877,15 @@ class AnnotationViewSet(
                         elif isinstance(output_result, Response):
                             return output_result
                         # store the result of all checks as well
-                        annotation_obj.result.append(
-                            {
+                        if retry and annotation_obj.result:
+                            annotation_obj.result[-1]["output"] = output
+                        else:
+                            annotation_obj.result.append(
+                                {
                                 "prompt": request.data["result"],
                                 "output": output_result,
-                            }
-                        )
+                                }
+                            )
                     # to handle the delete last chat case
                     else:
                         annotation_obj.result = request.data["result"]
@@ -2122,6 +2126,7 @@ class AnnotationViewSet(
                     annotation_obj.task.project_id.project_type
                     == "InstructionDrivenChat"
                 ):
+                    retry = request.data.get("retry", False)
                     if isinstance(request.data["result"], str):
                         output_result = get_llm_output(
                             request.data["result"],
@@ -2138,12 +2143,15 @@ class AnnotationViewSet(
                         elif isinstance(output_result, Response):
                             return output_result
                         # store the result of all checks as well
-                        annotation_obj.result.append(
-                            {
+                        if retry and annotation_obj.result:
+                            annotation_obj.result[-1]["output"] = output
+                        else:
+                            annotation_obj.result.append(
+                                {
                                 "prompt": request.data["result"],
                                 "output": output_result,
-                            }
-                        )
+                                }
+                            )
                     # to handle the delete last chat case
                     else:
                         annotation_obj.result = request.data["result"]
@@ -2453,6 +2461,7 @@ class AnnotationViewSet(
                     annotation_obj.task.project_id.project_type
                     == "InstructionDrivenChat"
                 ):
+                    retry = request.data.get("retry", False)
                     if isinstance(request.data["result"], str):
                         output_result = get_llm_output(
                             request.data["result"],
@@ -2469,12 +2478,16 @@ class AnnotationViewSet(
                         elif isinstance(output_result, Response):
                             return output_result
                         # store the result of all checks as well
-                        annotation_obj.result.append(
-                            {
+                        if retry and annotation_obj.result:
+                            annotation_obj.result[-1]["output"] = output
+                        else:
+                            annotation_obj.result.append(
+                                {
                                 "prompt": request.data["result"],
                                 "output": output_result,
-                            }
-                        )
+                                }
+                            )
+                            
                     # to handle the delete last chat case
                     else:
                         annotation_obj.result = request.data["result"]
