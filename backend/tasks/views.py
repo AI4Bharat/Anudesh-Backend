@@ -1878,7 +1878,7 @@ class AnnotationViewSet(
                             return output_result
                         # store the result of all checks as well
                         if retry and annotation_obj.result:
-                            annotation_obj.result[-1]["output"] = output
+                            annotation_obj.result[-1]["output"] = output_result
                         else:
                             annotation_obj.result.append(
                                 {
@@ -2144,7 +2144,7 @@ class AnnotationViewSet(
                             return output_result
                         # store the result of all checks as well
                         if retry and annotation_obj.result:
-                            annotation_obj.result[-1]["output"] = output
+                            annotation_obj.result[-1]["output"] = output_result
                         else:
                             annotation_obj.result.append(
                                 {
@@ -2479,7 +2479,7 @@ class AnnotationViewSet(
                             return output_result
                         # store the result of all checks as well
                         if retry and annotation_obj.result:
-                            annotation_obj.result[-1]["output"] = output
+                            annotation_obj.result[-1]["output"] = output_result
                         else:
                             annotation_obj.result.append(
                                 {
