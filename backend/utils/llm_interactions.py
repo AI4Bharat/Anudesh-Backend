@@ -41,7 +41,7 @@ import os
 
 
 import re
-from openai import OpenAI
+from openai import OpenAI, AsyncOpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
@@ -328,5 +328,164 @@ def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run
 
         if isinstance(results[model], Response):
             return results[model]
-
+    
     return results
+
+# ── Async streaming generators (Django 5 + ASGI) ────────────────────────────
+
+_google_client = None
+_deepinfra_client = None
+
+def _get_google_client() -> AsyncOpenAI:
+    global _google_client
+    if _google_client is None:
+        _google_client = AsyncOpenAI(
+            api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+    return _google_client
+
+def _get_deepinfra_client() -> AsyncOpenAI:
+    global _deepinfra_client
+    if _deepinfra_client is None:
+        _deepinfra_client = AsyncOpenAI(
+            api_key=os.getenv("DEEPINFRA_API_KEY"),
+            base_url=os.getenv("DEEPINFRA_BASE_URL"),
+        )
+    return _deepinfra_client
+
+async def stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
+    client = _get_google_client()
+    history_messages = process_history(history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    try:
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2048,
+            stream=True,
+        )
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content is not None:
+                yield chunk.choices[0].delta.content
+    except Exception as e:
+        yield f"[ERROR] {e}"
+
+
+async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
+    client = _get_deepinfra_client()
+    history_messages = process_history(history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    # State machine to strip <think>...</think> blocks that may span chunk boundaries
+    pending = ""
+    in_think = False
+
+    try:
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2048,
+            stream=True,
+        )
+        async for chunk in stream:
+            if not (chunk.choices and chunk.choices[0].delta.content is not None):
+                continue
+            pending += chunk.choices[0].delta.content
+
+            while True:
+                if in_think:
+                    end = pending.find("</think>")
+                    if end != -1:
+                        in_think = False
+                        pending = pending[end + 8:].lstrip("\n")
+                    else:
+                        pending = ""
+                        break
+                else:
+                    start = pending.find("<think>")
+                    if start != -1:
+                        if start > 0:
+                            yield pending[:start]
+                        in_think = True
+                        pending = pending[start + 7:]
+                    else:
+                        # Keep last 7 chars to handle tags split across chunks
+                        if len(pending) > 7:
+                            yield pending[:-7]
+                            pending = pending[-7:]
+                        break
+
+        if pending and not in_think:
+            yield pending.lstrip("\n")
+    except Exception as e:
+        yield f"[ERROR] {e}"
+
+
+async def stream_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
+    if model in GOOGLE_AI_STUDIO_MODELS:
+        async for token in stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
+            yield token
+    else:
+        async for token in stream_deepinfra_output(system_prompt, user_prompt, history, model):
+            yield token
+
+
+async def stream_all_models_output(system_prompt_data, user_prompt, model_interactions, models_to_run, default_system_prompt=""):
+    """
+    Stream tokens from multiple models concurrently.
+    Yields dicts like: {"model": "modelA", "token": "Hello"}
+    and {"model": "modelA", "done": True} when a model finishes.
+    """
+    import asyncio
+
+    queue = asyncio.Queue()
+
+    async def _stream_single_model(model_name):
+        """Collect tokens from one model and push them onto the shared queue."""
+        system_prompt = (
+            system_prompt_data.get(model_name)
+            or system_prompt_data.get("default")
+            or default_system_prompt
+        ) if isinstance(system_prompt_data, dict) else system_prompt_data
+
+        # Extract this model's conversation history from model_interactions
+        model_history = next(
+            (
+                interaction["interaction_json"]
+                for interaction in (model_interactions or [])
+                if interaction.get("model_name") == model_name
+            ),
+            [],
+        )
+
+        try:
+            async for token in stream_model_output(system_prompt, user_prompt, model_history, model_name):
+                await queue.put({"model": model_name, "token": token})
+        except Exception as e:
+            await queue.put({"model": model_name, "error": str(e)})
+        finally:
+            await queue.put({"model": model_name, "done": True})
+
+    # Launch all model streams concurrently
+    tasks = [asyncio.create_task(_stream_single_model(m)) for m in models_to_run]
+
+    models_remaining = len(models_to_run)
+    while models_remaining > 0:
+        item = await queue.get()
+        if item.get("done"):
+            models_remaining -= 1
+        yield item
+
+    # Ensure all tasks are cleaned up
+    for t in tasks:
+        if not t.done():
+            t.cancel()
+
