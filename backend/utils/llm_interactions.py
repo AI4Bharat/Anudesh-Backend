@@ -407,7 +407,10 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
                         in_think = False
                         pending = pending[end + 8:].lstrip("\n")
                     else:
-                        pending = ""
+                        if len(pending) > 7:
+                            pending = pending[-7:]
+                        else:
+                            pass
                         break
                 else:
                     start = pending.find("<think>")
