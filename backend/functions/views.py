@@ -461,12 +461,17 @@ async def chat_output_stream(request):
 
     async def event_stream():
         yield ": keep-alive\n\n"
+        finish_reason = None
         try:
             async for token in stream_model_output(_CHAT_SYSTEM_PROMPT, prompt, history, model):
+                # The generator yields a sentinel dict as its last item
+                if isinstance(token, dict) and "__finish_reason__" in token:
+                    finish_reason = token["__finish_reason__"]
+                    continue
                 yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        yield "data: [DONE]\n\n"
+        yield f"data: {json.dumps({'done': True, 'finish_reason': finish_reason})}\n\n"
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
@@ -507,7 +512,7 @@ async def chat_output_stream_multi(request):
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-        yield "data: [DONE]\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     response["Cache-Control"] = "no-cache"
