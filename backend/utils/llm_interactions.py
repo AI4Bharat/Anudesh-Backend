@@ -224,6 +224,15 @@ GOOGLE_AI_STUDIO_MODELS = {
     "gemini-3.1-flash-lite",
 }
 
+# Per-provider max_tokens configuration.
+# DeepInfra reasoning models (e.g. DeepSeek-R1) emit <think>...</think> tokens
+# that count against max_tokens but are stripped from the output. Give them
+# extra headroom so the visible response isn't truncated.
+MAX_TOKENS_BY_PROVIDER = {
+    "google_ai_studio": 4096,
+    "deepinfra": 6144,
+}
+
 def get_google_ai_studio_output(system_prompt, user_prompt, history, model):
     try:
         client = OpenAI(
@@ -240,7 +249,7 @@ def get_google_ai_studio_output(system_prompt, user_prompt, history, model):
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=MAX_TOKENS_BY_PROVIDER["google_ai_studio"],
         )
 
         return response.choices[0].message.content.strip()
@@ -274,7 +283,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
         )
 
         output = response.choices[0].message.content.strip()
@@ -361,19 +370,26 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
     messages.extend(history_messages)
     messages.append({"role": "user", "content": user_prompt})
 
+    finish_reason = None
     try:
         stream = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=MAX_TOKENS_BY_PROVIDER["google_ai_studio"],
             stream=True,
         )
         async for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta.content is not None:
-                yield chunk.choices[0].delta.content
+            if chunk.choices:
+                if chunk.choices[0].delta.content is not None:
+                    yield chunk.choices[0].delta.content
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
     except Exception as e:
         yield f"[ERROR] {e}"
+        return
+    # Yield a sentinel so callers can extract the finish_reason
+    yield {"__finish_reason__": finish_reason}
 
 
 async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
@@ -386,16 +402,19 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
     # State machine to strip <think>...</think> blocks that may span chunk boundaries
     pending = ""
     in_think = False
+    finish_reason = None
 
     try:
         stream = await client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
             stream=True,
         )
         async for chunk in stream:
+            if chunk.choices and chunk.choices[0].finish_reason:
+                finish_reason = chunk.choices[0].finish_reason
             if not (chunk.choices and chunk.choices[0].delta.content is not None):
                 continue
             pending += chunk.choices[0].delta.content
@@ -407,7 +426,10 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
                         in_think = False
                         pending = pending[end + 8:].lstrip("\n")
                     else:
-                        pending = ""
+                        if len(pending) > 7:
+                            pending = pending[-7:]
+                        else:
+                            pass
                         break
                 else:
                     start = pending.find("<think>")
@@ -427,15 +449,24 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
             yield pending.lstrip("\n")
     except Exception as e:
         yield f"[ERROR] {e}"
+        return
+    # Yield a sentinel so callers can extract the finish_reason
+    yield {"__finish_reason__": finish_reason}
 
 
 async def stream_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
+    """Stream tokens from a single model.
+
+    Yields string tokens followed by a final sentinel dict:
+    {"__finish_reason__": "stop" | "length" | None}
+    """
     if model in GOOGLE_AI_STUDIO_MODELS:
         async for token in stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
             yield token
     else:
         async for token in stream_deepinfra_output(system_prompt, user_prompt, history, model):
             yield token
+
 
 
 async def stream_all_models_output(system_prompt_data, user_prompt, model_interactions, models_to_run, default_system_prompt=""):
@@ -466,13 +497,18 @@ async def stream_all_models_output(system_prompt_data, user_prompt, model_intera
             [],
         )
 
+        finish_reason = None
         try:
             async for token in stream_model_output(system_prompt, user_prompt, model_history, model_name):
+                # Capture the finish_reason sentinel from the generator
+                if isinstance(token, dict) and "__finish_reason__" in token:
+                    finish_reason = token["__finish_reason__"]
+                    continue
                 await queue.put({"model": model_name, "token": token})
         except Exception as e:
             await queue.put({"model": model_name, "error": str(e)})
         finally:
-            await queue.put({"model": model_name, "done": True})
+            await queue.put({"model": model_name, "done": True, "finish_reason": finish_reason})
 
     # Launch all model streams concurrently
     tasks = [asyncio.create_task(_stream_single_model(m)) for m in models_to_run]
