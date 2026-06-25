@@ -1877,8 +1877,10 @@ class AnnotationViewSet(
                         elif isinstance(output_result, Response):
                             return output_result
                         # store the result of all checks as well
-                        if retry and annotation_obj.result:
+                        if retry and annotation_obj.result or (annotation_obj.result and annotation_obj.result[-1].get("output") == ""):
                             annotation_obj.result[-1]["output"] = output_result
+                            annotation_obj.result[-1]["prompt"] = request.data["result"]
+                            print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                         else:
                             annotation_obj.result.append(
                                 {
@@ -2143,8 +2145,10 @@ class AnnotationViewSet(
                         elif isinstance(output_result, Response):
                             return output_result
                         # store the result of all checks as well
-                        if retry and annotation_obj.result:
+                        if retry and annotation_obj.result or (annotation_obj.result and annotation_obj.result[-1].get("output") == ""):
                             annotation_obj.result[-1]["output"] = output_result
+                            annotation_obj.result[-1]["prompt"] = request.data["result"]
+                            print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                         else:
                             annotation_obj.result.append(
                                 {
@@ -2478,8 +2482,10 @@ class AnnotationViewSet(
                         elif isinstance(output_result, Response):
                             return output_result
                         # store the result of all checks as well
-                        if retry and annotation_obj.result:
+                        if retry and annotation_obj.result or (annotation_obj.result and annotation_obj.result[-1].get("output") == ""):
                             annotation_obj.result[-1]["output"] = output_result
+                            annotation_obj.result[-1]["prompt"] = request.data["result"]
+                            print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                         else:
                             annotation_obj.result.append(
                                 {
