@@ -240,7 +240,7 @@ def get_google_ai_studio_output(system_prompt, user_prompt, history, model):
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=4096,
         )
 
         return response.choices[0].message.content.strip()
@@ -274,7 +274,7 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=4096,
         )
 
         output = response.choices[0].message.content.strip()
@@ -366,7 +366,7 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=4096,
             stream=True,
         )
         async for chunk in stream:
@@ -392,7 +392,7 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=2048,
+            max_tokens=4096,
             stream=True,
         )
         async for chunk in stream:
