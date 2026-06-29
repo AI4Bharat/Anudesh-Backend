@@ -3,6 +3,9 @@ from locale import normalize
 from urllib.parse import unquote
 import ast
 from django.http import JsonResponse
+import logging
+logger = logging.getLogger(__name__)
+
 from rest_framework import viewsets
 from rest_framework import mixins
 from rest_framework import status
@@ -1861,7 +1864,9 @@ class AnnotationViewSet(
                     == "InstructionDrivenChat"
                 ):
                     retry = request.data.get("retry", False)
+                    logger.warning(f"1DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                     if isinstance(request.data["result"], str):
+                        logger.warning(f"2DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                         output_result = get_llm_output(
                             request.data["result"],
                             annotation_obj.task,
@@ -1888,15 +1893,35 @@ class AnnotationViewSet(
                                 "output": output_result,
                                 }
                             )
+                            print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
+
                     # to handle the delete last chat case
                     else:
-                        annotation_obj.result = request.data["result"]
-                    annotation_obj.meta_stats = (
-                        compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        if retry and annotation_obj.result:
+                            last_prompt = annotation_obj.result[-1].get("prompt", "")
+                            output_result = get_llm_output(
+                                last_prompt,
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                            )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                            annotation_obj.result[-1]["output"] = output_result
+                        else:
+                            annotation_obj.result = request.data["result"]
+                        annotation_obj.meta_stats = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
-                    )
-                    is_IDC = True
+                        is_IDC = True
                 else:
                     annotation_obj.result = request.data["result"]
                 if "annotation_notes" in dict(request.data):
@@ -1948,6 +1973,7 @@ class AnnotationViewSet(
                     annotation_obj.task.project_id.project_type
                     == "InstructionDrivenChat"
                 ):
+                    
                     if isinstance(request.data["result"], str):
                         ret_dict = {
                             "message": "Please send the result as list when you are not auto-saving."
@@ -2156,15 +2182,33 @@ class AnnotationViewSet(
                                 "output": output_result,
                                 }
                             )
+                            print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                     # to handle the delete last chat case
                     else:
-                        annotation_obj.result = request.data["result"]
-                    annotation_obj.meta_stats = (
-                        compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        if retry and annotation_obj.result:
+                            last_prompt = annotation_obj.result[-1].get("prompt", "")
+                            output_result = get_llm_output(
+                                last_prompt,
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                            )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                        else:
+                            annotation_obj.result = request.data["result"]
+                        annotation_obj.meta_stats = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
-                    )
-                    is_IDC = True
+                        is_IDC = True
                 else:
                     annotation_obj.result = request.data["result"]
                 if "review_notes" in dict(request.data):
@@ -2466,7 +2510,9 @@ class AnnotationViewSet(
                     == "InstructionDrivenChat"
                 ):
                     retry = request.data.get("retry", False)
+                    print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                     if isinstance(request.data["result"], str):
+                        print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                         output_result = get_llm_output(
                             request.data["result"],
                             annotation_obj.task,
@@ -2493,16 +2539,34 @@ class AnnotationViewSet(
                                 "output": output_result,
                                 }
                             )
+                            print(f"DEBUG retry={retry}, result_len={len(annotation_obj.result)}, last={annotation_obj.result[-1] if annotation_obj.result else None}")
                             
                     # to handle the delete last chat case
                     else:
-                        annotation_obj.result = request.data["result"]
-                    annotation_obj.meta_stats = (
-                        compute_meta_stats_for_instruction_driven_chat(
-                            annotation_obj.result
+                        if retry and annotation_obj.result:
+                            last_prompt = annotation_obj.result[-1].get("prompt", "")
+                            output_result = get_llm_output(
+                                last_prompt,
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                            )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                        else:
+                            annotation_obj.result = request.data["result"]
+                        annotation_obj.meta_stats = (
+                            compute_meta_stats_for_instruction_driven_chat(
+                                annotation_obj.result
+                            )
                         )
-                    )
-                    is_IDC = True
+                        is_IDC = True
                 else:
                     annotation_obj.result = request.data["result"]
                 if "supercheck_notes" in dict(request.data):
