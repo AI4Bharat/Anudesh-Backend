@@ -1770,6 +1770,7 @@ class AnnotationViewSet(
                     annotation_obj.task.project_id.project_type
                     == "MultipleLLMInstructionDrivenChat"
                 ):
+                    retry = request.data.get("retry", False)
                     if isinstance(request.data["result"], str):
                         if request.data["result"]=="":
                             # preferred_model = request.data.get("preferred_response")
@@ -1837,10 +1838,13 @@ class AnnotationViewSet(
                                 model_found = False
                                 for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        if retry and model_entry["interaction_json"]:
+                                            model_entry["interaction_json"][-1]["output"] = model_output
+                                            model_entry["interaction_json"][-1]["prompt"] = prompt_text
+                                        else:
+                                            model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
                                         break
-
                                 # If model not found, create a new one
                                 if not model_found:
                                     result_entry["model_interactions"].append({
@@ -1849,13 +1853,37 @@ class AnnotationViewSet(
 
                                     })  
                     else:
-                        annotation_obj.result = request.data["result"]
-                        annotation_obj.meta_stats = (
-                            compute_meta_stats_for_multiple_llm_idc(
-                                annotation_obj.result
+                        if retry and annotation_obj.result:
+                            result_entry = annotation_obj.result[0]
+                            prompt_text = result_entry.get("model_interactions", [{}])[0].get("interaction_json", [{}])[-1].get("prompt", "")
+                            output_result = get_all_llm_output(
+                                prompt_text,
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                                task.data.get("model", [])
                             )
-                        )
-                    is_IDC = True
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                            for model_name, model_output in output_result.items():
+                                for model_entry in result_entry.get("model_interactions", []):
+                                    if model_entry.get("model_name") == model_name:
+                                        if model_entry["interaction_json"]:
+                                            model_entry["interaction_json"][-1]["output"] = model_output
+                        else:
+                            annotation_obj.result = request.data["result"]
+                            annotation_obj.meta_stats = (
+                                compute_meta_stats_for_multiple_llm_idc(
+                                    annotation_obj.result
+                                )
+                            )
+                        is_IDC = True
                 elif (
                     annotation_obj.task.project_id.project_type
                     == "InstructionDrivenChat"
@@ -1992,7 +2020,7 @@ class AnnotationViewSet(
                 elif (
                     annotation_obj.task.project_id.project_type
                     == "MultipleLLMInstructionDrivenChat"
-                ):
+                ): 
                     if isinstance(request.data["result"], str):
                         ret_dict = {
                             "message": "Please send the result as list when you are not auto-saving."
@@ -2063,6 +2091,7 @@ class AnnotationViewSet(
                     annotation_obj.task.project_id.project_type
                     == "MultipleLLMInstructionDrivenChat"
                 ):
+                    retry = request.data.get("retry", False)
                     if isinstance(request.data["result"], str):
                         if(request.data["result"]==""):
                             eval_form_vals = request.data.get("model_responses_json")
@@ -2123,10 +2152,13 @@ class AnnotationViewSet(
                                 model_found = False
                                 for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        if retry and model_entry["interaction_json"]:
+                                            model_entry["interaction_json"][-1]["output"] = model_output
+                                            model_entry["interaction_json"][-1]["prompt"] = prompt_text
+                                        else:
+                                            model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
                                         break
-
                                 # If model not found, create a new one
                                 if not model_found:
                                     result_entry["model_interactions"].append({
@@ -2135,12 +2167,36 @@ class AnnotationViewSet(
 
                                     })  
                     else:
-                        annotation_obj.result = request.data["result"]
-                        annotation_obj.meta_stats = (
-                            compute_meta_stats_for_multiple_llm_idc(
-                                annotation_obj.result
+                        if retry and annotation_obj.result:
+                            result_entry = annotation_obj.result[0]
+                            prompt_text = result_entry.get("model_interactions", [{}])[0].get("interaction_json", [{}])[-1].get("prompt", "")
+                            output_result = get_all_llm_output(
+                                prompt_text,
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                                task.data.get("model", [])
                             )
-                        )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                            for model_name, model_output in output_result.items():
+                                for model_entry in result_entry.get("model_interactions", []):
+                                    if model_entry.get("model_name") == model_name:
+                                        if model_entry["interaction_json"]:
+                                            model_entry["interaction_json"][-1]["output"] = model_output
+                        else:
+                            annotation_obj.result = request.data["result"]
+                            annotation_obj.meta_stats = (
+                                compute_meta_stats_for_multiple_llm_idc(
+                                    annotation_obj.result
+                                )
+                            )
                     is_IDC = True
                 elif (
                     annotation_obj.task.project_id.project_type
@@ -2416,6 +2472,7 @@ class AnnotationViewSet(
                     annotation_obj.task.project_id.project_type
                     == "MultipleLLMInstructionDrivenChat"
                 ):
+                    retry = request.data.get("retry", False)
                     if isinstance(request.data["result"], str):
                         if(request.data["result"]==""):
                             eval_form_vals = request.data.get("model_responses_json")
@@ -2476,7 +2533,11 @@ class AnnotationViewSet(
                                 model_found = False
                                 for model_entry in result_entry["model_interactions"]:
                                     if model_entry.get("model_name") == model_name:
-                                        model_entry["interaction_json"].append(new_interaction)
+                                        if retry and model_entry["interaction_json"]:
+                                            model_entry["interaction_json"][-1]["output"] = model_output
+                                            model_entry["interaction_json"][-1]["prompt"] = prompt_text
+                                        else:
+                                            model_entry["interaction_json"].append(new_interaction)
                                         model_found = True
                                         break
 
@@ -2488,12 +2549,36 @@ class AnnotationViewSet(
 
                                     })  
                     else:
-                        annotation_obj.result = request.data["result"]
-                        annotation_obj.meta_stats = (
-                            compute_meta_stats_for_multiple_llm_idc(
-                                annotation_obj.result
+                        if retry and annotation_obj.result:
+                            result_entry = annotation_obj.result[0]
+                            prompt_text = result_entry.get("model_interactions", [{}])[0].get("interaction_json", [{}])[-1].get("prompt", "")
+                            output_result = get_all_llm_output(
+                                prompt_text,
+                                annotation_obj.task,
+                                annotation_obj,
+                                annotation_obj.task.project_id.metadata_json,
+                                task.data.get("model", [])
                             )
-                        )
+                            if output_result == -1:
+                                ret_dict = {
+                                    "message": "Please make sure you have entered a prompt and the system has responded with an answer"
+                                }
+                                ret_status = status.HTTP_403_FORBIDDEN
+                                return Response(ret_dict, status=ret_status)
+                            elif isinstance(output_result, Response):
+                                return output_result
+                            for model_name, model_output in output_result.items():
+                                for model_entry in result_entry.get("model_interactions", []):
+                                    if model_entry.get("model_name") == model_name:
+                                        if model_entry["interaction_json"]:
+                                            model_entry["interaction_json"][-1]["output"] = model_output
+                        else:
+                            annotation_obj.result = request.data["result"]
+                            annotation_obj.meta_stats = (
+                                compute_meta_stats_for_multiple_llm_idc(
+                                    annotation_obj.result
+                                )
+                            )
                     is_IDC = True
                 elif (
                     annotation_obj.task.project_id.project_type
