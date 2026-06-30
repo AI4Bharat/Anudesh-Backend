@@ -52,7 +52,7 @@ from .utils import (
     validate_metadata_json_format,
 )
 
-from dataset.models import DatasetInstance
+from dataset.models import DatasetInstance, ACTIVE_LLM_MODELS
 
 # Import celery tasks
 from .tasks import (
@@ -1131,6 +1131,201 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except Exception:
             return Response(
                 {"message": "Please Login!"}, status=status.HTTP_400_BAD_REQUEST
+            )
+    @action(detail=True, methods=["POST"], url_path="update_tasks_models")
+    def update_tasks_models(self, request, pk=None):
+        """
+        Update all tasks in a project to use the new model configuration.
+        For multiple LLM and IDC: only updates incomplete tasks with UNLABELED, DRAFT, and SKIPPED annotations.
+        Clears existing annotation results (output only, not prompt) before updating model.
+        """
+        from tasks.models import Task, Annotation, INCOMPLETE, UNLABELED, DRAFT, SKIPPED, LABELED, TO_BE_REVISED
+        
+        try:
+            project = self.get_object()
+            
+            # Check permissions
+            if not (request.user.role == User.ORGANIZATION_OWNER or 
+                    request.user.is_superuser or 
+                    request.user.role == User.WORKSPACE_MANAGER):
+                return Response(
+                    {"message": "You are not authorized to perform this action"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Get the models from project metadata
+            models_set = project.metadata_json.get("models_set", [])
+            fixed_models = project.metadata_json.get("fixed_models", [])
+            
+            if not models_set:
+                return Response(
+                    {"message": "No models configured in project"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Use fixed models if available, otherwise use all models_set
+            new_models = fixed_models if fixed_models else models_set
+            
+            # Statuses that can be updated (no real progress)
+            # These are statuses where we can clear output and update model
+            updateable_statuses = [UNLABELED, DRAFT, SKIPPED]
+            
+            # Get tasks with real progress (annotations that are NOT in updateable_statuses)
+            # This includes LABELED, TO_BE_REVISED, and any other status not in updateable_statuses
+            tasks_with_progress = Annotation.objects.filter(
+                task__project_id=project
+            ).exclude(
+                annotation_status__in=updateable_statuses
+            ).values_list('task_id', flat=True)
+            
+            # Filter: incomplete tasks WITHOUT any real progress
+            tasks = Task.objects.filter(
+                project_id=project, 
+                task_status=INCOMPLETE
+            ).exclude(
+                id__in=tasks_with_progress
+            )
+            
+            updated_count = 0
+            tasks_list = []
+            annotations_list = []
+            
+            for task in tasks:
+                # Update the model on the task
+                task.data["model"] = new_models.copy()
+                tasks_list.append(task)
+                updated_count += 1
+            
+            if tasks_list:
+                # Bulk update tasks
+                Task.objects.bulk_update(tasks_list, ['data'])
+                
+                # Clear the output field for UNLABELED, DRAFT, and SKIPPED annotations only
+                annotations_to_update = Annotation.objects.filter(
+                    task__in=tasks_list,
+                    annotation_status__in=updateable_statuses
+                )
+                
+                for annotation in annotations_to_update:
+                    if annotation.result and isinstance(annotation.result, list):
+                        modified = False
+                        for item in annotation.result:
+                            # Clear ONLY "output", preserve "prompt"
+                            if isinstance(item, dict) and "output" in item:
+                                if item["output"]:  # Only clear if there's a value
+                                    item["output"] = ""
+                                    modified = True
+                        if modified:
+                            annotations_list.append(annotation)
+                
+                if annotations_list:
+                    Annotation.objects.bulk_update(annotations_list, ['result'])
+            
+            return Response({
+                "message": f"Updated {updated_count} incomplete tasks with new model configuration.",
+                "updated_count": updated_count,
+                "annotations_cleaned": len(annotations_list)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"message": f"Error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+    @action(detail=True, methods=["POST"], url_path="update_idc_tasks_model")
+    def update_idc_tasks_model(self, request, pk=None):
+        """
+        Update the model of incomplete tasks in a Single IDC project if the current model is inactive.
+        """
+        from tasks.models import Task, Annotation, INCOMPLETE, UNLABELED
+        from dataset.models import ACTIVE_LLM_MODELS
+        
+        try:
+            project = self.get_object()
+            
+            # Check permissions
+            if not (request.user.role == User.ORGANIZATION_OWNER or 
+                    request.user.is_superuser or 
+                    request.user.role == User.WORKSPACE_MANAGER):
+                return Response(
+                    {"message": "You are not authorized to perform this action"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            if project.project_type != "InstructionDrivenChat":
+                return Response(
+                    {"message": "This operation is only allowed for InstructionDrivenChat projects."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            new_model = request.data.get("new_model")
+            if not new_model:
+                return Response(
+                    {"message": "new_model is required."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            if new_model not in ACTIVE_LLM_MODELS:
+                return Response(
+                    {"message": f"{new_model} is not an active LLM model."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            tasks_with_progress = Annotation.objects.filter(
+                task__project_id=project
+            ).exclude(
+                annotation_status=UNLABELED
+            ).values_list('task_id', flat=True)
+
+            tasks = Task.objects.filter(
+                project_id=project, 
+                task_status=INCOMPLETE
+            ).exclude(
+                id__in=tasks_with_progress
+            )
+            
+            updated_count = 0
+            tasks_list = []
+            
+            for task in tasks:
+                current_model = task.data.get("model")
+                if current_model not in ACTIVE_LLM_MODELS:
+                    task.data["model"] = new_model
+                    tasks_list.append(task)
+                    updated_count += 1
+            
+            if tasks_list:
+                Task.objects.bulk_update(tasks_list, ['data'])
+                
+                # Clear the result field of UNLABELED annotations for these updated tasks
+                annotations_to_update = Annotation.objects.filter(
+                    task__in=tasks_list,
+                    annotation_status=UNLABELED
+                )
+                annotations_list = []
+                for annotation in annotations_to_update:
+                    if annotation.result and isinstance(annotation.result, list):
+                        modified = False
+                        for item in annotation.result:
+                            if isinstance(item, dict) and "output" in item:
+                                item["output"] = ""
+                                modified = True
+                        if modified:
+                            annotations_list.append(annotation)
+                
+                if annotations_list:
+                    Annotation.objects.bulk_update(annotations_list, ['result'])
+                
+            return Response({
+                "message": f"Updated {updated_count} incomplete tasks to model {new_model}.",
+                "updated_count": updated_count
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {"message": f"Error: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
     @swagger_auto_schema(
@@ -2512,6 +2707,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             )
         for task in tasks:
             task.annotation_users.add(cur_user)
+            if project.project_type == "InstructionDrivenChat":
+                if task.data and "model" in task.data and task.data["model"] not in ACTIVE_LLM_MODELS:
+                    task.data["model"] = ACTIVE_LLM_MODELS[0]
             task.save()
             result = []
             annotator_anno_count = Annotation_model.objects.filter(

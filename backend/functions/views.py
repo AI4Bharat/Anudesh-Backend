@@ -23,7 +23,62 @@ from users.utils import (
 
 from tasks.models import *
 from utils.blob_functions import test_container_connection
-from utils.llm_interactions import get_model_output
+from django.http import StreamingHttpResponse, JsonResponse
+from asgiref.sync import sync_to_async
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, AuthenticationFailed
+from django.views.decorators.csrf import csrf_exempt
+
+def is_request_authenticated(request):
+    """
+    Authenticate a request using JWT.
+    Works with both DRF Request objects and raw Django HttpRequest
+    (used by async streaming views).
+    """
+    # First, try DRF's built-in JWTAuthentication (works with DRF Request objects)
+    try:
+        auth_tuple = JWTAuthentication().authenticate(request)
+        if auth_tuple is not None:
+            user, token = auth_tuple
+            return user.is_authenticated
+    except (InvalidToken, AuthenticationFailed):
+        return False
+    except Exception:
+        pass
+
+    # Fallback: manually extract JWT from the Authorization header.
+    # This handles raw Django HttpRequest objects in async views where
+    # DRF's JWTAuthentication silently fails because it expects a DRF Request.
+    auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+    if not auth_header:
+        auth_header = request.headers.get("Authorization", "")
+
+    if auth_header:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].upper() == "JWT":
+            raw_token = parts[1]
+            try:
+                from rest_framework_simplejwt.tokens import UntypedToken
+                from django.contrib.auth import get_user_model
+                UntypedToken(raw_token)  # validates expiry & signature
+                # Decode to get user_id
+                from rest_framework_simplejwt.backends import TokenBackend
+                from django.conf import settings
+                tb = TokenBackend(
+                    algorithm="HS256",
+                    signing_key=settings.SECRET_KEY,
+                )
+                payload = tb.decode(raw_token, verify=True)
+                User = get_user_model()
+                user = User.objects.get(id=payload.get("user_id"))
+                return user.is_authenticated
+            except Exception:
+                return False
+
+    # Final fallback: check session-based auth
+    return getattr(request, "user", None) is not None and request.user.is_authenticated
+from django.views.decorators.http import require_POST
+from utils.llm_interactions import get_model_output, stream_model_output, stream_all_models_output
 
 from .tasks import (
     populate_draft_data_json,
@@ -368,11 +423,14 @@ def chat_output(request):
     prompt = request.data.get("message")
     history = request.data.get("history", "")
     model = request.data.get("model", "GPT3.5")
+    DEFAULT_SYSTEM_PROMPT = (
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
+    )
     return Response(
         {
             "message": get_model_output(
-                "We will be rendering your response on a frontend. so please add spaces or indentation or nextline chars or "
-                "bullet or numberings etc. suitably for code or the text. wherever required.",
+                DEFAULT_SYSTEM_PROMPT,
                 prompt,
                 history,
                 model,
@@ -381,6 +439,85 @@ def chat_output(request):
         },
         status=status.HTTP_200_OK,
     )
+
+
+_CHAT_SYSTEM_PROMPT = (
+    "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+    "bullet or numberings etc. suitably for code or the text, wherever required."
+)
+
+
+@csrf_exempt
+@require_POST
+async def chat_output_stream(request):
+    if not await sync_to_async(is_request_authenticated)(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    data = json.loads(request.body)
+    prompt = data.get("message")
+    history = data.get("history", [])
+    model = data.get("model", "google/gemma-4-26B-A4B-it")
+
+    async def event_stream():
+        yield ": keep-alive\n\n"
+        finish_reason = None
+        try:
+            async for token in stream_model_output(_CHAT_SYSTEM_PROMPT, prompt, history, model):
+                # The generator yields a sentinel dict as its last item
+                if isinstance(token, dict) and "__finish_reason__" in token:
+                    finish_reason = token["__finish_reason__"]
+                    continue
+                yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield f"data: {json.dumps({'done': True, 'finish_reason': finish_reason})}\n\n"
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
+
+@csrf_exempt
+@require_POST
+async def chat_output_stream_multi(request):
+    """
+    SSE endpoint for streaming tokens from multiple LLM models concurrently.
+    Each SSE event is tagged with the model name for frontend demultiplexing.
+    """
+    if not await sync_to_async(is_request_authenticated)(request):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    data = json.loads(request.body)
+    prompt = data.get("message")
+    model_interactions = data.get("model_interactions", [])
+    models = data.get("models", [])
+
+    # Build system prompt data from project metadata
+    DEFAULT_SYSTEM_PROMPT = (
+        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
+        "bullet or numberings etc. suitably for code or the text, wherever required."
+    )
+    system_prompt_data = data.get("system_prompt_data", {})
+    if not system_prompt_data:
+        system_prompt_data = {"default": DEFAULT_SYSTEM_PROMPT}
+
+    async def event_stream():
+        yield ": keep-alive\n\n"
+        try:
+            async for item in stream_all_models_output(
+                system_prompt_data, prompt, model_interactions, models, DEFAULT_SYSTEM_PROMPT
+            ):
+                yield f"data: {json.dumps(item)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield f"data: {json.dumps({'done': True})}\n\n"
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
+
 
 @permission_classes([IsAuthenticated])
 @api_view(["POST"])
