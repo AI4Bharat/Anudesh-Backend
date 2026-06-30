@@ -124,7 +124,7 @@ class Invite(models.Model):
     def send_invite_email(cls, invite, user):
         current_environment = os.getenv("ENV")
         base_url = (
-            "anudesh.ai4bharat.org"
+            "dev.anudesh.ai4bharat.org"
             if current_environment == "dev"
             else "anudesh.ai4bharat.org"
         )
