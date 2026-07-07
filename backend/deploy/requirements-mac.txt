@@ -229,6 +229,7 @@ ujson==5.10.0
 uritemplate==4.1.1
 urllib3==1.26.20
 user-agents==2.2.0
+uvicorn==0.30.1
 vine==5.0.0
 wcwidth==0.2.6
 webencodings==0.5.1
