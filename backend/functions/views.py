@@ -2,6 +2,8 @@ import ast
 import json
 import os
 import uuid
+import logging
+logger = logging.getLogger(__name__)
 from azure.storage.blob import BlobServiceClient
 
 from anudesh_backend.locks import Lock
@@ -470,7 +472,14 @@ async def chat_output_stream(request):
                     continue
                 yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            status_code = getattr(e, "status_code", None)
+            if status_code == 402 or "402" in str(e):
+                logger.error(f"402 Error in chat stream view: {e}", exc_info=True)
+                yield f"data: {json.dumps({'error': 'The model is temporarily unavailable'})}\n\n"
+            elif "EngineCore encountered" in str(e):
+                yield f"data: {json.dumps({'error': 'The model is temporarily unavailable — please resend.'})}\n\n"
+            else:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield f"data: {json.dumps({'done': True, 'finish_reason': finish_reason})}\n\n"
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
@@ -511,7 +520,14 @@ async def chat_output_stream_multi(request):
             ):
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            status_code = getattr(e, "status_code", None)
+            if status_code == 402 or "402" in str(e):
+                logger.error(f"402 Error in multi-model stream view: {e}", exc_info=True)
+                yield f"data: {json.dumps({'error': 'The model is temporarily unavailable'})}\n\n"
+            elif "EngineCore encountered" in str(e):
+                yield f"data: {json.dumps({'error': 'The model is temporarily unavailable — please resend.'})}\n\n"
+            else:
+                yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
