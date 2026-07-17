@@ -1706,6 +1706,8 @@ class AnnotationViewSet(
             final_result = {"message": "annotation object does not exist!"}
             ret_status = status.HTTP_404_NOT_FOUND
             return Response(final_result, status=ret_status)
+
+
         try:
             if str(task.id) != str(request.data["task_id"]):
                 return Response(

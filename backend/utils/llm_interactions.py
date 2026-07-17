@@ -1,4 +1,6 @@
 import os
+import logging
+logger = logging.getLogger(__name__)
 
 # https://pypi.org/project/openai/
 # import openai
@@ -370,7 +372,14 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
                 if chunk.choices[0].finish_reason:
                     finish_reason = chunk.choices[0].finish_reason
     except Exception as e:
-        yield f"[ERROR] {e}"
+        status_code = getattr(e, "status_code", None)
+        if status_code == 402 or "402" in str(e):
+            logger.error(f"402 Error in Google AI Studio stream: {e}", exc_info=True)
+            yield "[ERROR] The model is temporarily unavailable"
+        elif "EngineCore encountered" in str(e):
+            yield "[ERROR] The model is temporarily unavailable — please resend."
+        else:
+            yield f"[ERROR] {e}"
         return
     # Yield a sentinel so callers can extract the finish_reason
     yield {"__finish_reason__": finish_reason}
@@ -432,7 +441,14 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
         if pending and not in_think:
             yield pending.lstrip("\n")
     except Exception as e:
-        yield f"[ERROR] {e}"
+        status_code = getattr(e, "status_code", None)
+        if status_code == 402 or "402" in str(e):
+            logger.error(f"402 Error in DeepInfra stream: {e}", exc_info=True)
+            yield "[ERROR] The model is temporarily unavailable"
+        elif "EngineCore encountered" in str(e):
+            yield "[ERROR] The model is temporarily unavailable — please resend."
+        else:
+            yield f"[ERROR] {e}"
         return
     # Yield a sentinel so callers can extract the finish_reason
     yield {"__finish_reason__": finish_reason}
