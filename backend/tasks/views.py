@@ -1707,19 +1707,7 @@ class AnnotationViewSet(
             ret_status = status.HTTP_404_NOT_FOUND
             return Response(final_result, status=ret_status)
 
-        if "result" in request.data:
-            result = request.data["result"]
-            project_metadata = task.project_id.metadata_json
-            if isinstance(project_metadata, dict) and project_metadata.get("blank_response") == True:
-                if isinstance(result, list):
-                    for turn in result:
-                        if isinstance(turn, dict) and "output" in turn:
-                            if isinstance(turn["output"], str):
-                                turn["output"] = ""
-                            elif isinstance(turn["output"], list):
-                                for model_out in turn["output"]:
-                                    if isinstance(model_out, dict) and "output" in model_out:
-                                        model_out["output"] = [{"type": "text", "value": ""}]
+
         try:
             if str(task.id) != str(request.data["task_id"]):
                 return Response(
