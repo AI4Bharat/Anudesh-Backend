@@ -507,6 +507,8 @@ def send_project_analysis_reports_mail_ws(
     user_id,
     tgt_language,
     project_type,
+    from_date=None,
+    to_date=None,
 ):
     task_name = (
         "send_project_analysis_reports_mail_ws"
@@ -530,13 +532,19 @@ def send_project_analysis_reports_mail_ws(
 
     if tgt_language == None:
         projects_objs = Project.objects.filter(
-            workspace_id=pk, project_type=project_type
+        workspace_id=pk, project_type=project_type
         )
     else:
         selected_language = tgt_language
         projects_objs = Project.objects.filter(
             workspace_id=pk, project_type=project_type, tgt_language=tgt_language
         )
+
+    if from_date and to_date:
+        start_date = datetime.datetime.strptime(from_date + " 00:00", "%Y-%m-%d %H:%M")
+        end_date = datetime.datetime.strptime(to_date + " 23:59", "%Y-%m-%d %H:%M")
+        projects_objs = projects_objs.filter(created_at__range=[start_date, end_date])
+
     final_result = []
     if projects_objs.count() != 0:
         for proj in projects_objs:

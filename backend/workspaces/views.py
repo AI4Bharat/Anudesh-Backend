@@ -721,6 +721,18 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         project_type = request.data.get("project_type")
         send_mail = request.data.get("send_mail", False)
 
+        from_date = request.data.get("from_date")
+        to_date = request.data.get("to_date")
+        start_date, end_date = None, None
+        if from_date and to_date:
+            start_date = datetime.strptime(from_date + " 00:00", "%Y-%m-%d %H:%M")
+            end_date = datetime.strptime(to_date + " 23:59", "%Y-%m-%d %H:%M")
+            if start_date > end_date:
+                return Response(
+                    {"message": "'To' Date should be after 'From' Date"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         # enable_task_reviews = request.data.get("enable_task_reviews")
         if send_mail == True:
             task_name = (
@@ -748,6 +760,8 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     user_id=user_id,
                     tgt_language=tgt_language,
                     project_type=project_type,
+                    from_date=from_date,
+                    to_date=to_date,
                 )
 
                 ret_status = status.HTTP_200_OK
@@ -795,6 +809,9 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     project_type=project_type,
                     tgt_language=tgt_language,
                 )
+            if start_date and end_date:
+                projects_objs = projects_objs.filter(created_at__range=[start_date, end_date])
+                
             final_result = []
             if projects_objs.count() != 0:
                 for proj in projects_objs:

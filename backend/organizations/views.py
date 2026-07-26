@@ -968,6 +968,18 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user_id = request.data.get("user_id")
         send_mail = request.data.get("send_mail", False)
 
+        from_date = request.data.get("from_date")
+        to_date = request.data.get("to_date")
+        start_date, end_date = None, None
+        if from_date and to_date:
+            start_date = datetime.strptime(from_date + " 00:00", "%Y-%m-%d %H:%M")
+            end_date = datetime.strptime(to_date + " 23:59", "%Y-%m-%d %H:%M")
+            if start_date > end_date:
+                return Response(
+                    {"message": "'To' Date should be after 'From' Date"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         if send_mail == True:
             send_project_analytics_mail_org.delay(
                 org_id=organization.id,
@@ -976,6 +988,8 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 user_id=user_id,
                 sort_by_column_name=sort_by_column_name,
                 descending_order=descending_order,
+                from_date=from_date,
+                to_date=to_date,
             )
 
             return Response(
@@ -1000,6 +1014,10 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                     tgt_language=tgt_language,
                     project_type=project_type,
                 )
+
+            if start_date and end_date:
+                projects_obj = projects_obj.filter(created_at__range=[start_date, end_date])
+                
             final_result = []
             if projects_obj.count() != 0:
                 for proj in projects_obj:
