@@ -1761,8 +1761,8 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         to_date = request.query_params.get("to_date")
         start_date, end_date = None, None
         if from_date and to_date:
-            start_date = datetime.strptime(from_date + " 00:00", "%Y-%m-%d %H:%M")
-            end_date = datetime.strptime(to_date + " 23:59", "%Y-%m-%d %H:%M")
+            start_date = datetime.strptime(from_date + " 00:00", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            end_date = datetime.strptime(to_date + " 23:59", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
 
         final_result_for_all_types = {}
         for project_type in project_types:
