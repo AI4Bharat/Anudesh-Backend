@@ -470,7 +470,8 @@ async def chat_output_stream(request):
                     continue
                 yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            print(f"[chat_output_stream] error: {e}")
+            yield f"data: {json.dumps({'error': 'Something went wrong while generating the response. Please try again.'})}\n\n"
         yield f"data: {json.dumps({'done': True, 'finish_reason': finish_reason})}\n\n"
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
@@ -511,7 +512,8 @@ async def chat_output_stream_multi(request):
             ):
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            print(f"[chat_output_stream_multi] error: {e}")
+            yield f"data: {json.dumps({'error': 'Something went wrong while generating the response. Please try again.'})}\n\n"
         yield f"data: {json.dumps({'done': True})}\n\n"
 
     response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
