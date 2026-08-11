@@ -380,15 +380,17 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
             stream=True,
         )
         async for chunk in stream:
-            if chunk.choices:
-                if chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
-                if chunk.choices[0].finish_reason:
-                    finish_reason = chunk.choices[0].finish_reason
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+            if delta is not None and delta.content is not None:
+                yield delta.content
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
     except Exception as e:
         yield f"[ERROR] {e}"
         return
-    # Yield a sentinel so callers can extract the finish_reason
     yield {"__finish_reason__": finish_reason}
 
 
@@ -524,4 +526,3 @@ async def stream_all_models_output(system_prompt_data, user_prompt, model_intera
     for t in tasks:
         if not t.done():
             t.cancel()
-
