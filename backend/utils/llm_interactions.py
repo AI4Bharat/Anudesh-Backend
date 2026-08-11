@@ -371,6 +371,7 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
     messages.append({"role": "user", "content": user_prompt})
 
     finish_reason = None
+    got_any_content = False
     try:
         stream = await client.chat.completions.create(
             model=model,
@@ -380,19 +381,23 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
             stream=True,
         )
         async for chunk in stream:
+            print("RAW CHUNK:", chunk.model_dump())  # TEMP DEBUG - remove after diagnosing
             if not chunk.choices:
                 continue
             choice = chunk.choices[0]
             delta = choice.delta
             if delta is not None and delta.content is not None:
+                got_any_content = True
                 yield delta.content
             if choice.finish_reason:
                 finish_reason = choice.finish_reason
+                print("FINISH REASON:", finish_reason)  # TEMP DEBUG
     except Exception as e:
         yield f"[ERROR] {e}"
         return
+    if not got_any_content:
+        print(f"WARNING: no content received from {model}, finish_reason={finish_reason}")
     yield {"__finish_reason__": finish_reason}
-
 
 async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
     client = _get_deepinfra_client()
@@ -526,3 +531,4 @@ async def stream_all_models_output(system_prompt_data, user_prompt, model_intera
     for t in tasks:
         if not t.done():
             t.cancel()
+
