@@ -1756,6 +1756,14 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
         if "project_type" in dict(request.query_params):
             project_type = request.query_params["project_type"]
             project_types = [project_type]
+
+        from_date = request.query_params.get("from_date")
+        to_date = request.query_params.get("to_date")
+        start_date, end_date = None, None
+        if from_date and to_date:
+            start_date = datetime.strptime(from_date + " 00:00", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            end_date = datetime.strptime(to_date + " 23:59", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+
         final_result_for_all_types = {}
         for project_type in project_types:
             proj_objs = []
@@ -1803,6 +1811,14 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                     project_id__project_stage__in=[SUPERCHECK_STAGE],
                     task_status__in=["exported"],
                 )
+
+                if start_date and end_date:
+                    annotation_tasks = annotation_tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    reviewer_tasks = reviewer_tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    supercheck_tasks = supercheck_tasks.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    annotation_tasks_exported = annotation_tasks_exported.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    reviewer_tasks_exported = reviewer_tasks_exported.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
+                    supercheck_tasks_exported = supercheck_tasks_exported.filter(annotations__updated_at__range=[start_date, end_date]).distinct()
 
                 if metainfo == True:
                     result = {}
