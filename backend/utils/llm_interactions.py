@@ -370,7 +370,8 @@ async def stream_google_ai_studio_output(system_prompt, user_prompt, history, mo
                 if chunk.choices[0].finish_reason:
                     finish_reason = chunk.choices[0].finish_reason
     except Exception as e:
-        yield f"[ERROR] {e}"
+        print(f"[stream_google_ai_studio_output] LLM call failed: {e}")
+        yield "[ERROR] Sorry, something went wrong while generating the response. Please try again in a moment."
         return
     # Yield a sentinel so callers can extract the finish_reason
     yield {"__finish_reason__": finish_reason}
@@ -432,7 +433,8 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
         if pending and not in_think:
             yield pending.lstrip("\n")
     except Exception as e:
-        yield f"[ERROR] {e}"
+        print(f"[stream_deepinfra_output] LLM call failed: {e}")
+        yield "[ERROR] Sorry, something went wrong while generating the response. Please try again in a moment."
         return
     # Yield a sentinel so callers can extract the finish_reason
     yield {"__finish_reason__": finish_reason}
@@ -490,7 +492,8 @@ async def stream_all_models_output(system_prompt_data, user_prompt, model_intera
                     continue
                 await queue.put({"model": model_name, "token": token})
         except Exception as e:
-            await queue.put({"model": model_name, "error": str(e)})
+            print(f"[stream_all_models_output] {model_name} failed: {e}")
+            await queue.put({"model": model_name, "error": "Something went wrong while generating the response. Please try again."})
         finally:
             await queue.put({"model": model_name, "done": True, "finish_reason": finish_reason})
 
@@ -508,4 +511,3 @@ async def stream_all_models_output(system_prompt_data, user_prompt, model_intera
     for t in tasks:
         if not t.done():
             t.cancel()
-
