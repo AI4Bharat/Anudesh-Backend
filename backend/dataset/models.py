@@ -153,10 +153,6 @@ LLM_CHOICES = (
     # New DeepInfra models
     ("google/gemma-4-26B-A4B-it", "google/gemma-4-26B-A4B-it"),
     ("google/gemma-4-31B-it", "google/gemma-4-31B-it"),
-    # New Google AI Studio models
-    ("gemini-3.5-flash", "gemini-3.5-flash"),
-    ("gemini-3.1-pro-preview", "gemini-3.1-pro-preview"),
-    ("gemini-3.1-flash-lite", "gemini-3.1-flash-lite"),
 )
 
 ACTIVE_LLM_MODELS = [
@@ -167,10 +163,8 @@ ACTIVE_LLM_MODELS = [
     "Qwen/Qwen3-30B-A3B",
     "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
     "meta-llama/Llama-4-Scout-17B-16E-Instruct",
-    "gemini-3.5-flash",
-    "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite",
 ]
+
 
 class DatasetInstance(models.Model):
     """
