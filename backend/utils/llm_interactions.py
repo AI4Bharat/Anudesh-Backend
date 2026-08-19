@@ -45,7 +45,7 @@ from openai import OpenAI, AsyncOpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
-from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini, SARVAM_M  # kept for reference
+from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini, SARVAM_M
 
 
 def process_history(history):
@@ -68,14 +68,17 @@ def process_history(history):
 #         deployment = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT_4O_MINI")
 #     else:
 #         deployment = model
+#     
 #     client = OpenAI(
 #         api_key=os.getenv("OPENAI_API_KEY"),
 #         base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{deployment}"
 #     )
+#
 #     history_messages = process_history(history)
 #     messages = [{"role": "system", "content": system_prompt}]
 #     messages.extend(history_messages)
 #     messages.append({"role": "user", "content": user_prompt})
+#
 #     try:
 #         response = client.chat.completions.create(
 #             model=deployment,
@@ -87,7 +90,9 @@ def process_history(history):
 #             presence_penalty=0,
 #             extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
 #         )
+#
 #         return response.choices[0].message.content.strip()
+#
 #     except Exception as e:
 #         err_msg = str(e)
 #         if "InvalidRequestError" in err_msg:
@@ -100,17 +105,20 @@ def process_history(history):
 #             message = f"An error occurred while interacting with LLM: {err_msg}"
 #             st = status.HTTP_500_INTERNAL_SERVER_ERROR
 #         return Response({"message": message}, status=st)
-
+#
 # def get_gpt3_output(system_prompt, user_prompt, history):
 #     model = os.getenv("LLM_INTERACTIONS_OPENAI_ENGINE_GPT35")
+#
 #     client = OpenAI(
 #         api_key=os.getenv("OPENAI_API_KEY"),
 #         base_url=f"{os.getenv('LLM_INTERACTIONS_OPENAI_API_BASE')}openai/deployments/{model}"
 #     )
+#
 #     history_messages = process_history(history)
 #     messages = [{"role": "system", "content": system_prompt}]
 #     messages.extend(history_messages)
 #     messages.append({"role": "user", "content": user_prompt})
+#
 #     try:
 #         response = client.chat.completions.create(
 #             model=model,
@@ -122,7 +130,9 @@ def process_history(history):
 #             presence_penalty=0,
 #             extra_query={"api-version": os.getenv("LLM_INTERACTIONS_OPENAI_API_VERSION")},
 #         )
+#
 #         return response.choices[0].message.content.strip()
+#
 #     except Exception as e:
 #         err_msg = str(e)
 #         if "InvalidRequestError" in err_msg:
@@ -135,15 +145,17 @@ def process_history(history):
 #             message = f"An error occurred while interacting with LLM: {err_msg}"
 #             st = status.HTTP_500_INTERNAL_SERVER_ERROR
 #         return Response({"message": message}, status=st)
-
+#
 # def get_llama2_output(system_prompt, conv_history, user_prompt):
 #     api_base = os.getenv("LLM_INTERACTION_LLAMA2_API_BASE")
 #     token = os.getenv("LLM_INTERACTION_LLAMA2_API_TOKEN")
 #     url = f"{api_base}/chat/completions"
+#
 #     history = process_history(conv_history)
 #     messages = [{"role": "system", "content": system_prompt}]
 #     messages.extend(history)
 #     messages.append({"role": "user", "content": user_prompt})
+#
 #     body = {
 #         "model": "meta-llama/Llama-2-70b-chat-hf",
 #         "messages": messages,
@@ -161,15 +173,17 @@ def process_history(history):
 #         message = f"An error occurred while interacting with Llama2 API: {err_msg}"
 #         st = status.HTTP_500_INTERNAL_SERVER_ERROR
 #         return Response({"message": message}, status=st)
-
+#
 # def get_sarvam_m_output(system_prompt, conv_history, user_prompt):
 #     api_base = os.getenv("SARVAM_M_API_BASE")
-#     api_key = os.getenv("SARVAM_M_API_KEY")
+#     api_key = os.getenv("SARVAM_M_API_KEY") 
 #     url = f"{api_base}/chat/completions"
+#
 #     headers = {
 #         "api-subscription-key": api_key,
 #         "Content-Type": "application/json"
 #     }
+#
 #     history = process_history(conv_history)
 #     messages = [{"role": "system", "content": system_prompt}]
 #     messages.extend(history)
@@ -177,17 +191,20 @@ def process_history(history):
 #         messages.append({"role": "user", "content": user_prompt[0]['text']})
 #     else:
 #         messages.append({"role": "user", "content": user_prompt})
+#
 #     body = {
 #         "model": "sarvam-m",
 #         "messages": messages,
 #         "temperature": 0.2,
 #         "max_tokens": 2048,
 #         "top_p": 1,
+#         "reasoning_effort": None,
 #     }
+#     
 #     try:
 #         s = requests.Session()
 #         response = s.post(url, headers=headers, json=body)
-#         response.raise_for_status()
+#         response.raise_for_status() 
 #         response_data = response.json()
 #         return response_data["choices"][0]["message"]["content"].strip()
 #     except requests.exceptions.RequestException as e:
@@ -200,15 +217,59 @@ def process_history(history):
 
 # --- END RETIRED LEGACY FUNCTIONS ---
 
+# Google AI Studio models (via OpenAI-compatible endpoint)
+GOOGLE_AI_STUDIO_MODELS = {
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite",
+}
+GEMMA_THINKING_MODELS = {
+    "google/gemma-4-31B-it",
+    "google/gemma-4-26B-A4B-it",
+}
 
 # Per-provider max_tokens configuration.
 # DeepInfra reasoning models (e.g. DeepSeek-R1) emit <think>...</think> tokens
 # that count against max_tokens but are stripped from the output. Give them
 # extra headroom so the visible response isn't truncated.
 MAX_TOKENS_BY_PROVIDER = {
+    "google_ai_studio": 4096,
     "deepinfra": 6144,
 }
 
+def get_google_ai_studio_output(system_prompt, user_prompt, history, model):
+    try:
+        client = OpenAI(
+            api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+
+        history_messages = process_history(history)
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history_messages)
+        messages.append({"role": "user", "content": user_prompt})
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=MAX_TOKENS_BY_PROVIDER["google_ai_studio"],
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({"message": message}, status=st)
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model):
     try:
@@ -228,6 +289,16 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             temperature=0.7,
             max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
         )
+        extra_body = {}
+        if model in GEMMA_THINKING_MODELS:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
+            extra_body=extra_body,
+        )
 
         output = response.choices[0].message.content.strip()
         cleaned_response = re.sub(r'<think>.*?</think>\s*', '', output, flags=re.DOTALL)
@@ -245,12 +316,15 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
-
-
+    
 def get_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
     # Assume that translation happens outside (and the prompt is already translated)
-    return get_deepinfra_output(system_prompt, user_prompt, history, model)
-
+    out = ""
+    if model in GOOGLE_AI_STUDIO_MODELS:
+        out = get_google_ai_studio_output(system_prompt, user_prompt, history, model)
+    else:
+        out = get_deepinfra_output(system_prompt, user_prompt, history, model)
+    return out
 
 def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run, default_system_prompt=""):
     results = {}
@@ -270,19 +344,29 @@ def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run
             ),
             []
         )
-        results[model] = get_deepinfra_output(
-            system_prompt, user_prompt, model_history, model
-        )
+        if model in GOOGLE_AI_STUDIO_MODELS:
+            results[model] = get_google_ai_studio_output(system_prompt, user_prompt, model_history, model)
+        else:
+            results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model)
 
         if isinstance(results[model], Response):
             return results[model]
-
+    
     return results
 
 # ── Async streaming generators (Django 5 + ASGI) ────────────────────────────
 
+_google_client = None
 _deepinfra_client = None
 
+def _get_google_client() -> AsyncOpenAI:
+    global _google_client
+    if _google_client is None:
+        _google_client = AsyncOpenAI(
+            api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        )
+    return _google_client
 
 def _get_deepinfra_client() -> AsyncOpenAI:
     global _deepinfra_client
@@ -293,6 +377,41 @@ def _get_deepinfra_client() -> AsyncOpenAI:
         )
     return _deepinfra_client
 
+async def stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
+    client = _get_google_client()
+    history_messages = process_history(history)
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history_messages)
+    messages.append({"role": "user", "content": user_prompt})
+
+    finish_reason = None
+    got_any_content = False
+    try:
+        stream = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=MAX_TOKENS_BY_PROVIDER["google_ai_studio"],
+            stream=True,
+        )
+        async for chunk in stream:
+            print("RAW CHUNK:", chunk.model_dump())  # TEMP DEBUG - remove after diagnosing
+            if not chunk.choices:
+                continue
+            choice = chunk.choices[0]
+            delta = choice.delta
+            if delta is not None and delta.content is not None:
+                got_any_content = True
+                yield delta.content
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+                print("FINISH REASON:", finish_reason)  # TEMP DEBUG
+    except Exception as e:
+        yield f"[ERROR] {e}"
+        return
+    if not got_any_content:
+        print(f"WARNING: no content received from {model}, finish_reason={finish_reason}")
+    yield {"__finish_reason__": finish_reason}
 
 async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
     client = _get_deepinfra_client()
@@ -300,6 +419,10 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history_messages)
     messages.append({"role": "user", "content": user_prompt})
+    extra_body = {}
+    if model in GEMMA_THINKING_MODELS:
+        extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+
 
     # State machine to strip <think>...</think> blocks that may span chunk boundaries
     pending = ""
@@ -313,6 +436,7 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
             temperature=0.7,
             max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
             stream=True,
+            extra_body=extra_body,
         )
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].finish_reason:
@@ -362,10 +486,13 @@ async def stream_model_output(system_prompt, user_prompt, history, model="google
     Yields string tokens followed by a final sentinel dict:
     {"__finish_reason__": "stop" | "length" | None}
     """
-    async for token in stream_deepinfra_output(
-        system_prompt, user_prompt, history, model
-    ):
-        yield token
+    if model in GOOGLE_AI_STUDIO_MODELS:
+        async for token in stream_google_ai_studio_output(system_prompt, user_prompt, history, model):
+            yield token
+    else:
+        async for token in stream_deepinfra_output(system_prompt, user_prompt, history, model):
+            yield token
+
 
 
 async def stream_all_models_output(system_prompt_data, user_prompt, model_interactions, models_to_run, default_system_prompt=""):
@@ -423,3 +550,4 @@ async def stream_all_models_output(system_prompt_data, user_prompt, model_intera
     for t in tasks:
         if not t.done():
             t.cancel()
+
