@@ -208,6 +208,7 @@ def process_history(history):
 MAX_TOKENS_BY_PROVIDER = {
     "deepinfra": 6144,
 }
+GEMMA_MODELS_PREFIX = "google/gemma-4"
 
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model):
@@ -222,11 +223,16 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         messages.extend(history_messages)
         messages.append({"role": "user", "content": user_prompt})
 
+        extra_body = {}
+        if model.startswith(GEMMA_MODELS_PREFIX):
+            extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
+            max_tokens=2048,
+            extra_body=extra_body or None,
         )
 
         output = response.choices[0].message.content.strip()
@@ -245,7 +251,6 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
-
 
 def get_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
     # Assume that translation happens outside (and the prompt is already translated)
