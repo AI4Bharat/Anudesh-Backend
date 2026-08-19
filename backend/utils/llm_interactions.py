@@ -41,7 +41,7 @@ import os
 
 
 import re
-from openai import OpenAI, AsyncOpenAI
+from openai import OpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
@@ -201,14 +201,48 @@ def process_history(history):
 # --- END RETIRED LEGACY FUNCTIONS ---
 
 
-# Per-provider max_tokens configuration.
-# DeepInfra reasoning models (e.g. DeepSeek-R1) emit <think>...</think> tokens
-# that count against max_tokens but are stripped from the output. Give them
-# extra headroom so the visible response isn't truncated.
-MAX_TOKENS_BY_PROVIDER = {
-    "deepinfra": 6144,
+# Google AI Studio models (via OpenAI-compatible endpoint)
+GOOGLE_AI_STUDIO_MODELS = {
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite",
 }
+GEMMA_MODELS_PREFIX = "google/gemma-4"
 
+
+def get_google_ai_studio_output(system_prompt, user_prompt, history, model):
+    try:
+        client = OpenAI(
+            api_key=os.getenv("GOOGLE_AI_STUDIO_API_KEY"),
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+
+        history_messages = process_history(history)
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history_messages)
+        messages.append({"role": "user", "content": user_prompt})
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=2048,
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        err_msg = str(e)
+        if "InvalidRequestError" in err_msg:
+            message = "Prompt violates LLM policy. Please enter a new prompt."
+            st = status.HTTP_400_BAD_REQUEST
+        elif "KeyError" in err_msg:
+            message = "Invalid response from the LLM"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        else:
+            message = f"An error occurred while interacting with LLM: {err_msg}"
+            st = status.HTTP_500_INTERNAL_SERVER_ERROR
+        return Response({"message": message}, status=st)
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model):
     try:
@@ -222,11 +256,16 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         messages.extend(history_messages)
         messages.append({"role": "user", "content": user_prompt})
 
+        extra_body = {}
+        if model.startswith(GEMMA_MODELS_PREFIX):
+            extra_body["chat_template_kwargs"] = {"enable_thinking": False}
+
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.7,
-            max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
+            max_tokens=2048,
+            extra_body=extra_body or None,
         )
 
         output = response.choices[0].message.content.strip()
@@ -245,12 +284,15 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
-
-
+    
 def get_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
     # Assume that translation happens outside (and the prompt is already translated)
-    return get_deepinfra_output(system_prompt, user_prompt, history, model)
-
+    out = ""
+    if model in GOOGLE_AI_STUDIO_MODELS:
+        out = get_google_ai_studio_output(system_prompt, user_prompt, history, model)
+    else:
+        out = get_deepinfra_output(system_prompt, user_prompt, history, model)
+    return out
 
 def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run, default_system_prompt=""):
     results = {}
@@ -270,156 +312,12 @@ def get_all_model_output(system_prompt_data, user_prompt, history, models_to_run
             ),
             []
         )
-        results[model] = get_deepinfra_output(
-            system_prompt, user_prompt, model_history, model
-        )
+        if model in GOOGLE_AI_STUDIO_MODELS:
+            results[model] = get_google_ai_studio_output(system_prompt, user_prompt, model_history, model)
+        else:
+            results[model] = get_deepinfra_output(system_prompt, user_prompt, model_history, model)
 
         if isinstance(results[model], Response):
             return results[model]
 
     return results
-
-# ── Async streaming generators (Django 5 + ASGI) ────────────────────────────
-
-_deepinfra_client = None
-
-
-def _get_deepinfra_client() -> AsyncOpenAI:
-    global _deepinfra_client
-    if _deepinfra_client is None:
-        _deepinfra_client = AsyncOpenAI(
-            api_key=os.getenv("DEEPINFRA_API_KEY"),
-            base_url=os.getenv("DEEPINFRA_BASE_URL"),
-        )
-    return _deepinfra_client
-
-
-async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
-    client = _get_deepinfra_client()
-    history_messages = process_history(history)
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history_messages)
-    messages.append({"role": "user", "content": user_prompt})
-
-    # State machine to strip <think>...</think> blocks that may span chunk boundaries
-    pending = ""
-    in_think = False
-    finish_reason = None
-
-    try:
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=0.7,
-            max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
-            stream=True,
-        )
-        async for chunk in stream:
-            if chunk.choices and chunk.choices[0].finish_reason:
-                finish_reason = chunk.choices[0].finish_reason
-            if not (chunk.choices and chunk.choices[0].delta.content is not None):
-                continue
-            pending += chunk.choices[0].delta.content
-
-            while True:
-                if in_think:
-                    end = pending.find("</think>")
-                    if end != -1:
-                        in_think = False
-                        pending = pending[end + 8:].lstrip("\n")
-                    else:
-                        if len(pending) > 7:
-                            pending = pending[-7:]
-                        else:
-                            pass
-                        break
-                else:
-                    start = pending.find("<think>")
-                    if start != -1:
-                        if start > 0:
-                            yield pending[:start]
-                        in_think = True
-                        pending = pending[start + 7:]
-                    else:
-                        # Keep last 7 chars to handle tags split across chunks
-                        if len(pending) > 7:
-                            yield pending[:-7]
-                            pending = pending[-7:]
-                        break
-
-        if pending and not in_think:
-            yield pending.lstrip("\n")
-    except Exception as e:
-        yield f"[ERROR] {e}"
-        return
-    # Yield a sentinel so callers can extract the finish_reason
-    yield {"__finish_reason__": finish_reason}
-
-
-async def stream_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
-    """Stream tokens from a single model.
-
-    Yields string tokens followed by a final sentinel dict:
-    {"__finish_reason__": "stop" | "length" | None}
-    """
-    async for token in stream_deepinfra_output(
-        system_prompt, user_prompt, history, model
-    ):
-        yield token
-
-
-async def stream_all_models_output(system_prompt_data, user_prompt, model_interactions, models_to_run, default_system_prompt=""):
-    """
-    Stream tokens from multiple models concurrently.
-    Yields dicts like: {"model": "modelA", "token": "Hello"}
-    and {"model": "modelA", "done": True} when a model finishes.
-    """
-    import asyncio
-
-    queue = asyncio.Queue()
-
-    async def _stream_single_model(model_name):
-        """Collect tokens from one model and push them onto the shared queue."""
-        system_prompt = (
-            system_prompt_data.get(model_name)
-            or system_prompt_data.get("default")
-            or default_system_prompt
-        ) if isinstance(system_prompt_data, dict) else system_prompt_data
-
-        # Extract this model's conversation history from model_interactions
-        model_history = next(
-            (
-                interaction["interaction_json"]
-                for interaction in (model_interactions or [])
-                if interaction.get("model_name") == model_name
-            ),
-            [],
-        )
-
-        finish_reason = None
-        try:
-            async for token in stream_model_output(system_prompt, user_prompt, model_history, model_name):
-                # Capture the finish_reason sentinel from the generator
-                if isinstance(token, dict) and "__finish_reason__" in token:
-                    finish_reason = token["__finish_reason__"]
-                    continue
-                await queue.put({"model": model_name, "token": token})
-        except Exception as e:
-            await queue.put({"model": model_name, "error": str(e)})
-        finally:
-            await queue.put({"model": model_name, "done": True, "finish_reason": finish_reason})
-
-    # Launch all model streams concurrently
-    tasks = [asyncio.create_task(_stream_single_model(m)) for m in models_to_run]
-
-    models_remaining = len(models_to_run)
-    while models_remaining > 0:
-        item = await queue.get()
-        if item.get("done"):
-            models_remaining -= 1
-        yield item
-
-    # Ensure all tasks are cleaned up
-    for t in tasks:
-        if not t.done():
-            t.cancel()
