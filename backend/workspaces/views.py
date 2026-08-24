@@ -1,5 +1,6 @@
 import os
 
+from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.decorators import action, permission_classes
@@ -58,6 +59,7 @@ from .decorators import (
 )
 from .tasks import (
     send_user_reports_mail_ws,
+    build_workspace_payment_report_csv,
     send_project_analysis_reports_mail_ws,
     send_user_analysis_reports_mail_ws,
     un_pack_annotation_tasks,
@@ -2879,10 +2881,18 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             type=openapi.TYPE_OBJECT,
             properties={
                 "user_id": openapi.Schema(type=openapi.TYPE_INTEGER),
-                "project_type": openapi.Schema(type=openapi.TYPE_STRING),
+                "project_type": openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Items(type=openapi.TYPE_STRING),
+                    description="One or more project types to combine into a single report.",
+                ),
                 "participation_types": openapi.Schema(
                     type=openapi.TYPE_ARRAY,
                     items=openapi.Items(type=openapi.TYPE_INTEGER),
+                ),
+                "download_csv": openapi.Schema(
+                    type=openapi.TYPE_BOOLEAN,
+                    description="If true, returns the CSV directly instead of e-mailing it.",
                 ),
             },
             required=["user_id", "project_type", "participation_types"],
@@ -2897,7 +2907,7 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             )
         ],
         responses={
-            200: "Email successfully scheduled",
+            200: "Email successfully scheduled, or the CSV file when download_csv is true.",
             400: "Invalid request body parameters.",
             401: "Unauthorized access.",
             404: "Workspace/User not found.",
@@ -2969,6 +2979,38 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
                 )
 
         project_type = request.data.get("project_type")
+        if isinstance(project_type, str):
+            project_type = [project_type]
+
+        if not project_type or not isinstance(project_type, list):
+            return Response(
+                {"message": "project_type must be a non-empty list of project types."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        pr = ProjectRegistry.get_instance()
+        invalid_project_types = [
+            pt for pt in project_type if pt not in pr.project_types.keys()
+        ]
+        if invalid_project_types:
+            return Response(
+                {
+                    "message": f"These project types do not exist: {', '.join(invalid_project_types)}."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if request.data.get("download_csv"):
+            content, filename, *_ = build_workspace_payment_report_csv(
+                workspace.id,
+                project_type,
+                participation_types,
+                from_date,
+                to_date,
+            )
+            response = HttpResponse(content, content_type="text/csv")
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return response
 
         task_name = (
             "send_user_reports_mail_ws"
@@ -2978,13 +3020,6 @@ class WorkspaceCustomViewSet(viewsets.ViewSet):
             + str(from_date)
             + str(to_date)
         )
-        project_type = request.data.get("project_type")
-        pr = ProjectRegistry.get_instance()
-        if project_type not in pr.project_types.keys():
-            return Response(
-                {"message": "This project type does not exist."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         celery_lock = Lock(user_id, task_name)
         try:
             lock_status = celery_lock.lockStatus()
