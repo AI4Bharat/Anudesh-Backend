@@ -118,7 +118,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "unverified_email",
             "date_joined",
             "participation_type",
-            "prefer_cl_ui",
+            # "prefer_cl_ui",
             "is_active",
             "preferred_task_by_json",
         ]
