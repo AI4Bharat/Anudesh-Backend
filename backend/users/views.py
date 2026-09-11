@@ -1182,7 +1182,7 @@ class UserViewSet(viewsets.ViewSet):
     @swagger_auto_schema(request_body=UserUpdateSerializer)
     @action(detail=True, methods=["patch"], url_path="edit_user_details")
     def user_details_update(self, request, pk=None):
-        if request.user.role != User.ADMIN:
+        if not (request.user.is_superuser or request.user.role == User.ADMIN):
             return Response(
                 {"message": "Not Authorized"}, status=status.HTTP_403_FORBIDDEN
             )
