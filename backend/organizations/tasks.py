@@ -825,6 +825,8 @@ def send_project_analytics_mail_org(
     user_id,
     sort_by_column_name,
     descending_order,
+    from_date=None,
+    to_date=None,
 ):
     organization = Organization.objects.get(pk=org_id)
     user = User.objects.get(id=user_id)
@@ -847,6 +849,12 @@ def send_project_analytics_mail_org(
             tgt_language=tgt_language,
             project_type=project_type,
         )
+
+    if from_date and to_date:
+        start_date = datetime.datetime.strptime(from_date + " 00:00", "%Y-%m-%d %H:%M")
+        end_date = datetime.datetime.strptime(to_date + " 23:59", "%Y-%m-%d %H:%M")
+        projects_obj = projects_obj.filter(created_at__range=[start_date, end_date])
+
     final_result = []
     if projects_obj.count() != 0:
         for proj in projects_obj:
