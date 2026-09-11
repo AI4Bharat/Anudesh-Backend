@@ -2091,6 +2091,221 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             final_result.append(summary_period)
         return Response(final_result)
 
+    @action(
+        detail=True,
+        methods=["POST"],
+        name="Get  tasks completed based on Periodically for a single language",
+        url_name="performance_analytics_data",
+    )
+    def performance_analytics_data(self, request, pk=None):
+        try:
+            organization = Organization.objects.get(pk=pk)
+        except Organization.DoesNotExist:
+            return Response(
+                {"message": "Organization not found"}, status=status.HTTP_404_NOT_FOUND
+            )
+        project_type = request.data.get("project_type")
+        periodical_type = request.data.get("periodical_type")
+        lang = request.data.get("language")
+
+        start_date = request.data.get("start_date")
+        end_date = request.data.get("end_date")
+        reviewer_reports = request.data.get("reviewer_reports")
+        supercheck_reports = request.data.get("supercheck_reports")
+
+        org_created_date = organization.created_at
+        present_date = datetime.now(timezone.utc)
+
+        if start_date != None:
+            date1 = start_date
+            org_created_date = datetime(
+                int(date1.split("-")[0]),
+                int(date1.split("-")[1]),
+                int(date1.split("-")[2]),
+                tzinfo=timezone(offset=timedelta()),
+            )
+        if end_date != None:
+            date2 = end_date
+            present_date = datetime(
+                int(date2.split("-")[0]),
+                int(date2.split("-")[1]),
+                int(date2.split("-")[2]),
+                tzinfo=timezone(offset=timedelta()),
+            )
+
+        periodical_list = []
+        if periodical_type == "daily":
+            periodical_list.append(org_created_date)
+            while org_created_date <= present_date:
+                org_created_date = org_created_date + timedelta(days=1)
+                if org_created_date <= present_date:
+                    periodical_list.append(org_created_date)
+                else:
+                    periodical_list.append(present_date + timedelta(days=1))
+
+        elif periodical_type == "weekly":
+            periodical_list.append(org_created_date)
+            while org_created_date <= present_date:
+                org_created_date = org_created_date + timedelta(days=7)
+                if org_created_date <= present_date:
+                    periodical_list.append(org_created_date)
+                else:
+                    periodical_list.append(present_date + timedelta(days=1))
+
+        elif periodical_type == "monthly":
+            start_date = org_created_date
+            end_date = present_date
+
+            periodical_list.append(start_date)
+            count = 1
+            start = start_date
+            while start <= end_date:
+                start = start_date + relativedelta.relativedelta(months=count)
+                if (
+                    start_date.day == 29
+                    and start.month == 2
+                    and (not calendar.isleap(start.year))
+                ):
+                    start = start + timedelta(days=1)
+                if start_date.day == 30 and start.month == 2:
+                    start = start + timedelta(days=1)
+                if start_date.day == 31 and start.month in [2, 4, 6, 9, 11]:
+                    start = start + timedelta(days=1)
+                count += 1
+                if start <= end_date:
+                    periodical_list.append(start)
+                else:
+                    periodical_list.append(end_date + timedelta(days=1))
+
+        elif periodical_type == "yearly":
+            start_date = org_created_date
+            end_date = present_date
+
+            periodical_list.append(start_date)
+            count = 1
+            start = start_date
+            while start <= end_date:
+                start = start_date + relativedelta.relativedelta(years=count)
+                if (
+                    start_date.day == 29
+                    and start.month == 2
+                    and (not calendar.isleap(start.year))
+                ):
+                    start = start + timedelta(days=1)
+
+                count += 1
+                if start <= end_date:
+                    periodical_list.append(start)
+                else:
+                    periodical_list.append(end_date + timedelta(days=1))
+
+        proj_objs = []
+        if reviewer_reports == True:
+            proj_objs = Project.objects.filter(
+                organization_id=pk,
+                project_type=project_type,
+                project_stage__in=[REVIEW_STAGE, SUPERCHECK_STAGE],
+                tgt_language=lang,
+            )
+        elif supercheck_reports == True:
+            proj_objs = Project.objects.filter(
+                organization_id=pk,
+                project_type=project_type,
+                project_stage__in=[SUPERCHECK_STAGE],
+                tgt_language=lang,
+            )
+        else:
+            proj_objs = Project.objects.filter(
+                organization_id=pk, project_type=project_type, tgt_language=lang
+            )
+
+        final_result = []
+
+        for period in range(len(periodical_list) - 1):
+            start_end_date = (
+                str(periodical_list[period].date())
+                + "  To "
+                + str(
+                    (periodical_list[period + 1].date() - pd.DateOffset(hours=1)).date()
+                )
+            )
+            period_name = ""
+            if periodical_type == "daily":
+                period_name = "day_number"
+            elif periodical_type == "weekly":
+                period_name = "week_number"
+            elif periodical_type == "monthly":
+                period_name = "month_number"
+            elif periodical_type == "yearly":
+                period_name = "year_number"
+
+            annotated_labeled_tasks_count = 0
+            if reviewer_reports == True:
+                tasks = Task.objects.filter(
+                    project_id__in=proj_objs,
+                    task_status__in=[
+                        "reviewed",
+                        "exported",
+                        "super_checked",
+                    ],
+                )
+                labeled_count_tasks_ids = list(tasks.values_list("id", flat=True))
+                annotated_labeled_tasks_count = (
+                    Annotation.objects.filter(
+                        task_id__in=labeled_count_tasks_ids,
+                        annotation_type=REVIEWER_ANNOTATION,
+                        updated_at__gte=periodical_list[period],
+                        updated_at__lt=periodical_list[period + 1],
+                    )
+                    .exclude(annotation_status="to_be_revised")
+                    .count()
+                )
+            elif supercheck_reports == True:
+                tasks = Task.objects.filter(
+                    project_id__in=proj_objs,
+                    task_status__in=[
+                        "super_checked",
+                    ],
+                )
+                labeled_count_tasks_ids = list(tasks.values_list("id", flat=True))
+                annotated_labeled_tasks_count = Annotation.objects.filter(
+                    task_id__in=labeled_count_tasks_ids,
+                    annotation_type=SUPER_CHECKER_ANNOTATION,
+                    updated_at__gte=periodical_list[period],
+                    updated_at__lt=periodical_list[period + 1],
+                ).count()
+            else:
+                tasks = Task.objects.filter(
+                    project_id__in=proj_objs,
+                    task_status__in=[
+                        "annotated",
+                        "reviewed",
+                        "exported",
+                        "super_checked",
+                    ],
+                )
+                labeled_count_tasks_ids = list(tasks.values_list("id", flat=True))
+                annotated_labeled_tasks_count = Annotation.objects.filter(
+                    task_id__in=labeled_count_tasks_ids,
+                    annotation_type=ANNOTATOR_ANNOTATION,
+                    updated_at__gte=periodical_list[period],
+                    updated_at__lt=periodical_list[period + 1],
+                ).count()
+
+            result = {
+                "language": lang,
+                "periodical_tasks_count": annotated_labeled_tasks_count,
+            }
+
+            summary_period = {
+                period_name: period + 1,
+                "date_range": start_end_date,
+                "data": [result] if result else [],
+            }
+
+            final_result.append(summary_period)
+        return Response(final_result)
+
     @swagger_auto_schema(
         method="post",
         request_body=openapi.Schema(
