@@ -8,6 +8,8 @@ urlpatterns = [
     path("download_all_projects", download_all_projects),
     path("chat_log", chat_log),
     path("chat_output", chat_output),
+    path("chat_output_stream", chat_output_stream),
+    path("chat_output_stream_multi", chat_output_stream_multi),
     path("upload_chat_image", upload_chat_image),
 ]
 
