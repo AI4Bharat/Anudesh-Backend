@@ -38,7 +38,7 @@ services:
     
   web:
     build: ./backend
-    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class gthread --threads 50 --timeout 300 anudesh_backend.wsgi
+    command: gunicorn --bind 0.0.0.0:8000 --workers 4 --worker-class uvicorn.workers.UvicornWorker anudesh_backend.asgi:application --timeout 300
     volumes:
       - ./backend/:/usr/src/backend/
       - static_volume:/usr/src/backend/static

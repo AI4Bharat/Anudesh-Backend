@@ -31,7 +31,7 @@ from projects.utils import (
 def get_all_annotation_reports(
     proj_ids,
     userid,
-    project_type,
+    project_types,
     start_date=None,
     end_date=None,
 ):
@@ -76,8 +76,11 @@ def get_all_annotation_reports(
     )
     submitted_tasks_count = submitted_tasks.count()
     total_word_error_rate_ar_list = []
-    if project_type in "InstructionDrivenChat":
-        for anno in total_rev_annos:
+    if "InstructionDrivenChat" in project_types:
+        idc_rev_annos = total_rev_annos.filter(
+            task__project_id__project_type="InstructionDrivenChat"
+        )
+        for anno in idc_rev_annos:
             try:
                 total_word_error_rate_ar_list.append(
                     calculate_word_error_rate_between_two_llm_prompts(
@@ -103,7 +106,7 @@ def get_all_annotation_reports(
         "Language": user_lang,
     }
 
-    if project_type in "InstructionDrivenChat":
+    if "InstructionDrivenChat" in project_types:
         result["Average Word Error Rate A/R"] = round(avg_word_error_rate_ar, 2)
 
     return result
@@ -112,7 +115,7 @@ def get_all_annotation_reports(
 def get_all_review_reports(
     proj_ids,
     userid,
-    project_type,
+    project_types,
     start_date=None,
     end_date=None,
 ):
@@ -180,8 +183,14 @@ def get_all_review_reports(
     submitted_tasks_count = submitted_tasks.count()
     total_word_error_rate_ar_list = []
     total_word_error_rate_rs_list = []
-    if project_type in "InstructionDrivenChat":
-        for anno in total_rev_annos_accepted:
+    if "InstructionDrivenChat" in project_types:
+        idc_rev_annos_accepted = total_rev_annos_accepted.filter(
+            task__project_id__project_type="InstructionDrivenChat"
+        )
+        idc_superchecked_annos = total_superchecked_annos.filter(
+            task__project_id__project_type="InstructionDrivenChat"
+        )
+        for anno in idc_rev_annos_accepted:
             try:
                 total_word_error_rate_ar_list.append(
                     calculate_word_error_rate_between_two_llm_prompts(
@@ -190,7 +199,7 @@ def get_all_review_reports(
                 )
             except:
                 pass
-        for anno in total_superchecked_annos:
+        for anno in idc_superchecked_annos:
             try:
                 total_word_error_rate_rs_list.append(
                     calculate_word_error_rate_between_two_llm_prompts(
@@ -222,7 +231,7 @@ def get_all_review_reports(
         "Language": user_lang,
     }
 
-    if project_type in "InstructionDrivenChat":
+    if "InstructionDrivenChat" in project_types:
         result["Average Word Error Rate A/R"] = round(avg_word_error_rate_ar, 2)
         result["Average Word Error Rate R/S"] = round(avg_word_error_rate_rs, 2)
 
@@ -230,7 +239,7 @@ def get_all_review_reports(
 
 
 def get_all_supercheck_reports(
-    proj_ids, userid, project_type, start_date=None, end_date=None
+    proj_ids, userid, project_types, start_date=None, end_date=None
 ):
     user = User.objects.get(pk=userid)
     participation_type = (
@@ -272,8 +281,14 @@ def get_all_supercheck_reports(
     submitted_tasks_count = submitted_tasks.count()
 
     total_word_error_rate_rs_list = []
-    if project_type in "InstructionDrivenChat":
-        for anno in total_sup_annos:
+    if "InstructionDrivenChat" in project_types:
+        idc_sup_annos = total_sup_annos.filter(
+            task__project_id__project_type="InstructionDrivenChat"
+        )
+        idc_superchecked_annos = total_superchecked_annos.filter(
+            task__project_id__project_type="InstructionDrivenChat"
+        )
+        for anno in idc_sup_annos:
             try:
                 total_word_error_rate_rs_list.append(
                     calculate_word_error_rate_between_two_llm_prompts(
@@ -282,7 +297,7 @@ def get_all_supercheck_reports(
                 )
             except:
                 pass
-        for anno in total_superchecked_annos:
+        for anno in idc_superchecked_annos:
             try:
                 total_word_error_rate_rs_list.append(
                     calculate_word_error_rate_between_two_llm_prompts(
@@ -308,45 +323,37 @@ def get_all_supercheck_reports(
         "Language": user_lang,
     }
 
-    if project_type != None:
-        if project_type in "InstructionDrivenChat":
-            result["Average Word Error Rate R/S"] = round(avg_word_error_rate, 2)
+    if "InstructionDrivenChat" in project_types:
+        result["Average Word Error Rate R/S"] = round(avg_word_error_rate, 2)
     return result
 
 
-@shared_task(queue="reports")
-def send_user_reports_mail_ws(
+def build_workspace_payment_report_csv(
     ws_id,
-    user_id,
     project_type,
-    participation_types,
+    participation_types=None,
     start_date=None,
     end_date=None,
     period=None,
 ):
-    task_name = (
-        "send_user_reports_mail_ws"
-        + str(ws_id)
-        + str(project_type)
-        + str(participation_types)
-        + str(start_date)
-        + str(end_date)
-    )
-    """Function to generate CSV of workspace user reports and send mail to the manager/owner/admin
+    """Builds the payment report CSV content for a workspace.
 
     Args:
         ws_id (int): ID of the workspace.
-        user_id (int): ID of the user requesting the report.
-        project_type (str): Type of project.
+        project_type (str or list): Type of project, or a list of project types to combine into one report.
         participation_types (list, optional): User participation types. Defaults to [1, 2, 4].
-        start_date (datetime, optional): Start date of the report. Defaults to None.
-        end_date (datetime, optional): End date of the report. Defaults to None.
+        start_date (str, optional): Start date of the report ("%Y-%m-%d"). Defaults to None.
+        end_date (str, optional): End date of the report ("%Y-%m-%d"). Defaults to None.
         period (str, optional): Period of the report. Defaults to None.
-    """
 
-    user = User.objects.get(id=user_id)
+    Returns:
+        tuple: (content, filename, project_types, start_date, end_date, participation_types)
+    """
     workspace = Workspace.objects.get(pk=ws_id)
-    proj_objs = Project.objects.filter(workspace_id=ws_id, project_type=project_type)
+    project_types = [project_type] if isinstance(project_type, str) else project_type
+    proj_objs = Project.objects.filter(
+        workspace_id=ws_id, project_type__in=project_types
+    )
 
     if period:
         if period == "Daily":
@@ -409,7 +416,7 @@ def send_user_reports_mail_ws(
         annotate_result = get_all_annotation_reports(
             user_projs_ids,
             id,
-            project_type,
+            project_types,
             start_date,
             end_date,
         )
@@ -425,7 +432,7 @@ def send_user_reports_mail_ws(
         review_result = get_all_review_reports(
             user_projs_ids,
             id,
-            project_type,
+            project_types,
             start_date,
             end_date,
         )
@@ -441,7 +448,7 @@ def send_user_reports_mail_ws(
         supercheck_result = get_all_supercheck_reports(
             user_projs_ids,
             id,
-            project_type,
+            project_types,
             start_date,
             end_date,
         )
@@ -452,8 +459,54 @@ def send_user_reports_mail_ws(
     df = pd.DataFrame.from_dict(final_reports)
 
     content = df.to_csv(index=False)
-    content_type = "text/csv"
     filename = f"{workspace.workspace_name}_user_analytics.csv"
+
+    return content, filename, project_types, start_date, end_date, participation_types
+
+
+@shared_task(queue="reports")
+def send_user_reports_mail_ws(
+    ws_id,
+    user_id,
+    project_type,
+    participation_types,
+    start_date=None,
+    end_date=None,
+    period=None,
+):
+    task_name = (
+        "send_user_reports_mail_ws"
+        + str(ws_id)
+        + str(project_type)
+        + str(participation_types)
+        + str(start_date)
+        + str(end_date)
+    )
+    """Function to generate CSV of workspace user reports and send mail to the manager/owner/admin
+
+    Args:
+        ws_id (int): ID of the workspace.
+        user_id (int): ID of the user requesting the report.
+        project_type (str or list): Type of project, or a list of project types to combine into one report.
+        participation_types (list, optional): User participation types. Defaults to [1, 2, 4].
+        start_date (datetime, optional): Start date of the report. Defaults to None.
+        end_date (datetime, optional): End date of the report. Defaults to None.
+        period (str, optional): Period of the report. Defaults to None.
+    """
+
+    user = User.objects.get(id=user_id)
+    workspace = Workspace.objects.get(pk=ws_id)
+    content, filename, project_types, start_date, end_date, participation_types = (
+        build_workspace_payment_report_csv(
+            ws_id,
+            project_type,
+            participation_types,
+            start_date,
+            end_date,
+            period,
+        )
+    )
+    content_type = "text/csv"
 
     participation_types = [
         (
@@ -476,7 +529,7 @@ def send_user_reports_mail_ws(
         + f"{workspace.workspace_name}"
         + " are ready.\n Thanks for contributing on Anudesh!"
         + "\nProject Type: "
-        + f"{project_type}"
+        + ", ".join(project_types)
         + "\nParticipation Types: "
         + f"{participation_types_string}"
         + (
