@@ -3137,12 +3137,25 @@ class TransliterationAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, target_language, data, *args, **kwargs):
-        response_transliteration = requests.get(
-            os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
-            headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
-        )
+        try:
+            response_transliteration = requests.get(
+                os.getenv("TRANSLITERATION_URL") + target_language + "/" + data,
+                headers={"Authorization": "Bearer " + os.getenv("TRANSLITERATION_KEY")},
+                timeout=10,
+            )
+            response_transliteration.raise_for_status()
+            transliteration_output = response_transliteration.json()
+        except requests.exceptions.RequestException as e:
+            return Response(
+                {"message": f"Transliteration service is unavailable: {str(e)}"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except ValueError:
+            return Response(
+                {"message": "Transliteration service returned an invalid response"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        transliteration_output = response_transliteration.json()
         return Response(transliteration_output, status=status.HTTP_200_OK)
 
 class TranscribeAPIView(APIView):
