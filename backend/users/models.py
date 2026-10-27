@@ -287,13 +287,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "email"
     REQUIRED_FIELD = ()
 
-    prefer_cl_ui = models.BooleanField(
-        verbose_name="prefer_cl_ui",
-        default=False,
-        help_text=(
-            "Indicates whether user prefers Chitralekha UI for audio transcription tasks or not."
-        ),
-    )
+    # prefer_cl_ui = models.BooleanField(
+    #     verbose_name="prefer_cl_ui",
+    #     default=False,
+    #     help_text=(
+    #         "Indicates whether user prefers Chitralekha UI for audio transcription tasks or not."
+    #     ),
+    # )
     is_approved = models.BooleanField(
         verbose_name="is_approved",
         default=False,
