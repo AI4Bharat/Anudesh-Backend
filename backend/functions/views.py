@@ -1,5 +1,6 @@
 import ast
 import json
+import logging
 import os
 import uuid
 from azure.storage.blob import BlobServiceClient
@@ -89,6 +90,8 @@ from .utils import (
     check_if_particular_organization_owner,
 )
 from datetime import timezone
+
+logger = logging.getLogger(__name__)
 
 @api_view(["GET"])
 def get_indic_trans_supported_langs_model_codes(request):
@@ -470,6 +473,7 @@ async def chat_output_stream(request):
                     continue
                 yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
         except Exception as e:
+            logger.exception("chat_stream_failed model=%s", model)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield f"data: {json.dumps({'done': True, 'finish_reason': finish_reason})}\n\n"
 
@@ -511,6 +515,7 @@ async def chat_output_stream_multi(request):
             ):
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
+            logger.exception("chat_stream_multi_failed models=%s", models)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield f"data: {json.dumps({'done': True})}\n\n"
 

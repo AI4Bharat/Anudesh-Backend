@@ -40,12 +40,24 @@ import os
 #         return False
 
 
+import asyncio
+import logging
 import re
+import time
+
+import httpx
 from openai import OpenAI, AsyncOpenAI
 import requests
 from rest_framework import status
 from rest_framework.response import Response
 from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini, SARVAM_M  # kept for reference
+
+logger = logging.getLogger("llm")
+
+# read=60 caps the wait for the first token AND any gap between streamed chunks,
+# so a stuck model fails fast instead of hanging for the OpenAI default of 600 s.
+DEEPINFRA_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=10.0)
+DEEPINFRA_MAX_RETRIES = 1
 
 
 def process_history(history):
@@ -212,10 +224,16 @@ GEMMA_MODELS_PREFIX = "google/gemma-4"
 
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model):
+    t0 = time.perf_counter()
+    outcome = "ok"
+    err_detail = ""
+    finish_reason = None
     try:
         client = OpenAI(
             api_key=os.getenv("DEEPINFRA_API_KEY"),
-            base_url=os.getenv("DEEPINFRA_BASE_URL")
+            base_url=os.getenv("DEEPINFRA_BASE_URL"),
+            timeout=DEEPINFRA_TIMEOUT,
+            max_retries=DEEPINFRA_MAX_RETRIES,
         )
 
         history_messages = process_history(history)
@@ -235,11 +253,16 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             extra_body=extra_body or None,
         )
 
+        finish_reason = response.choices[0].finish_reason
         output = response.choices[0].message.content.strip()
         cleaned_response = re.sub(r'<think>.*?</think>\s*', '', output, flags=re.DOTALL)
         return cleaned_response
 
     except Exception as e:
+        outcome = "error"
+        status_code = getattr(e, "status_code", None)
+        err_detail = f"{type(e).__name__} status={status_code} {str(e)[:300]}"
+        logger.error("deepinfra_error model=%s stream=false %s", model, err_detail)
         err_msg = str(e)
         if "InvalidRequestError" in err_msg:
             message = "Prompt violates LLM policy. Please enter a new prompt."
@@ -251,6 +274,18 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
             message = f"An error occurred while interacting with LLM: {err_msg}"
             st = status.HTTP_500_INTERNAL_SERVER_ERROR
         return Response({"message": message}, status=st)
+    finally:
+        logger.info(
+            "deepinfra_call model=%s stream=false outcome=%s total=%.2f finish=%s "
+            "prompt_chars=%d history_turns=%d %s",
+            model,
+            outcome,
+            time.perf_counter() - t0,
+            finish_reason,
+            len(user_prompt or ""),
+            len(history or []),
+            err_detail,
+        )
 
 def get_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
     # Assume that translation happens outside (and the prompt is already translated)
@@ -295,6 +330,8 @@ def _get_deepinfra_client() -> AsyncOpenAI:
         _deepinfra_client = AsyncOpenAI(
             api_key=os.getenv("DEEPINFRA_API_KEY"),
             base_url=os.getenv("DEEPINFRA_BASE_URL"),
+            timeout=DEEPINFRA_TIMEOUT,
+            max_retries=DEEPINFRA_MAX_RETRIES,
         )
     return _deepinfra_client
 
@@ -311,6 +348,12 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
     in_think = False
     finish_reason = None
 
+    t0 = time.perf_counter()
+    ttft = None
+    chunks = 0
+    outcome = "ok"
+    err_detail = ""
+
     try:
         stream = await client.chat.completions.create(
             model=model,
@@ -324,6 +367,9 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
                 finish_reason = chunk.choices[0].finish_reason
             if not (chunk.choices and chunk.choices[0].delta.content is not None):
                 continue
+            if ttft is None:
+                ttft = time.perf_counter() - t0
+            chunks += 1
             pending += chunk.choices[0].delta.content
 
             while True:
@@ -354,9 +400,35 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
 
         if pending and not in_think:
             yield pending.lstrip("\n")
+    except (asyncio.CancelledError, GeneratorExit):
+        outcome = "client_disconnected"  # user closed tab / navigated away
+        raise
     except Exception as e:
-        yield f"[ERROR] {e}"
+        outcome = "error"
+        status_code = getattr(e, "status_code", None)
+        err_detail = f"{type(e).__name__} status={status_code} {str(e)[:300]}"
+        logger.error("deepinfra_error model=%s stream=true %s", model, err_detail)
+        if status_code == 429:
+            yield "[ERROR] This model is busy right now. Please retry in a minute."
+        elif isinstance(e, httpx.TimeoutException) or "timed out" in str(e).lower():
+            yield "[ERROR] The model took too long to respond. Please retry."
+        else:
+            yield f"[ERROR] {e}"
         return
+    finally:
+        logger.info(
+            "deepinfra_call model=%s stream=true outcome=%s ttft=%s total=%.2f chunks=%d "
+            "finish=%s prompt_chars=%d history_msgs=%d %s",
+            model,
+            outcome,
+            f"{ttft:.2f}" if ttft is not None else "none",
+            time.perf_counter() - t0,
+            chunks,
+            finish_reason,
+            len(user_prompt or ""),
+            len(history_messages),
+            err_detail,
+        )
     # Yield a sentinel so callers can extract the finish_reason
     yield {"__finish_reason__": finish_reason}
 
