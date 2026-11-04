@@ -21,6 +21,15 @@ use_lets_encrypt_certificate() {
   fi
 }
 
+# Site configs live on a persistent volume and are only rendered from the
+# template once, so patch existing ones to use the "timed" access log format.
+ensure_timed_access_log() {
+  if ! grep -q "access_log .* timed;" "/etc/nginx/sites/$1.conf"; then
+    echo "Enabling timed access log for $1"
+    sed -i "/listen 443 ssl;/a access_log /var/log/nginx/access.log timed;" "/etc/nginx/sites/$1.conf"
+  fi
+}
+
 reload_nginx() {
   echo "Reloading Nginx configuration"
   nginx -s reload
@@ -48,6 +57,8 @@ for domain in $domains_fixed; do
     echo "Creating Nginx configuration file /etc/nginx/sites/$domain.conf"
     sed "s/\${domain}/$domain/g" /customization/site.conf.tpl > "/etc/nginx/sites/$domain.conf"
   fi
+
+  ensure_timed_access_log "$domain"
 
   if [ ! -f "/etc/nginx/sites/ssl/dummy/$domain/fullchain.pem" ]; then
     echo "Generating dummy ceritificate for $domain"

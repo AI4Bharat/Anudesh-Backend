@@ -15,6 +15,8 @@ server {
     listen 443 ssl;
     server_name ${domain};
 
+    access_log /var/log/nginx/access.log timed;
+
     ssl_certificate /etc/nginx/sites/ssl/dummy/${domain}/fullchain.pem;
     ssl_certificate_key /etc/nginx/sites/ssl/dummy/${domain}/privkey.pem;
 
