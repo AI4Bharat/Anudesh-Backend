@@ -1818,9 +1818,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 #     return Response(task_dict)
                 task_dict = TaskSerializer(task, many=False).data
                 return Response(task_dict)
-            ret_dict = {"message": "No more tasks available!"}
-            ret_status = status.HTTP_204_NO_CONTENT
-            return Response(ret_dict, status=ret_status)
+            # 204 must not carry a body (h11 "Too much data for declared Content-Length")
+            return Response(status=status.HTTP_204_NO_CONTENT)
         # Check if task_status is passed
         if task_status != None:
             if (
@@ -1866,9 +1865,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             for task in queryset:
                 task_dict = TaskSerializer(task, many=False).data
                 return Response(task_dict)
-            ret_dict = {"message": "No more tasks available!"}
-            ret_status = status.HTTP_204_NO_CONTENT
-            return Response(ret_dict, status=ret_status)
+            # 204 must not carry a body (h11 "Too much data for declared Content-Length")
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
         else:
             # Check if there are unattended tasks
@@ -1929,9 +1927,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             for task in unattended_tasks:
                 task_dict = TaskSerializer(task, many=False).data
                 return Response(task_dict)
-            ret_dict = {"message": "No more unlabeled tasks!"}
-            ret_status = status.HTTP_204_NO_CONTENT
-            return Response(ret_dict, status=ret_status)
+            # 204 must not carry a body (h11 "Too much data for declared Content-Length")
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
     @is_organization_owner_or_workspace_manager
     def create(self, request, *args, **kwargs):
@@ -4847,9 +4844,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         # Check if queryset is empty
         if not task_queryset:
-            return Response(
-                {"message": "No results found"}, status=status.HTTP_204_NO_CONTENT
-            )
+            return Response(status=status.HTTP_204_NO_CONTENT)
         # Sort the task queryset by date and time
         task_queryset = task_queryset.order_by("-date_done")
 
