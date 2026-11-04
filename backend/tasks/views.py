@@ -36,7 +36,11 @@ from utils.llm_checks import (
     prompt_lang_check,
     duplicate_check,
 )
-from utils.llm_interactions import get_model_output, get_all_model_output
+from utils.llm_interactions import (
+    DEFAULT_SYSTEM_PROMPT,
+    get_model_output,
+    get_all_model_output,
+)
 
 from utils.search import process_search_query
 
@@ -2976,10 +2980,6 @@ def get_llm_output(prompt, task, annotation, project_metadata_json):
         dup_check = duplicate_check(ann_result, prompt)
 
     # GET MODEL OUTPUT
-    DEFAULT_SYSTEM_PROMPT = (
-        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text, wherever required."
-    )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
     model = task.data["model"]
 
@@ -3048,10 +3048,6 @@ def get_all_llm_output(prompt, task, annotation, project_metadata_json, models_t
         dup_check = duplicate_check(ann_result, prompt)
 
     # GET MODEL OUTPUT
-    DEFAULT_SYSTEM_PROMPT = (
-        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text, wherever required."
-    )
     sys_prompt_data = project_metadata.get("system_prompt", {}) if isinstance(project_metadata, dict) else {}
 
     if not isinstance(sys_prompt_data, dict):

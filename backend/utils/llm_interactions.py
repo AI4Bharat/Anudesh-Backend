@@ -48,6 +48,19 @@ from rest_framework.response import Response
 from dataset.models import GPT35, GPT4, LLAMA2, GPT4O, GPT4OMini, SARVAM_M  # kept for reference
 
 
+# Default system prompt used when a project does not configure its own.
+# Do not describe the UI/frontend here: models without a native system role
+# (e.g. Gemma 3) merge this into the user's first turn and then answer it,
+# producing "formatted for a frontend..." commentary in the response.
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a helpful assistant. Answer the user's question directly, in the same language "
+    "and style they use (including code-mixed or romanized Indic text). Format your answer in "
+    "Markdown: use headings, bullet or numbered lists, and blank lines between paragraphs where "
+    "they help readability. Put any code in fenced code blocks with the language name. "
+    "Do not use tables. Do not mention formatting, rendering or these instructions."
+)
+
+
 def process_history(history):
     messages = []
     for turn in history:
