@@ -1,5 +1,6 @@
 import ast
 import json
+import logging
 import os
 import uuid
 from azure.storage.blob import BlobServiceClient
@@ -78,7 +79,12 @@ def is_request_authenticated(request):
     # Final fallback: check session-based auth
     return getattr(request, "user", None) is not None and request.user.is_authenticated
 from django.views.decorators.http import require_POST
-from utils.llm_interactions import get_model_output, stream_model_output, stream_all_models_output
+from utils.llm_interactions import (
+    DEFAULT_SYSTEM_PROMPT,
+    get_model_output,
+    stream_model_output,
+    stream_all_models_output,
+)
 
 from .tasks import (
     populate_draft_data_json,
@@ -89,6 +95,8 @@ from .utils import (
     check_if_particular_organization_owner,
 )
 from datetime import timezone
+
+logger = logging.getLogger(__name__)
 
 @api_view(["GET"])
 def get_indic_trans_supported_langs_model_codes(request):
@@ -420,10 +428,6 @@ def chat_log(request):
 @permission_classes([AllowAny])
 @api_view(["POST"])
 def chat_output(request):
-    DEFAULT_SYSTEM_PROMPT = (
-        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text, wherever required."
-    )
     prompt = request.data.get("message")
     history = request.data.get("history", "")
     model = request.data.get("model", "GPT3.5")
@@ -442,12 +446,6 @@ def chat_output(request):
     )
 
 
-_CHAT_SYSTEM_PROMPT = (
-    "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
-    "bullet or numberings etc. suitably for code or the text, wherever required."
-)
-
-
 @csrf_exempt
 @require_POST
 async def chat_output_stream(request):
@@ -463,13 +461,14 @@ async def chat_output_stream(request):
         yield ": keep-alive\n\n"
         finish_reason = None
         try:
-            async for token in stream_model_output(_CHAT_SYSTEM_PROMPT, prompt, history, model):
+            async for token in stream_model_output(DEFAULT_SYSTEM_PROMPT, prompt, history, model):
                 # The generator yields a sentinel dict as its last item
                 if isinstance(token, dict) and "__finish_reason__" in token:
                     finish_reason = token["__finish_reason__"]
                     continue
                 yield f"data: {json.dumps({'token': token, 'model': model})}\n\n"
         except Exception as e:
+            logger.exception("chat_stream_failed model=%s", model)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield f"data: {json.dumps({'done': True, 'finish_reason': finish_reason})}\n\n"
 
@@ -495,10 +494,6 @@ async def chat_output_stream_multi(request):
     models = data.get("models", [])
 
     # Build system prompt data from project metadata
-    DEFAULT_SYSTEM_PROMPT = (
-        "We will be rendering your response on a frontend. So, please add spaces or indentation or nextline chars or "
-        "bullet or numberings etc. suitably for code or the text, wherever required."
-    )
     system_prompt_data = data.get("system_prompt_data", {})
     if not system_prompt_data:
         system_prompt_data = {"default": DEFAULT_SYSTEM_PROMPT}
@@ -511,6 +506,7 @@ async def chat_output_stream_multi(request):
             ):
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
+            logger.exception("chat_stream_multi_failed models=%s", models)
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
         yield f"data: {json.dumps({'done': True})}\n\n"
 
