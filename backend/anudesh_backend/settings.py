@@ -289,16 +289,31 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": formatters,
-    "handlers": handlers,
+    "handlers": {
+        **handlers,
+        # LLM call metrics (deepinfra_call / deepinfra_error) are always printed
+        # at INFO, independent of LOG_LEVEL, so latency can be monitored on prod
+        # without turning on INFO logs for the whole app.
+        "llm_console": {
+            "level": "INFO",
+            "class": "logging.StreamHandler",
+            "formatter": "console",
+        },
+    },
     "loggers": {
         "": {
             "level": LOGLEVEL,
-            "handlers": handlers.keys(),
+            "handlers": list(handlers.keys()),
         },
         "django": {
             "handlers": [],
         },
         "django.server": {"propagate": True},
+        "llm": {
+            "level": "INFO",
+            "handlers": ["llm_console"] + [h for h in handlers if h != "console"],
+            "propagate": False,
+        },
     },
 }
 CELERY_IMPORTS = ("users.tasks",)
