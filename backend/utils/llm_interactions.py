@@ -233,7 +233,42 @@ def process_history(history):
 MAX_TOKENS_BY_PROVIDER = {
     "deepinfra": 6144,
 }
-GEMMA_MODELS_PREFIX = "google/gemma-4"
+# Primary model -> ordered fallbacks, tried once each when the primary fails
+# before producing any token. Models not listed have no fallback.
+FALLBACK_MODELS = {
+    "google/gemma-4-31B-it": ["google/gemma-4-31B-it-turbo", "google/gemma-4-26B-A4B-it"],
+}
+# 402 (billing), 400 and 401 are deliberately excluded: another model won't help.
+FALLBACK_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+class ModelUnavailable(Exception):
+    """Raised before any token was produced, when another model may succeed."""
+
+    def __init__(self, model, detail):
+        super().__init__(detail)
+        self.model = model
+        self.detail = detail
+
+
+def _is_fallback_error(e) -> bool:
+    if getattr(e, "status_code", None) in FALLBACK_STATUS_CODES:
+        return True
+    if isinstance(e, (httpx.TimeoutException, httpx.ConnectError)):
+        return True
+    return (
+        type(e).__name__ in ("APITimeoutError", "APIConnectionError")
+        or "timed out" in str(e).lower()
+    )
+
+
+def _no_thinking_extra_body():
+    # Thinking is disabled for every model. DeepInfra's default is already off
+    # for Gemma 4, but if that changed, reasoning would arrive in
+    # delta.reasoning_content (ignored by us): users would wait in silence and
+    # we'd pay for the extra tokens. Chat templates without a thinking mode
+    # ignore this kwarg.
+    return {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 def get_deepinfra_output(system_prompt, user_prompt, history, model):
@@ -254,16 +289,12 @@ def get_deepinfra_output(system_prompt, user_prompt, history, model):
         messages.extend(history_messages)
         messages.append({"role": "user", "content": user_prompt})
 
-        extra_body = {}
-        if model.startswith(GEMMA_MODELS_PREFIX):
-            extra_body["chat_template_kwargs"] = {"enable_thinking": False}
-
         response = client.chat.completions.create(
             model=model,
             messages=messages,
             temperature=0.7,
             max_tokens=2048,
-            extra_body=extra_body or None,
+            extra_body=_no_thinking_extra_body(),
         )
 
         finish_reason = response.choices[0].finish_reason
@@ -349,7 +380,13 @@ def _get_deepinfra_client() -> AsyncOpenAI:
     return _deepinfra_client
 
 
-async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
+async def stream_deepinfra_output(system_prompt, user_prompt, history, model, allow_fallback=False):
+    """Stream tokens from one DeepInfra model.
+
+    With allow_fallback=True, a fallback-worthy error (429/5xx/timeout/connection)
+    raised before any token was produced raises ModelUnavailable instead of
+    yielding an "[ERROR] ..." token, so the caller can try another model.
+    """
     client = _get_deepinfra_client()
     history_messages = process_history(history)
     messages = [{"role": "system", "content": system_prompt}]
@@ -374,6 +411,7 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
             temperature=0.7,
             max_tokens=MAX_TOKENS_BY_PROVIDER["deepinfra"],
             stream=True,
+            extra_body=_no_thinking_extra_body(),
         )
         async for chunk in stream:
             if chunk.choices and chunk.choices[0].finish_reason:
@@ -417,14 +455,21 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
         outcome = "client_disconnected"  # user closed tab / navigated away
         raise
     except Exception as e:
-        outcome = "error"
         status_code = getattr(e, "status_code", None)
         err_detail = f"{type(e).__name__} status={status_code} {str(e)[:300]}"
+        # Only switch models before anything reached the user, never mid-answer.
+        if allow_fallback and chunks == 0 and _is_fallback_error(e):
+            outcome = "fallback"
+            logger.warning("deepinfra_fallback model=%s %s", model, err_detail)
+            raise ModelUnavailable(model, err_detail)
+        outcome = "error"
         logger.error("deepinfra_error model=%s stream=true %s", model, err_detail)
         if status_code == 429:
             yield "[ERROR] This model is busy right now. Please retry in a minute."
         elif isinstance(e, httpx.TimeoutException) or "timed out" in str(e).lower():
             yield "[ERROR] The model took too long to respond. Please retry."
+        elif status_code == 402:
+            yield "[ERROR] The AI service is temporarily unavailable. Please try again later."
         else:
             yield f"[ERROR] {e}"
         return
@@ -442,20 +487,29 @@ async def stream_deepinfra_output(system_prompt, user_prompt, history, model):
             len(history_messages),
             err_detail,
         )
-    # Yield a sentinel so callers can extract the finish_reason
-    yield {"__finish_reason__": finish_reason}
+    # Yield a sentinel so callers can extract the finish_reason and the model that answered
+    yield {"__finish_reason__": finish_reason, "__model_used__": model}
 
 
-async def stream_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it"):
-    """Stream tokens from a single model.
+async def stream_model_output(system_prompt, user_prompt, history, model="google/gemma-4-26B-A4B-it", fallback=True):
+    """Stream tokens from `model`. If it is unavailable (429/5xx/timeout) before
+    producing any token and `fallback` is True, try FALLBACK_MODELS[model] in order.
 
     Yields string tokens followed by a final sentinel dict:
-    {"__finish_reason__": "stop" | "length" | None}
+    {"__finish_reason__": "stop" | "length" | None,
+     "__model_used__": <model that actually answered>}
     """
-    async for token in stream_deepinfra_output(
-        system_prompt, user_prompt, history, model
-    ):
-        yield token
+    chain = [model] + (FALLBACK_MODELS.get(model, []) if fallback else [])
+    for i, m in enumerate(chain):
+        is_last = i == len(chain) - 1
+        try:
+            async for token in stream_deepinfra_output(
+                system_prompt, user_prompt, history, m, allow_fallback=not is_last
+            ):
+                yield token
+            return
+        except ModelUnavailable:
+            continue  # try the next model in the chain
 
 
 async def stream_all_models_output(system_prompt_data, user_prompt, model_interactions, models_to_run, default_system_prompt=""):
@@ -488,7 +542,10 @@ async def stream_all_models_output(system_prompt_data, user_prompt, model_intera
 
         finish_reason = None
         try:
-            async for token in stream_model_output(system_prompt, user_prompt, model_history, model_name):
+            # No fallback here: this view compares specific models side by side.
+            async for token in stream_model_output(
+                system_prompt, user_prompt, model_history, model_name, fallback=False
+            ):
                 # Capture the finish_reason sentinel from the generator
                 if isinstance(token, dict) and "__finish_reason__" in token:
                     finish_reason = token["__finish_reason__"]
