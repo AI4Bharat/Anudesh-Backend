@@ -52,7 +52,7 @@ from .utils import (
     validate_metadata_json_format,
 )
 
-from dataset.models import DatasetInstance, ACTIVE_LLM_MODELS
+from dataset.models import DatasetInstance, ACTIVE_LLM_MODELS, DEFAULT_CHAT_MODEL
 
 # Import celery tasks
 from .tasks import (
@@ -2442,10 +2442,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
         # check if user has pending tasks
         # the below logic will work only for required_annotators_per_task=1
         # TO-DO Modify and use the commented logic to cover all cases
-        proj_annotations = Annotation_model.objects.filter(task__project_id=pk).filter(
-            annotation_status__exact=UNLABELED, completed_by=cur_user
+        proj_annotations = Annotation_model.objects.filter(
+            task__project_id=pk, annotation_status__exact=UNLABELED, completed_by=cur_user
         )
-        annotation_tasks = [anno.task.id for anno in proj_annotations]
+        # Subquery instead of one query per annotation.
+        annotation_tasks = proj_annotations.values_list("task_id", flat=True)
         pending_tasks = (
             Task.objects.filter(project_id=pk)
             .filter(annotation_users=cur_user.id)
@@ -2479,139 +2480,117 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     lock_set = True
                 except Exception as e:
                     continue
-        # check if the project contains eligible tasks to pull
-        tasks = Task.objects.filter(project_id=pk)
-        if project.required_annotators_per_task > 1:
-            similar_task_count = (
-                Task.objects
-                .filter(
-                    project_id=OuterRef('project_id'),
-                    input_data=OuterRef('input_data'),
-                    task_status=ANNOTATED,
+        # Every exit below must release the lock, including early returns.
+        try:
+            max_task_that_can_be_assigned = 0
+            if project.max_tasks_per_user != -1:
+                tasks_assigned_to_user = (
+                    Task.objects.filter(project_id=pk)
+                    .filter(annotation_users=cur_user.id)
+                    .count()
                 )
-                .exclude(id=OuterRef('id'))
-                .values('input_data')
-                .annotate(count=Count('id'))
-                .values('count')[:1]  # Get the count (or null if none)
+                if tasks_assigned_to_user >= project.max_tasks_per_user:
+                    return Response(
+                        {
+                            "message": f"You are only allowed a total of {project.max_tasks_per_user} tasks"
+                        },
+                        status=status.HTTP_200_OK,
+                    )
+                else:
+                    max_task_that_can_be_assigned = min(
+                        project.max_tasks_per_user - tasks_assigned_to_user,
+                        tasks_to_be_assigned,
+                    )
+            limit = max_task_that_can_be_assigned or tasks_to_be_assigned
+
+            # Data items this user already has an annotation for: any UNLABELED
+            # annotation, or an annotator annotation in a working/finished state.
+            excluded_data_items = (
+                Annotation_model.objects.filter(
+                    task__project_id=pk,
+                    completed_by=cur_user,
+                    task__input_data__isnull=False,
+                )
+                .filter(
+                    Q(annotation_status=UNLABELED)
+                    | Q(
+                        annotation_status__in=[UNLABELED, SKIPPED, DRAFT, LABELED, TO_BE_REVISED],
+                        annotation_type=1,
+                    )
+                )
+                .values_list("task__input_data_id", flat=True)
             )
 
-            tasks = (
-                Task.objects
-                .filter(project_id=pk)
-                .annotate(similar_annotated_count=Subquery(similar_task_count, output_field=IntegerField()))
-                .order_by('-similar_annotated_count')
+            # Open tasks nobody is assigned to yet, at most one task per data item.
+            # This is done in the DB instead of one query per open task.
+            candidates = (
+                Task.objects.filter(
+                    project_id=pk,
+                    task_status=INCOMPLETE,
+                    annotation_users__isnull=True,
+                )
+                .exclude(input_data_id__in=excluded_data_items)
+                .order_by("id")
+                .values_list("id", "input_data_id")
             )
-        else:
-            tasks = tasks.order_by("id")
-        tasks = (
-            tasks.filter(task_status__in=[INCOMPLETE])
-            .exclude(annotation_users=cur_user.id)
-            .annotate(annotator_count=Count("annotation_users"))
-        )
-        tasks = tasks.filter(
-            annotator_count__lt=project.required_annotators_per_task
-        ).distinct()
-        if not tasks:
-            project.release_lock(ANNOTATION_LOCK)
-            return Response(
-                {"message": "No tasks left for assignment in this project"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        max_task_that_can_be_assigned = 0
-        if project.max_tasks_per_user != -1:
-            tasks_assigned_to_user = (
-                Task.objects.filter(project_id=pk)
-                .filter(annotation_users=cur_user.id)
-                .count()
-            )
-            if tasks_assigned_to_user >= project.max_tasks_per_user:
+            seen_data_items, chosen_ids = set(), []
+            for task_id, data_id in candidates.iterator():
+                if data_id in seen_data_items:
+                    continue
+                seen_data_items.add(data_id)
+                chosen_ids.append(task_id)
+                if len(chosen_ids) >= limit:
+                    break
+
+            tasks = list(Task.objects.filter(id__in=chosen_ids).order_by("id"))
+            if not tasks:
                 return Response(
-                    {
-                        "message": f"You are only allowed a total of {project.max_tasks_per_user} tasks"
-                    },
-                    status=status.HTTP_200_OK,
+                    {"message": "No tasks left for assignment in this project"},
+                    status=status.HTTP_404_NOT_FOUND,
                 )
-            else:
-                max_task_that_can_be_assigned = min(
-                    project.max_tasks_per_user - tasks_assigned_to_user,
-                    tasks_to_be_assigned,
-                )
-        proj_annotations_annotated = Annotation_model.objects.filter(
-            task__project_id=pk
-        ).filter(
-            annotation_status__in=[UNLABELED, SKIPPED, DRAFT, LABELED, TO_BE_REVISED],
-            completed_by=cur_user,
-            annotation_type=1,
-        )
-        (
-            data_items_of_unassigned_tasks,
-            data_items_of_assigned_tasks,
-            data_items_vs_tasks_map,
-        ) = (set(), set(), {})
-        for t in tasks:
-            if not t.annotation_users.all():
-                data_items_vs_tasks_map[t.input_data.id] = t
-                data_items_of_unassigned_tasks.add(t.input_data.id)
-        for anno in proj_annotations:
-            data_items_of_assigned_tasks.add(anno.task.input_data.id)
-        for anno_ann in proj_annotations_annotated:
-            data_items_of_assigned_tasks.add(anno_ann.task.input_data.id)
-        all_unassigned_data_items = (
-            data_items_of_unassigned_tasks - data_items_of_assigned_tasks
-        )
-        tasks = [data_items_vs_tasks_map[audt] for audt in all_unassigned_data_items]
-        if max_task_that_can_be_assigned:
-            tasks = tasks[:max_task_that_can_be_assigned]
-        else:
-            tasks = tasks[:tasks_to_be_assigned]
-        if not tasks:
-            project.release_lock(ANNOTATION_LOCK)
-            return Response(
-                {"message": "No tasks left for assignment in this project"},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-        for task in tasks:
-            task.annotation_users.add(cur_user)
-            if project.project_type == "InstructionDrivenChat":
-                if task.data and "model" in task.data and task.data["model"] not in ACTIVE_LLM_MODELS:
-                    task.data["model"] = ACTIVE_LLM_MODELS[0]
-            task.save()
-            result = []
-            annotator_anno_count = Annotation_model.objects.filter(
-                task_id=task, annotation_type=ANNOTATOR_ANNOTATION
-            ).count()
-            if annotator_anno_count == 0:
-                cur_user_anno_count = Annotation_model.objects.filter(
-                    task_id=task,
-                    annotation_type=ANNOTATOR_ANNOTATION,
-                    completed_by=cur_user,
+            for task in tasks:
+                task.annotation_users.add(cur_user)
+                if project.project_type == "InstructionDrivenChat":
+                    if task.data and task.data.get("model") not in ACTIVE_LLM_MODELS:
+                        task.data["model"] = DEFAULT_CHAT_MODEL
+                task.save()
+                result = []
+                annotator_anno_count = Annotation_model.objects.filter(
+                    task_id=task, annotation_type=ANNOTATOR_ANNOTATION
                 ).count()
-                if cur_user_anno_count == 0:
-                    base_annotation_obj = Annotation_model(
-                        result=result,
-                        task=task,
+                if annotator_anno_count == 0:
+                    cur_user_anno_count = Annotation_model.objects.filter(
+                        task_id=task,
+                        annotation_type=ANNOTATOR_ANNOTATION,
                         completed_by=cur_user,
-                    )
-                    try:
-                        base_annotation_obj.save()
-                    except IntegrityError as e:
-                        print(
-                            f"Task, completed_by and parent_annotation fields are same while assigning new review task "
-                            f"for project id-{project.id}, user-{cur_user.email}"
+                    ).count()
+                    if cur_user_anno_count == 0:
+                        base_annotation_obj = Annotation_model(
+                            result=result,
+                            task=task,
+                            completed_by=cur_user,
                         )
-            else:
-                cur_user_anno_count = Annotation_model.objects.filter(
-                    task_id=task,
-                    annotation_type=ANNOTATOR_ANNOTATION,
-                    completed_by=cur_user,
-                ).count()
-                if cur_user_anno_count == 0:
-                    task.annotation_users.remove(cur_user)
-                    task.save()
-        project.release_lock(ANNOTATION_LOCK)
-        return Response(
-            {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
-        )
+                        try:
+                            base_annotation_obj.save()
+                        except IntegrityError as e:
+                            print(
+                                f"Task, completed_by and parent_annotation fields are same while assigning new review task "
+                                f"for project id-{project.id}, user-{cur_user.email}"
+                            )
+                else:
+                    cur_user_anno_count = Annotation_model.objects.filter(
+                        task_id=task,
+                        annotation_type=ANNOTATOR_ANNOTATION,
+                        completed_by=cur_user,
+                    ).count()
+                    if cur_user_anno_count == 0:
+                        task.annotation_users.remove(cur_user)
+                        task.save()
+            return Response(
+                {"message": "Tasks assigned successfully"}, status=status.HTTP_200_OK
+            )
+        finally:
+            project.release_lock(ANNOTATION_LOCK)
 
     @action(
         detail=False,

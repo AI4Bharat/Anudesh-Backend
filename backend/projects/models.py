@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from users.models import User
 from organizations.models import Organization
@@ -299,15 +299,19 @@ class Project(models.Model):
         """
         Locks the project for an annotator
         """
-        if not self.is_locked(context):
-            ProjectTaskRequestLock.objects.create(
-                project=self,
-                user=annotator,
-                lock_context=context,
-                expires_at=now() + timedelta(seconds=settings.PROJECT_LOCK_TTL),
-            )
-        else:
-            raise Exception("Project already locked")
+        # Hold a row lock on the project while checking and creating, so two
+        # concurrent requests can't both see "unlocked" and both take the lock.
+        with transaction.atomic():
+            Project.objects.select_for_update().only("id").get(pk=self.pk)
+            if not self.is_locked(context):
+                ProjectTaskRequestLock.objects.create(
+                    project=self,
+                    user=annotator,
+                    lock_context=context,
+                    expires_at=now() + timedelta(seconds=settings.PROJECT_LOCK_TTL),
+                )
+            else:
+                raise Exception("Project already locked")
 
     src_language = models.CharField(
         choices=LANG_CHOICES,

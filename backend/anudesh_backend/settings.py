@@ -325,5 +325,5 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 
 # Project lock TTL for task pulling(in seconds)
-PROJECT_LOCK_TTL = 5
+PROJECT_LOCK_TTL = 60  # must exceed the worst-case time to assign tasks
 PROJECT_LOCK_RETRY_INTERVAL = 1

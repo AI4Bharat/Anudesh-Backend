@@ -155,11 +155,15 @@ LLM_CHOICES = (
     ("google/gemma-4-31B-it", "google/gemma-4-31B-it"),
 )
 
+# Default model for chat tasks whose stored model is not active.
+DEFAULT_CHAT_MODEL = "google/gemma-4-31B-it"
+
+# Models allowed to stay on a task when it is assigned. Anything else is
+# switched to DEFAULT_CHAT_MODEL in projects/views.py:assign_new_tasks.
 ACTIVE_LLM_MODELS = [
-    "google/gemma-3-12b-it",
-    "google/gemma-3-27b-it",
-    "google/gemma-4-26B-A4B-it",
     "google/gemma-4-31B-it",
+    "google/gemma-4-26B-A4B-it",
+    "google/gemma-3-27b-it",
     "Qwen/Qwen3-30B-A3B",
     "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
     "meta-llama/Llama-4-Scout-17B-16E-Instruct",
