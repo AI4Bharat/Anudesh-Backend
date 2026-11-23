@@ -17,6 +17,33 @@ services:
       - "443:443"
     restart: unless-stopped
 
+  # OWASP Coraza WAF (OWASP Core Rule Set) — reverse proxy in front of the app.
+  # Request path once enabled:
+  #   client --TLS--> nginx --http--> coraza (WAF) --http--> web:8000
+  # This service is ADDITIVE: adding it does NOT reroute traffic by itself.
+  # To route through the WAF, repoint the server-side vhost proxy_pass from
+  # http://web:8000 to http://coraza:8080 (see coraza/README.md).
+  coraza:
+    image: ghcr.io/coreruleset/coraza-crs:nginx
+    restart: unless-stopped
+    environment:
+      BACKEND: "web:8000"                  # upstream app (host:port, no scheme)
+      PORT: "8080"                         # WAF listen port
+      CORAZA_RULE_ENGINE: "DetectionOnly"  # log-only; switch to "On" after tuning
+      PARANOIA: "1"
+      BLOCKING_PARANOIA: "1"
+      ANOMALY_INBOUND: "5"
+      ANOMALY_OUTBOUND: "4"
+      ACCESSLOG: "/dev/stdout"
+      ERRORLOG: "/dev/stderr"
+      CORAZA_AUDIT_LOG: "/dev/stdout"      # audit log visible via `docker logs`
+      LOGLEVEL: "warn"
+    volumes:
+      # Custom rules & false-positive exclusions, loaded alongside CRS defaults
+      - ./coraza/custom-rules.conf:/opt/coraza/rules.d/999-custom-rules.conf:ro
+    depends_on:
+      - web
+
   certbot:
     build: ./certbot
     image: evgeniy-khyst/certbot
